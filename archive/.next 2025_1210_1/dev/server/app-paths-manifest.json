@@ -1,0 +1,18 @@
+{
+  "/(dashboard)/admin/manage-backlog/page": "app/(dashboard)/admin/manage-backlog/page.js",
+  "/(dashboard)/admin/page": "app/(dashboard)/admin/page.js",
+  "/(dashboard)/admin/users/page": "app/(dashboard)/admin/users/page.js",
+  "/(dashboard)/dashboard/page": "app/(dashboard)/dashboard/page.js",
+  "/api/admin/cc-users/route": "app/api/admin/cc-users/route.js",
+  "/api/admin/engineer-roles/route": "app/api/admin/engineer-roles/route.js",
+  "/api/admin/job-notes/route": "app/api/admin/job-notes/route.js",
+  "/api/admin/job-status/route": "app/api/admin/job-status/route.js",
+  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
+  "/api/dashboard/current-jobs/route": "app/api/dashboard/current-jobs/route.js",
+  "/api/dashboard/team-backlog/route": "app/api/dashboard/team-backlog/route.js",
+  "/api/roles/route": "app/api/roles/route.js",
+  "/api/users/[id]/password/route": "app/api/users/[id]/password/route.js",
+  "/api/users/[id]/route": "app/api/users/[id]/route.js",
+  "/api/users/route": "app/api/users/route.js",
+  "/login/page": "app/login/page.js"
+}

@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 18, "column": 0}, "map": {"version":3,"sources":["file:///users/mrzasa/projects/current/frontend2.4/app/page.tsx"],"sourcesContent":["import { redirect } from 'next/navigation'\n\nexport default function Home() {\n  redirect('/dashboard')\n}"],"names":[],"mappings":";;;;AAAA;AAAA;;AAEe,SAAS;IACtB,IAAA,0OAAQ,EAAC;AACX","debugId":null}}]
+}

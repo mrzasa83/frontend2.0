@@ -1,0 +1,3 @@
+{
+  "/(dashboard)/admin/sql-query/page": "app/(dashboard)/admin/sql-query/page.js"
+}

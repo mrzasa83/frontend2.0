@@ -1,8 +1,15 @@
 import Link from 'next/link'
-import { FileInput, Database, GitCompare, Terminal } from 'lucide-react'
+import { FileInput, Database, GitCompare, Terminal, ClipboardList, FolderSearch } from 'lucide-react'
 
 export default function AdminPage() {
   const adminTools = [
+    {
+      title: 'Manage Backlog',
+      description: 'View, edit, and manage current jobs and engineering backlog',
+      icon: ClipboardList,
+      href: '/admin/manage-backlog',
+      color: 'emerald'
+    },
     {
       title: 'Import Parts',
       description: 'Scan network drive and import parts from folder structure',
@@ -16,6 +23,13 @@ export default function AdminPage() {
       icon: GitCompare,
       href: '/admin/sync-parts',
       color: 'orange'
+    },
+    {
+      title: 'Folder Ranges',
+      description: 'Catalog folder ranges for Final Inspection and Build Drawings lookup',
+      icon: FolderSearch,
+      href: '/admin/folder-ranges',
+      color: 'cyan'
     },
     {
       title: 'SQL Query Tool',

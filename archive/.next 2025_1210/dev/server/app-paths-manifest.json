@@ -1,0 +1,12 @@
+{
+  "/(dashboard)/admin/users/page": "app/(dashboard)/admin/users/page.js",
+  "/(dashboard)/dashboard/page": "app/(dashboard)/dashboard/page.js",
+  "/(dashboard)/users/page": "app/(dashboard)/users/page.js",
+  "/_not-found/page": "app/_not-found/page.js",
+  "/api/admin/job-status/route": "app/api/admin/job-status/route.js",
+  "/api/auth/[...nextauth]/route": "app/api/auth/[...nextauth]/route.js",
+  "/api/dashboard/current-jobs/route": "app/api/dashboard/current-jobs/route.js",
+  "/api/dashboard/team-backlog/route": "app/api/dashboard/team-backlog/route.js",
+  "/api/roles/route": "app/api/roles/route.js",
+  "/api/users/route": "app/api/users/route.js"
+}

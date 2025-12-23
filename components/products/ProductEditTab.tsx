@@ -1,7 +1,17 @@
 'use client'
 
 import { useState } from 'react'
-import { Save, X } from 'lucide-react'
+import { Save, X, Copy, Check } from 'lucide-react'
+
+/**
+ * Convert Linux path to Windows path for display
+ */
+function toWindowsPath(linuxPath: string): string {
+  if (!linuxPath) return ''
+  return linuxPath
+    .replace(/^\/mnt\/jdrive\/?/i, 'J:\\')
+    .replace(/\//g, '\\')
+}
 
 type Product = {
   id: number
@@ -26,6 +36,7 @@ type Props = {
 export default function ProductEditTab({ product, onSave, onCancel }: Props) {
   const [formData, setFormData] = useState(product)
   const [hasChanges, setHasChanges] = useState(false)
+  const [copied, setCopied] = useState(false)
 
   const handleChange = (field: keyof Product, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -35,6 +46,33 @@ export default function ProductEditTab({ product, onSave, onCancel }: Props) {
   const handleSave = () => {
     onSave(formData)
     setHasChanges(false)
+  }
+
+  const copyToClipboard = async (text: string) => {
+    try {
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text)
+      } else {
+        // Fallback for non-secure contexts (HTTP)
+        const textArea = document.createElement('textarea')
+        textArea.value = text
+        textArea.style.position = 'fixed'
+        textArea.style.left = '-999999px'
+        textArea.style.top = '-999999px'
+        document.body.appendChild(textArea)
+        textArea.focus()
+        textArea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textArea)
+      }
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy:', err)
+      // Show the text in a prompt as last resort
+      window.prompt('Copy this path:', text)
+    }
   }
 
   const inputClassName = "w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
@@ -171,13 +209,40 @@ export default function ProductEditTab({ product, onSave, onCancel }: Props) {
             <label className="block text-sm font-medium text-slate-700 mb-1">
               Full Path
             </label>
-            <input
-              type="text"
-              value={formData.fullPath || ''}
-              onChange={(e) => handleChange('fullPath', e.target.value)}
-              className={inputClassName}
-              placeholder="/mnt/jdrive/APC EngJobs/..."
-            />
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={formData.fullPath || ''}
+                onChange={(e) => handleChange('fullPath', e.target.value)}
+                className={`${inputClassName} flex-1`}
+                placeholder="/mnt/jdrive/APC EngJobs/..."
+              />
+              {formData.fullPath && (
+                <button
+                  type="button"
+                  onClick={() => copyToClipboard(toWindowsPath(formData.fullPath!))}
+                  className="px-3 py-2 border border-slate-300 rounded-lg hover:bg-slate-100 transition-colors text-sm flex items-center gap-1 whitespace-nowrap"
+                  title="Copy Windows path to clipboard"
+                >
+                  {copied ? (
+                    <>
+                      <Check size={16} className="text-green-600" />
+                      Copied!
+                    </>
+                  ) : (
+                    <>
+                      <Copy size={16} />
+                      Copy Path
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+            {formData.fullPath && (
+              <p className="text-xs text-slate-500 mt-1">
+                Windows path: {toWindowsPath(formData.fullPath)}
+              </p>
+            )}
           </div>
         </div>
 

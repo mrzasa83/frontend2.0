@@ -1,0 +1,6 @@
+{
+  "version": 3,
+  "sources": [],
+  "sections": [
+    {"offset": {"line": 40, "column": 0}, "map": {"version":3,"sources":["file:///users/mrzasa/projects/current/frontend2.4/proxy.ts"],"sourcesContent":["import nextAuthMiddleware from 'next-auth/middleware';\r\n\r\nexport default nextAuthMiddleware;\r\n\r\nexport const config = {\r\n  matcher: [\r\n    '/dashboard/:path*',\r\n    '/products/:path*',\r\n    '/users/:path*',\r\n  ],\r\n};\r\n"],"names":[],"mappings":";;;;;;AAAA;;uCAEe,qJAAkB;AAE1B,MAAM,SAAS;IACpB,SAAS;QACP;QACA;QACA;KACD;AACH","debugId":null}}]
+}
