@@ -45,7 +45,7 @@ export async function GET() {
       let authorized_user_names: string[] = []
       if (authorized_users.length > 0) {
         const userResult = await queryPrimary(
-          `SELECT id, name, username FROM users WHERE id IN (${authorized_users.map(() => '?').join(',')})`,
+          `SELECT id, name, username FROM Users WHERE id IN (${authorized_users.map(() => '?').join(',')})`,
           authorized_users
         ) as any[]
         authorized_user_names = userResult.map(u => u.name || u.username)
@@ -67,7 +67,7 @@ export async function GET() {
     }))
 
     // Filter audits this user is authorized to submit records to
-    const userId = session.user.id
+    const userId = Number(session.user.id)
     const authorizedAudits = parsedAudits.filter(
       audit => audit.active && audit.authorized_users.includes(userId)
     )

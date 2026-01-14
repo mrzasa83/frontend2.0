@@ -20,24 +20,49 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    // Check if part number starts with Z - indicates Obsolete
+    const isObsolete = apcPN.toUpperCase().startsWith('Z')
+    
+    // For Z parts, search without the Z prefix as well
+    const searchPattern = isObsolete ? apcPN.substring(1) : apcPN
+
     // Query Paradigm MS SQL database
-    // Using parameterized query to prevent SQL injection
     const query = `
       SELECT * 
-      FROM data0050 
-      WHERE customer_part_number LIKE @partNumber
-      ORDER BY customer_part_number
+      FROM DATA0050 
+      WHERE CUSTOMER_PART_NUMBER LIKE @partNumber
+      ORDER BY CUSTOMER_PART_NUMBER
     `
 
     const results = await queryMSSQL('1', query, {
-      partNumber: `${apcPN}%`
+      partNumber: `${searchPattern}%`
     })
+
+    // Extract status from the first result's CUSTOMER_PART_NUMBER
+    // Format: "12754 X" where X is status character at position 7 (index 6)
+    // If blank or no character, status is "Released"
+    // If part starts with Z, status is "Obsolete"
+    let status = 'Released'
+    
+    if (isObsolete) {
+      status = 'Obsolete'
+    } else if (results.length > 0) {
+      const custPN = results[0].CUSTOMER_PART_NUMBER || ''
+      // Check if there's a character after the 5 digits and space (position 6+)
+      if (custPN.length > 6) {
+        const statusChar = custPN.substring(6).trim()
+        if (statusChar) {
+          status = statusChar
+        }
+      }
+    }
 
     return NextResponse.json({
       success: true,
       apcPN,
       count: results.length,
-      results
+      data: results,
+      status
     })
   } catch (error) {
     console.error('Error fetching production data:', error)

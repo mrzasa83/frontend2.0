@@ -15,6 +15,7 @@ type FileInfo = {
   isDirectory: boolean
   serveUrl: string
   source?: string  // 'network' or 'paradigm'
+  matchedPartNumber?: string  // For Paradigm attachments - the part level where doc was found
 }
 
 type LocationFiles = {
@@ -60,6 +61,8 @@ async function findRangeFolder(
   site: string
 ): Promise<{ basePath: string; folderName: string } | null> {
   try {
+    console.log(`findRangeFolder: Looking for partNum=${partNum}, fileType=${fileType}, site=${site}`)
+    
     const [rows]: any = await pool.query(
       `SELECT base_path, folder_name FROM folder_ranges 
        WHERE file_type = ? AND site = ? AND range_start <= ? AND range_end >= ?
@@ -67,10 +70,16 @@ async function findRangeFolder(
       [fileType, site, partNum, partNum]
     )
     
-    if (rows.length > 0) {
+    console.log(`findRangeFolder: Query result:`, JSON.stringify(rows))
+    console.log(`findRangeFolder: rows type: ${typeof rows}, isArray: ${Array.isArray(rows)}, length: ${rows?.length}`)
+    
+    if (rows && rows.length > 0) {
+      const row = rows[0]
+      console.log(`findRangeFolder: First row:`, JSON.stringify(row))
+      console.log(`findRangeFolder: Row keys:`, Object.keys(row))
       return {
-        basePath: rows[0].base_path,
-        folderName: rows[0].folder_name
+        basePath: row.base_path,
+        folderName: row.folder_name
       }
     }
   } catch (err) {
@@ -125,11 +134,15 @@ function listFiles(dirPath: string): FileInfo[] {
  */
 function searchForPartFolder(rangeBasePath: string, partNumber: string): string | null {
   try {
+    console.log(`searchForPartFolder: Looking in ${rangeBasePath} for ${partNumber}`)
+    
     if (!fs.existsSync(rangeBasePath)) {
+      console.log(`searchForPartFolder: Path does not exist: ${rangeBasePath}`)
       return null
     }
 
     const entries = fs.readdirSync(rangeBasePath, { withFileTypes: true })
+    console.log(`searchForPartFolder: Found ${entries.length} entries`)
     
     for (const entry of entries) {
       if (!entry.isDirectory()) continue
@@ -137,9 +150,12 @@ function searchForPartFolder(rangeBasePath: string, partNumber: string): string 
       // Check if folder name contains the part number
       if (entry.name.includes(partNumber) || 
           entry.name.toUpperCase().includes(partNumber.toUpperCase())) {
+        console.log(`searchForPartFolder: Found matching folder: ${entry.name}`)
         return path.join(rangeBasePath, entry.name)
       }
     }
+    
+    console.log(`searchForPartFolder: No matching folder found for ${partNumber}`)
   } catch (err) {
     console.error('Error searching for part folder:', err)
   }
@@ -204,7 +220,7 @@ async function queryParadigmAttachments(partNumber: string): Promise<FileInfo[]>
   const files: FileInfo[] = []
   
   try {
-    const pool = await getMSSQLPool('PARADIGM')
+    const pool = await getMSSQLPool('1')
     
     // Use CTEs to properly join to DATA0050 and DATA0017
     const query = `
@@ -223,8 +239,8 @@ async function queryParadigmAttachments(partNumber: string): Promise<FileInfo[]>
           WHERE INV_PART_NUMBER LIKE '%' + @partNumber + '%'
       )
       SELECT 
-          COALESCE(CUST.CUSTOMER_PART_NUMBER, INV.INV_PART_NUMBER) AS MATCHED_PART_NUMBER,
-          D433.DOCUMENT_PATH
+          LTRIM(RTRIM(COALESCE(CUST.CUSTOMER_PART_NUMBER, INV.INV_PART_NUMBER))) AS MATCHED_PART_NUMBER,
+          LTRIM(RTRIM(D433.DOCUMENT_PATH)) AS DOCUMENT_PATH
       FROM DATA0433 D433
       LEFT JOIN CUST ON D433.SOURCE_PTR = CUST.RKEY AND D433.SOURCE_TYPE = 50
       LEFT JOIN INV  ON D433.SOURCE_PTR = INV.RKEY  AND D433.SOURCE_TYPE = 17
@@ -241,14 +257,20 @@ async function queryParadigmAttachments(partNumber: string): Promise<FileInfo[]>
     
     for (const row of result.recordset) {
       if (row.DOCUMENT_PATH) {
-        const docPath = row.DOCUMENT_PATH
+        const docPath = row.DOCUMENT_PATH.trim()  // Also trim in JS just in case
         const fileName = path.basename(docPath)
         const ext = path.extname(fileName).toLowerCase().slice(1)
         
         // Convert Windows path to Linux path for serving
         let linuxPath = docPath
-        if (docPath.match(/^[A-Za-z]:\\/)) {
-          // Convert Windows path like "S:\path\to\file" to Linux "/mnt/sdrive/path/to/file"
+        
+        // Handle UNC paths like \\APCFS04\SHARED2\path\to\file -> /mnt/sdrive/path/to/file
+        if (docPath.startsWith('\\\\APCFS04\\SHARED2')) {
+          const restOfPath = docPath.substring('\\\\APCFS04\\SHARED2'.length).replace(/\\/g, '/')
+          linuxPath = `/mnt/sdrive${restOfPath}`
+        }
+        // Handle drive letter paths like S:\path\to\file -> /mnt/sdrive/path/to/file
+        else if (docPath.match(/^[A-Za-z]:\\/)) {
           const driveLetter = docPath[0].toLowerCase()
           const restOfPath = docPath.substring(3).replace(/\\/g, '/')
           linuxPath = `/mnt/${driveLetter}drive/${restOfPath}`
@@ -262,7 +284,8 @@ async function queryParadigmAttachments(partNumber: string): Promise<FileInfo[]>
           extension: ext,
           isDirectory: false,
           serveUrl: `/api/files/serve?path=${encodeURIComponent(linuxPath)}`,
-          source: 'paradigm'
+          source: 'paradigm',
+          matchedPartNumber: row.MATCHED_PART_NUMBER || ''
         })
       }
     }

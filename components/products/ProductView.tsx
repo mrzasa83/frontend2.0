@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X } from 'lucide-react'
+import { X, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
 import Tabs from '@/components/ui/Tabs'
 import DataView, { ColumnMetadata } from '@/components/ui/DataView'
 import ReleasedFilesTab from '@/components/products/ReleasedFilesTab'
@@ -21,18 +21,6 @@ type Product = {
   createdAt: string
 }
 
-type ProductionData = {
-  [key: string]: any
-}
-
-type ERPData = {
-  [key: string]: any
-}
-
-type EngineeringData = {
-  [key: string]: any
-}
-
 type Props = {
   product: Product
   onClose: () => void
@@ -40,208 +28,148 @@ type Props = {
 
 export default function ProductView({ product, onClose }: Props) {
   const [activeTab, setActiveTab] = useState('base')
-  
-  // Production data state
-  const [productionData, setProductionData] = useState<ProductionData[]>([])
-  const [loadingProduction, setLoadingProduction] = useState(false)
-  const [productionError, setProductionError] = useState<string | null>(null)
+  const [productStatus, setProductStatus] = useState<string>('Loading...')
+  const [buildLocation, setBuildLocation] = useState<string | null>(null)
 
-  // ERP data state
-  const [erpData, setErpData] = useState<ERPData[]>([])
-  const [loadingErp, setLoadingErp] = useState(false)
-  const [erpError, setErpError] = useState<string | null>(null)
-
-  // Engineering data state
-  const [engineeringData, setEngineeringData] = useState<EngineeringData[]>([])
-  const [loadingEngineering, setLoadingEngineering] = useState(false)
-  const [engineeringError, setEngineeringError] = useState<string | null>(null)
-
+  // Fetch status and build location on mount
   useEffect(() => {
-    fetchProductionData()
-    fetchERPData()
-    fetchEngineeringData()
+    const fetchHeaderData = async () => {
+      try {
+        // Fetch production data for status
+        const prodRes = await fetch('/api/products/production', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apcPN: product.apcPN })
+        })
+        if (prodRes.ok) {
+          const prodData = await prodRes.json()
+          if (prodData.status) {
+            setProductStatus(prodData.status)
+          }
+        }
+
+        // Fetch route data for build location
+        const routeRes = await fetch('/api/products/route', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ apcPN: product.apcPN })
+        })
+        if (routeRes.ok) {
+          const routeData = await routeRes.json()
+          if (routeData.buildLocation) {
+            setBuildLocation(routeData.buildLocation)
+          }
+        }
+      } catch (error) {
+        console.error('Error fetching header data:', error)
+      }
+    }
+
+    fetchHeaderData()
   }, [product.apcPN])
 
-  const fetchProductionData = async () => {
-    setLoadingProduction(true)
-    setProductionError(null)
-
-    try {
-      const res = await fetch('/api/products/production', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apcPN: product.apcPN })
-      })
-
-      if (!res.ok) throw new Error('Failed to fetch production data')
-
-      const data = await res.json()
-      setProductionData(data.results || [])
-    } catch (error) {
-      console.error('Error fetching production data:', error)
-      setProductionError(error instanceof Error ? error.message : 'Failed to load production data')
-    } finally {
-      setLoadingProduction(false)
-    }
+  const handleStatusChange = (status: string) => {
+    setProductStatus(status)
   }
 
-  const fetchERPData = async () => {
-    setLoadingErp(true)
-    setErpError(null)
-
-    try {
-      const res = await fetch('/api/products/erp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apcPN: product.apcPN })
-      })
-
-      if (!res.ok) throw new Error('Failed to fetch ERP data')
-
-      const data = await res.json()
-      setErpData(data.results || [])
-    } catch (error) {
-      console.error('Error fetching ERP data:', error)
-      setErpError(error instanceof Error ? error.message : 'Failed to load ERP data')
-    } finally {
-      setLoadingErp(false)
-    }
+  const handleBuildLocationChange = (location: string) => {
+    setBuildLocation(location)
   }
 
-  const fetchEngineeringData = async () => {
-    setLoadingEngineering(true)
-    setEngineeringError(null)
-
-    try {
-      const res = await fetch('/api/products/engineering', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ apcPN: product.apcPN })
-      })
-
-      if (!res.ok) throw new Error('Failed to fetch engineering data')
-
-      const data = await res.json()
-      setEngineeringData(data.results || [])
-    } catch (error) {
-      console.error('Error fetching engineering data:', error)
-      setEngineeringError(error instanceof Error ? error.message : 'Failed to load engineering data')
-    } finally {
-      setLoadingEngineering(false)
+  // Get status badge
+  const getStatusBadge = () => {
+    if (productStatus === 'Loading...') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 bg-slate-100 text-slate-600 rounded-full text-sm">
+          <Clock size={14} />
+          {productStatus}
+        </span>
+      )
     }
+    if (productStatus === 'Released') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 bg-green-100 text-green-700 rounded-full text-sm">
+          <CheckCircle size={14} />
+          {productStatus}
+        </span>
+      )
+    }
+    if (productStatus === 'Obsolete') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2 py-1 bg-red-100 text-red-700 rounded-full text-sm">
+          <XCircle size={14} />
+          {productStatus}
+        </span>
+      )
+    }
+    // Other statuses (in-progress, etc.)
+    return (
+      <span className="inline-flex items-center gap-1 px-2 py-1 bg-amber-100 text-amber-700 rounded-full text-sm">
+        <Clock size={14} />
+        {productStatus}
+      </span>
+    )
   }
 
-  // Metadata definitions for each data source
+  // Get build location badge
+  const getBuildLocationBadge = () => {
+    if (!buildLocation) return null
+    
+    const colorMap: Record<string, string> = {
+      'Nashua': 'bg-blue-100 text-blue-700',
+      'Nogales': 'bg-purple-100 text-purple-700',
+      'Mesa': 'bg-orange-100 text-orange-700'
+    }
+    
+    const colorClass = colorMap[buildLocation] || 'bg-slate-100 text-slate-700'
+    
+    return (
+      <span className={`inline-flex items-center gap-1 px-2 py-1 ${colorClass} rounded-full text-sm`}>
+        <MapPin size={14} />
+        Build: {buildLocation}
+      </span>
+    )
+  }
+
+  // Base Information metadata
   const baseMetadata: ColumnMetadata = {
-    id: { hidden: true },
-    item_type_id: { hidden: true },
-    apcPN: { label: 'APC Part Number', readonly: true },
-    item_type_name: { label: 'Type', readonly: true },
-    customer: { label: 'Customer' },
-    customerPN: { label: 'Customer Part Number' },
-    currentRev: { label: 'Part Revision' },
-    buildRev: { label: 'Build Revision' },
-    description: { label: 'Description', type: 'textarea' },
+    apcPN: { label: 'APC Part Number', type: 'text' },
+    customer: { label: 'Customer', type: 'text' },
+    customerPN: { label: 'Customer PN', type: 'text' },
+    currentRev: { label: 'Current Rev', type: 'text' },
+    buildRev: { label: 'Build Rev', type: 'text' },
+    description: { label: 'Description', type: 'text' },
     fullPath: { label: 'Full Path', type: 'folderLink' },
-    createdAt: { label: 'Created At', readonly: true }
+    item_type_name: { label: 'Item Type', type: 'text' },
+    createdAt: { label: 'Created', type: 'date' },
   }
 
-  const productionMetadata: ColumnMetadata = {
-    // Example: Hide internal IDs, show important fields
-    internal_id: { system: true },
-    record_id: { hidden: true },
-    part_number: { label: 'Part Number', width: '150px' },
-    quantity: { label: 'Qty', type: 'number', width: '80px' },
-    work_order: { label: 'Work Order', width: '120px' },
-    status: { label: 'Status', width: '100px' },
-    created_date: { label: 'Created', width: '120px' },
-    // Add more fields based on your actual production table structure
-  }
-
-  const erpMetadata: ColumnMetadata = {
-    // Example ERP metadata
-    item_id: { hidden: true },
-    part_number: { label: 'Part Number', width: '150px' },
-    description: { label: 'Description', width: '200px' },
-    unit_price: { label: 'Unit Price', type: 'number', width: '100px' },
-    stock_qty: { label: 'In Stock', type: 'number', width: '80px' },
-    location: { label: 'Location', width: '120px' },
-    // Add more fields based on your ERP structure
-  }
-
-  const engineeringMetadata: ColumnMetadata = {
-    // Example engineering metadata
-    drawing_id: { hidden: true },
-    revision: { label: 'Revision', width: '80px' },
-    drawing_number: { label: 'Drawing Number', width: '150px' },
-    title: { label: 'Title', width: '200px' },
-    engineer: { label: 'Engineer', width: '120px' },
-    release_date: { label: 'Released', width: '120px' },
-    // Add more fields based on your engineering database structure
-  }
-
-  // Base Information Tab (using DataView in form mode)
+  // Base Information Tab
   const baseInfoTab = (
     <DataView
       data={[product]}
       metadata={baseMetadata}
-      mode="form"
+      loading={false}
+      error={null}
+      emptyMessage=""
+      title="Base Information"
+      subtitle="Core product details (read-only)"
       editable={false}
     />
   )
 
-  // Production Information Tab (auto-switches between form/table)
-  const productionTab = (
-    <DataView
-      data={productionData}
-      metadata={productionMetadata}
-      loading={loadingProduction}
-      error={productionError}
-      emptyMessage={`No production data found for part ${product.apcPN}`}
-      title="Production Records"
-      subtitle="Data from data0050 table (read-only)"
-      editable={false}
-    />
-  )
-
-  // ERP Tab (auto-switches between form/table)
-  const erpTab = (
-    <DataView
-      data={erpData}
-      metadata={erpMetadata}
-      loading={loadingErp}
-      error={erpError}
-      emptyMessage={`No ERP data found for part ${product.apcPN}`}
-      title="ERP Information"
-      subtitle="Data from ERP system (read-only)"
-      editable={false}
-    />
-  )
-
-  // Engineering Tab (auto-switches between form/table)
-  const engineeringTab = (
-    <DataView
-      data={engineeringData}
-      metadata={engineeringMetadata}
-      loading={loadingEngineering}
-      error={engineeringError}
-      emptyMessage={`No engineering data found for part ${product.apcPN}`}
-      title="Engineering Reference"
-      subtitle="Data from engineering database (read-only)"
-      editable={false}
-    />
-  )
-
-  // Released Tab
+  // Released Tab (now contains production data + files)
   const releasedTab = (
-    <ReleasedFilesTab partNumber={product.apcPN} />
+    <ReleasedFilesTab 
+      partNumber={product.apcPN} 
+      onStatusChange={handleStatusChange}
+      onBuildLocationChange={handleBuildLocationChange}
+    />
   )
 
+  // Tabs: General, Released
   const tabs = [
-    { id: 'base', label: 'Base Information', content: baseInfoTab, closeable: false },
-    { id: 'production', label: 'Production', content: productionTab, closeable: false },
-    { id: 'erp', label: 'ERP Data', content: erpTab, closeable: false },
-    { id: 'engineering', label: 'Engineering', content: engineeringTab, closeable: false },
+    { id: 'base', label: 'General', content: baseInfoTab, closeable: false },
     { id: 'released', label: 'Released', content: releasedTab, closeable: false }
   ]
 
@@ -251,7 +179,11 @@ export default function ProductView({ product, onClose }: Props) {
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-slate-200">
           <div>
-            <h2 className="text-2xl font-bold text-slate-800">View Product: {product.apcPN}</h2>
+            <div className="flex items-center gap-3">
+              <h2 className="text-2xl font-bold text-slate-800">View Product: {product.apcPN}</h2>
+              {getStatusBadge()}
+              {getBuildLocationBadge()}
+            </div>
             <p className="text-sm text-slate-600 mt-1">Product information (read-only)</p>
           </div>
           <button

@@ -13,25 +13,39 @@ export async function GET() {
   }
 
   try {
+    // Fetch users with their roles
     const users = await queryPrimary<any[]>(
       `SELECT 
-        id,
-        username,
-        name,
-        email,
-        nickname,
-        phone,
-        mobile,
-        title,
-        role,
-        active,
-        createdAt
-      FROM Users 
-      WHERE active = 1
-      ORDER BY name ASC`
+        u.id,
+        u.username,
+        u.name,
+        u.email,
+        u.nickname,
+        u.phone,
+        u.mobile,
+        u.title,
+        u.role,
+        u.active,
+        u.createdAt,
+        u.cc_name,
+        u.engineer_roles,
+        GROUP_CONCAT(r.name) as role_names
+      FROM Users u
+      LEFT JOIN user_roles ur ON u.id = ur.userId
+      LEFT JOIN roles r ON ur.roleId = r.id
+      WHERE u.active = 1
+      GROUP BY u.id
+      ORDER BY u.name ASC`
     )
 
-    return NextResponse.json(users)
+    // Transform role_names string to roles array and parse engineer_roles JSON
+    const usersWithRoles = users.map(user => ({
+      ...user,
+      roles: user.role_names ? user.role_names.split(',') : [],
+      engineer_roles: user.engineer_roles ? JSON.parse(user.engineer_roles) : []
+    }))
+
+    return NextResponse.json(usersWithRoles)
   } catch (error) {
     console.error('Error fetching users:', error)
     return NextResponse.json(

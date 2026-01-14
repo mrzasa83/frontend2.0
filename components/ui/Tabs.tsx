@@ -15,11 +15,12 @@ interface TabsProps {
   tabs: Tab[]
   activeTab?: string
   onTabChange?: (tabId: string) => void
+  /** If true, all tab contents are rendered but only active is visible (preserves state) */
+  preserveState?: boolean
 }
 
-export default function Tabs({ tabs, activeTab, onTabChange }: TabsProps) {
+export default function Tabs({ tabs, activeTab, onTabChange, preserveState = false }: TabsProps) {
   const currentTab = activeTab || tabs[0]?.id
-  const activeContent = tabs.find(tab => tab.id === currentTab)?.content
 
   const handleTabClick = (tabId: string) => {
     if (onTabChange) {
@@ -66,7 +67,20 @@ export default function Tabs({ tabs, activeTab, onTabChange }: TabsProps) {
 
       {/* Tab Content */}
       <div className="py-6">
-        {activeContent}
+        {preserveState ? (
+          // Render all tabs but only show active one (preserves component state)
+          tabs.map(tab => (
+            <div
+              key={tab.id}
+              className={currentTab === tab.id ? 'block' : 'hidden'}
+            >
+              {tab.content}
+            </div>
+          ))
+        ) : (
+          // Only render active tab content
+          tabs.find(tab => tab.id === currentTab)?.content
+        )}
       </div>
     </div>
   )

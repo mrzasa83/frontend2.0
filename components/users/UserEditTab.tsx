@@ -33,9 +33,10 @@ type Props = {
   onSave: (user: User) => void
   onCancel: () => void
   isAdmin?: boolean
+  onRefresh?: () => void  // Callback to refresh user data after roles/engineer roles update
 }
 
-export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmin = false }: Props) {
+export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmin = false, onRefresh }: Props) {
   const [formData, setFormData] = useState(user)
   const [hasChanges, setHasChanges] = useState(false)
   const [innerTab, setInnerTab] = useState('personal')
@@ -156,6 +157,11 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
 
       alert('Roles updated successfully! User must re-login for changes to take effect.')
       setFormData(prev => ({ ...prev, roles: selectedRoles }))
+      
+      // Refresh parent data so changes persist when reopening
+      if (onRefresh) {
+        onRefresh()
+      }
     } catch (error) {
       console.error('Error updating roles:', error)
       alert(error instanceof Error ? error.message : 'Failed to update roles')
@@ -205,6 +211,11 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
         cc_name: selectedCcName || null,
         engineer_roles: engineerRoles 
       }))
+      
+      // Refresh parent data so changes persist when reopening
+      if (onRefresh) {
+        onRefresh()
+      }
     } catch (error) {
       console.error('Error updating engineer roles:', error)
       alert(error instanceof Error ? error.message : 'Failed to update engineer roles')

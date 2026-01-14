@@ -110,7 +110,7 @@ export async function POST(request: NextRequest) {
       authorizedUsers = []
     }
 
-    if (!authorizedUsers.includes(session.user.id)) {
+    if (!authorizedUsers.includes(Number(session.user.id))) {
       return NextResponse.json(
         { error: 'You are not authorized to submit records for this audit' },
         { status: 403 }

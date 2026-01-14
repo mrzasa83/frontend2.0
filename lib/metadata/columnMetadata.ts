@@ -70,23 +70,71 @@ export const bomMetadata: ColumnMetadata = {
 }
 
 // ============================================
-// WHERE USED
+// YIELD
 // ============================================
-export const whereUsedMetadata: ColumnMetadata = {
-  // Hidden/System fields
-  RKEY: { hidden: true },
-  internal_id: { system: true },
+export const yieldMetadata: ColumnMetadata = {
+  // Hidden fields
+  CUSTOMER_PART_NUMBER: { hidden: true },
   
-  // Visible fields from the Where Used query
-  CUSTOMER_PART_NUMBER: { 
-    label: 'Parent Part Number', 
-    width: '180px',
-    readonly: true
+  // Visible fields from the Yield query
+  WORK_ORDER_NUMBER: { 
+    label: 'Work Order', 
+    width: '120px' 
   },
-  CUSTOMER_PART_DESC: { 
-    label: 'Description', 
-    width: '350px',
-    readonly: true
+  INV_PART_NUMBER: { 
+    label: 'Inv Part', 
+    width: '130px' 
+  },
+  QUAN_SCH: { 
+    label: 'Scheduled', 
+    type: 'number',
+    width: '90px' 
+  },
+  QUAN_PROD: { 
+    label: 'Produced', 
+    type: 'number',
+    width: '90px' 
+  },
+  QUAN_REJ: { 
+    label: 'Rejected', 
+    type: 'number',
+    width: '80px' 
+  },
+  PLAN_YLD: { 
+    label: 'Plan Yield', 
+    type: 'percent',
+    width: '95px' 
+  },
+  ACT_YIELD: { 
+    label: 'Actual Yield', 
+    type: 'percent',
+    width: '105px' 
+  },
+  START_DATE: { 
+    label: 'Start Date', 
+    type: 'date',
+    width: '100px' 
+  },
+  ACT_COMPL_DATE: { 
+    label: 'Completed', 
+    type: 'date',
+    width: '100px' 
+  },
+  BASE_SPEC: { 
+    label: 'Base Spec', 
+    width: '120px' 
+  },
+  END_CUST_SPEC: { 
+    label: 'End Cust Spec', 
+    width: '120px' 
+  },
+  MATERIAL: { 
+    label: 'Material', 
+    width: '100px' 
+  },
+  PANEL_SIZE: { 
+    label: 'Panel Size', 
+    width: '100px' 
   },
 }
 
@@ -95,146 +143,133 @@ export const whereUsedMetadata: ColumnMetadata = {
 // ROUTE
 // ============================================
 export const routeMetadata: ColumnMetadata = {
-  // Hidden/System fields
-  RKEY: { hidden: true },
-  internal_id: { system: true },
-  
-  // Visible fields
-  // operation_seq: { 
-  //   label: 'Seq', 
-  //   type: 'number', 
-  //   width: '60px' 
-  // },
-  // operation_code: { 
-  //   label: 'Operation', 
-  //   width: '120px' 
-  // },
-  // work_center: { 
-  //   label: 'Work Center', 
-  //   width: '150px' 
-  // },
-  // description: { 
-  //   label: 'Description', 
-  //   width: '250px' 
-  // },
-  // setup_time: { 
-  //   label: 'Setup (hrs)', 
-  //   type: 'number', 
-  //   width: '100px' 
-  // },
-  // run_time: { 
-  //   label: 'Run (hrs)', 
-  //   type: 'number', 
-  //   width: '100px' 
-  // },
+  // Visible fields from the route query
+  STEP_NUMBER: { 
+    label: 'Step', 
+    type: 'number', 
+    width: '80px' 
+  },
+  DEPT_CODE: { 
+    label: 'Dept Code', 
+    width: '120px' 
+  },
+  DEPT_NAME: { 
+    label: 'Department', 
+    width: '250px' 
+  },
 }
 
 // ============================================
 // WORK ORDERS
 // ============================================
 export const workOrdersMetadata: ColumnMetadata = {
-  // Hidden/System fields
-  RKEY: { hidden: true },
-  internal_id: { system: true },
-  
-  // Visible fields
-  // work_order: { 
-  //   label: 'Work Order', 
-  //   width: '120px' 
-  // },
-  // status: { 
-  //   label: 'Status', 
-  //   width: '100px' 
-  // },
-  // quantity_ordered: { 
-  //   label: 'Qty Ordered', 
-  //   type: 'number', 
-  //   width: '100px' 
-  // },
-  // quantity_complete: { 
-  //   label: 'Qty Complete', 
-  //   type: 'number', 
-  //   width: '100px' 
-  // },
-  // due_date: { 
-  //   label: 'Due Date', 
-  //   width: '120px' 
-  // },
-  // priority: { 
-  //   label: 'Priority', 
-  //   width: '80px' 
-  // },
+  // Visible fields from the work orders query
+  WORK_ORDER_NUMBER: { 
+    label: 'Work Order', 
+    width: '120px' 
+  },
+  INV_PART_NUMBER: { 
+    label: 'Inventory Part', 
+    width: '150px' 
+  },
+  STEP_NO: { 
+    label: 'Step', 
+    width: '100px' 
+  },
+  COMPLETE_DATE: { 
+    label: 'Complete Date', 
+    type: 'date',
+    width: '120px' 
+  },
 }
 
 // ============================================
 // INVENTORY
 // ============================================
 export const inventoryMetadata: ColumnMetadata = {
-  // Hidden/System fields
-  RKEY: { hidden: true },
-  internal_id: { system: true },
-  
-  // Visible fields
-  // location: { 
-  //   label: 'Location', 
-  //   width: '120px' 
-  // },
-  // lot_number: { 
-  //   label: 'Lot #', 
-  //   width: '120px' 
-  // },
-  // quantity_on_hand: { 
-  //   label: 'On Hand', 
-  //   type: 'number', 
-  //   width: '100px' 
-  // },
-  // quantity_allocated: { 
-  //   label: 'Allocated', 
-  //   type: 'number', 
-  //   width: '100px' 
-  // },
-  // quantity_available: { 
-  //   label: 'Available', 
-  //   type: 'number', 
-  //   width: '100px' 
-  // },
-  // last_transaction: { 
-  //   label: 'Last Transaction', 
-  //   width: '150px' 
-  // },
+  // Visible fields from the inventory query
+  CP_REV: { 
+    label: 'Rev', 
+    width: '60px' 
+  },
+  QTY_ON_HAND: { 
+    label: 'On Hand', 
+    type: 'number', 
+    width: '90px' 
+  },
+  QTY_ALLOC: { 
+    label: 'Allocated', 
+    type: 'number', 
+    width: '90px' 
+  },
+  WORK_ORDER_NUMBER: { 
+    label: 'Work Order', 
+    width: '120px' 
+  },
+  MFG_DATE: { 
+    label: 'Mfg Date', 
+    type: 'date',
+    width: '110px' 
+  },
+  WAREHOUSE_CODE: { 
+    label: 'Warehouse', 
+    width: '100px' 
+  },
+  LOCATION: { 
+    label: 'Location', 
+    width: '120px' 
+  },
 }
 
 // ============================================
 // DISCREPANCY
 // ============================================
 export const discrepancyMetadata: ColumnMetadata = {
-  // Hidden/System fields
-  RKEY: { hidden: true },
-  internal_id: { system: true },
-  
-  // Visible fields
-  // discrepancy_id: { 
-  //   label: 'ID', 
-  //   width: '100px' 
-  // },
-  // discrepancy_type: { 
-  //   label: 'Type', 
-  //   width: '120px' 
-  // },
-  // reported_date: { 
-  //   label: 'Reported', 
-  //   width: '120px' 
-  // },
-  // description: { 
-  //   label: 'Description', 
-  //   width: '300px' 
-  // },
-  // status: { 
-  //   label: 'Status', 
-  //   width: '100px' 
-  // },
-  // assigned_to: { 
-  //   label: 'Assigned To', 
-  //   width: '120px' 
-  // },
+  // Visible fields from the discrepancy query
+  SEQUENCE_NUMBER: { 
+    label: 'Sequence', 
+    width: '100px' 
+  },
+  NOTEPAD_TEXT: { 
+    label: 'Notes', 
+    width: '500px' 
+  },
+}
+
+// ============================================
+// CHANGES (MCN)
+// ============================================
+export const changesMetadata: ColumnMetadata = {
+  // Visible fields from the MCN query
+  Status: { 
+    label: 'Status', 
+    width: '90px' 
+  },
+  request: { 
+    label: 'Request #', 
+    width: '100px' 
+  },
+  toolnum: { 
+    label: 'Tool Number', 
+    width: '120px' 
+  },
+  reason: { 
+    label: 'Reason', 
+    width: '250px',
+    wrap: true
+  },
+  change: { 
+    label: 'Change', 
+    width: '250px',
+    wrap: true
+  },
+  closeddate: { 
+    label: 'Closed Date', 
+    type: 'date',
+    width: '110px' 
+  },
+  pe: { 
+    label: 'PE', 
+    width: '100px' 
+  },
 }

@@ -20,6 +20,8 @@ type User = {
   role: string | null
   active: number | null
   roles?: string[]
+  cc_name?: string | null
+  engineer_roles?: string[]
 }
 
 type NewUser = {
@@ -216,20 +218,35 @@ export default function AdminUserManagementPage() {
       content: userListTab,
       closeable: false
     },
-    ...editingUsers.map(user => ({
-      id: `edit-${user.id}`,
-      label: user.name || user.username,
+    ...editingUsers.map(editUser => ({
+      id: `edit-${editUser.id}`,
+      label: editUser.name || editUser.username,
       content: (
         <UserEditTab
-          user={user}
+          user={editUser}
           roles={roles}
           onSave={handleSave}
-          onCancel={() => handleCloseEditTab(user.id)}
+          onCancel={() => handleCloseEditTab(editUser.id)}
           isAdmin={true}
+          onRefresh={async () => {
+            // Fetch fresh user data and update both users and editingUsers
+            await fetchData()
+            // Update the editing user with fresh data
+            const usersRes = await fetch('/api/users')
+            if (usersRes.ok) {
+              const freshUsers = await usersRes.json()
+              const freshUser = freshUsers.find((u: User) => u.id === editUser.id)
+              if (freshUser) {
+                setEditingUsers(prev => 
+                  prev.map(u => u.id === editUser.id ? freshUser : u)
+                )
+              }
+            }
+          }}
         />
       ),
       closeable: true,
-      onClose: () => handleCloseEditTab(user.id)
+      onClose: () => handleCloseEditTab(editUser.id)
     }))
   ]
 

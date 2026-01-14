@@ -1,6 +1,0 @@
-{
-  "version": 3,
-  "sources": [],
-  "sections": [
-    {"offset": {"line": 22, "column": 0}, "map": {"version":3,"sources":["file:///users/mrzasa/projects/current/frontend2.4/app/%28dashboard%29/products/documents/page.tsx"],"sourcesContent":["export default function DocumentsPage() {\r\n  return (\r\n    <div className=\"p-6\">\r\n      <h2 className=\"text-2xl font-bold text-slate-800 mb-2\">Documents</h2>\r\n      <p className=\"text-slate-600 mb-6\">Document management system</p>\r\n      \r\n      <div className=\"bg-white rounded-lg shadow p-12 text-center\">\r\n        <p className=\"text-slate-500\">Documents module coming soon...</p>\r\n      </div>\r\n    </div>\r\n  )\r\n}"],"names":[],"mappings":";;;;;;AAAe,SAAS;IACtB,qBACE,gQAAC;QAAI,WAAU;;0BACb,gQAAC;gBAAG,WAAU;0BAAyC;;;;;;0BACvD,gQAAC;gBAAE,WAAU;0BAAsB;;;;;;0BAEnC,gQAAC;gBAAI,WAAU;0BACb,cAAA,gQAAC;oBAAE,WAAU;8BAAiB;;;;;;;;;;;;;;;;;AAItC","debugId":null}}]
-}

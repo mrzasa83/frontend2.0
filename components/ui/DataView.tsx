@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Copy, Check, FolderOpen } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { Copy, Check, FolderOpen, ChevronUp, ChevronDown } from 'lucide-react'
 
 /**
  * Column metadata definition
@@ -13,9 +13,11 @@ export type ColumnMetadata = {
     readonly?: boolean    // Display but don't allow editing
     required?: boolean    // Must have value in forms
     label?: string        // Custom display label
-    type?: 'text' | 'number' | 'date' | 'textarea' | 'select' | 'folderLink'
+    type?: 'text' | 'number' | 'date' | 'textarea' | 'select' | 'folderLink' | 'percent'
     options?: string[]    // For select type
     width?: string        // Custom column width for tables
+    sortable?: boolean    // Enable sorting (default true for tables)
+    wrap?: boolean        // Allow text wrapping in table cells
   }
 }
 
@@ -57,6 +59,24 @@ function linuxPathToWindowsDisplay(linuxPath: string): string {
   return windowsPath
 }
 
+/**
+ * Format a date value for display
+ */
+function formatDateValue(value: any): string {
+  if (!value) return ''
+  try {
+    const date = new Date(value)
+    if (isNaN(date.getTime())) return String(value)
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric'
+    })
+  } catch {
+    return String(value)
+  }
+}
+
 export type DataViewProps = {
   data: any[]
   metadata?: ColumnMetadata
@@ -70,6 +90,8 @@ export type DataViewProps = {
   onSave?: (data: any) => void
   onChange?: (field: string, value: any) => void
   formData?: any  // For controlled form mode
+  sortable?: boolean  // Enable sorting for table mode (default true)
+  frozenColumns?: number  // Number of columns to freeze from the left (default 0)
 }
 
 export default function DataView({
@@ -84,19 +106,37 @@ export default function DataView({
   editable = false,
   onSave,
   onChange,
-  formData
+  formData,
+  sortable = true,
+  frozenColumns = 0
 }: DataViewProps) {
-  const [localFormData, setLocalFormData] = useState<any>({})
+  const [editedData, setEditedData] = useState<Record<string, any>>({})
   const [copiedField, setCopiedField] = useState<string | null>(null)
+  const [sortKey, setSortKey] = useState<string | null>(null)
+  const [sortAsc, setSortAsc] = useState(true)
 
-  // Copy to clipboard helper with fallback for non-HTTPS
+  // Get visible columns based on metadata
+  const getVisibleColumns = (row: any) => {
+    return Object.keys(row).filter((key) => {
+      const meta = metadata[key]
+      return !meta?.hidden && !meta?.system
+    })
+  }
+
+  const getColumnLabel = (key: string) => {
+    return metadata[key]?.label || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+  }
+
+  const isReadOnly = (key: string) => {
+    return !editable || metadata[key]?.readonly
+  }
+
   const copyToClipboard = async (text: string, fieldKey: string) => {
     try {
-      // Try modern clipboard API first
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text)
       } else {
-        // Fallback for non-secure contexts (HTTP)
+        // Fallback for HTTP (non-HTTPS) contexts
         const textArea = document.createElement('textarea')
         textArea.value = text
         textArea.style.position = 'fixed'
@@ -111,57 +151,86 @@ export default function DataView({
       setCopiedField(fieldKey)
       setTimeout(() => setCopiedField(null), 2000)
     } catch (err) {
-      console.error('Failed to copy:', err)
       // Show the text in a prompt as last resort
       window.prompt('Copy this path:', text)
     }
   }
 
-  // Determine display mode
-  const displayMode = mode === 'auto' 
-    ? (data.length === 1 ? 'form' : 'table')
-    : mode
-
-  // Get visible columns based on metadata
-  const getVisibleColumns = (row: any) => {
-    return Object.keys(row).filter(key => {
-      const meta = metadata[key]
-      return !meta?.hidden && !meta?.system
+  // Sort data
+  const sortedData = useMemo(() => {
+    if (!sortKey || !sortable) return data
+    
+    return [...data].sort((a, b) => {
+      let valA = a[sortKey]
+      let valB = b[sortKey]
+      
+      // Handle nulls
+      if (valA === null || valA === undefined) valA = ''
+      if (valB === null || valB === undefined) valB = ''
+      
+      // Check if it's a date column
+      const colType = metadata[sortKey]?.type
+      if (colType === 'date') {
+        const dateA = new Date(valA).getTime() || 0
+        const dateB = new Date(valB).getTime() || 0
+        return sortAsc ? dateA - dateB : dateB - dateA
+      }
+      
+      // Check if it's numeric or percent
+      if (colType === 'number' || colType === 'percent' || (!isNaN(Number(valA)) && !isNaN(Number(valB)) && valA !== '' && valB !== '')) {
+        const numA = Number(valA) || 0
+        const numB = Number(valB) || 0
+        return sortAsc ? numA - numB : numB - numA
+      }
+      
+      // String comparison
+      const strA = String(valA).toLowerCase()
+      const strB = String(valB).toLowerCase()
+      return sortAsc 
+        ? strA.localeCompare(strB, undefined, { numeric: true })
+        : strB.localeCompare(strA, undefined, { numeric: true })
     })
-  }
+  }, [data, sortKey, sortAsc, metadata, sortable])
 
-  // Get column label
-  const getColumnLabel = (key: string) => {
-    return metadata[key]?.label || key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-  }
-
-  // Check if field is readonly
-  const isReadOnly = (key: string) => {
-    return !editable || metadata[key]?.readonly
-  }
-
-  // Handle field change
-  const handleFieldChange = (field: string, value: any) => {
-    if (onChange) {
-      onChange(field, value)
+  const handleSort = (key: string) => {
+    if (!sortable) return
+    if (sortKey === key) {
+      setSortAsc(!sortAsc)
     } else {
-      setLocalFormData((prev: any) => ({ ...prev, [field]: value }))
+      setSortKey(key)
+      setSortAsc(true)
     }
   }
 
-  // Get current form data (controlled or local)
-  const currentFormData = formData || localFormData
-
-  // Input styles
-  const inputClassName = "w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
-  const readOnlyClassName = "w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 cursor-not-allowed text-sm"
+  // Format cell value for display
+  const formatCellValue = (value: any, key: string): string => {
+    if (value === null || value === undefined) return ''
+    
+    const colType = metadata[key]?.type
+    if (colType === 'date') {
+      return formatDateValue(value)
+    }
+    
+    if (colType === 'percent') {
+      const num = Number(value)
+      if (!isNaN(num)) {
+        return num.toFixed(3) + '%'
+      }
+    }
+    
+    return String(value)
+  }
 
   // Loading state
   if (loading) {
     return (
-      <div className="text-center py-8 text-slate-600">
-        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <p className="mt-2">Loading data...</p>
+      <div className="animate-pulse">
+        {title && <div className="h-6 bg-slate-200 rounded w-1/4 mb-4"></div>}
+        <div className="space-y-2">
+          <div className="h-4 bg-slate-200 rounded w-full"></div>
+          <div className="h-4 bg-slate-200 rounded w-5/6"></div>
+          <div className="h-4 bg-slate-200 rounded w-4/6"></div>
+        </div>
       </div>
     )
   }
@@ -169,7 +238,7 @@ export default function DataView({
   // Error state
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-lg">
+      <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
         <p className="font-semibold">Error loading data</p>
         <p className="text-sm">{error}</p>
       </div>
@@ -177,19 +246,47 @@ export default function DataView({
   }
 
   // Empty state
-  if (data.length === 0) {
+  if (!data || data.length === 0) {
     return (
       <div className="text-center py-8 text-slate-500">
-        {emptyMessage}
+        {title && (
+          <div className="mb-4">
+            <h4 className="font-semibold text-slate-800">{title}</h4>
+            {subtitle && <p className="text-sm text-slate-600">{subtitle}</p>}
+          </div>
+        )}
+        <p>{emptyMessage}</p>
       </div>
     )
   }
 
+  // Determine display mode
+  const displayMode = mode === 'auto' 
+    ? (data.length === 1 ? 'form' : 'table')
+    : mode
+
+  // Get the data to work with (for form mode, merge original with edits)
+  const mergedData = displayMode === 'form' 
+    ? { ...data[0], ...editedData, ...(formData || {}) }
+    : data[0]
+
+  const handleFieldChange = (field: string, value: any) => {
+    if (onChange) {
+      onChange(field, value)
+    } else {
+      setEditedData((prev: Record<string, any>) => ({ ...prev, [field]: value }))
+    }
+  }
+
+  const inputClassName = `
+    w-full px-3 py-2 border border-slate-300 rounded-lg
+    focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none
+    disabled:bg-slate-100 disabled:cursor-not-allowed
+  `
+
   // FORM MODE (Single Row)
   if (displayMode === 'form') {
-    const row = data[0]
-    const mergedData = { ...row, ...currentFormData }
-    const visibleColumns = getVisibleColumns(row)
+    const visibleColumns = getVisibleColumns(mergedData)
 
     return (
       <div className="space-y-4">
@@ -260,39 +357,50 @@ export default function DataView({
                         </button>
                       )}
                     </div>
-                    {value && (
-                      <p className="text-xs text-slate-500">
-                        Windows path: {linuxPathToWindowsDisplay(value)}
-                      </p>
-                    )}
                   </div>
                 ) : isTextarea ? (
                   <textarea
                     value={value || ''}
                     onChange={(e) => handleFieldChange(key, e.target.value)}
-                    readOnly={readonly}
-                    rows={3}
-                    className={readonly ? readOnlyClassName : inputClassName}
+                    disabled={readonly}
+                    className={`${inputClassName} min-h-[100px]`}
+                    rows={4}
                   />
                 ) : isSelect && meta?.options ? (
                   <select
                     value={value || ''}
                     onChange={(e) => handleFieldChange(key, e.target.value)}
                     disabled={readonly}
-                    className={readonly ? readOnlyClassName : inputClassName}
+                    className={inputClassName}
                   >
                     <option value="">Select...</option>
-                    {meta.options.map(opt => (
+                    {meta.options.map((opt) => (
                       <option key={opt} value={opt}>{opt}</option>
                     ))}
                   </select>
+                ) : meta?.type === 'number' ? (
+                  <input
+                    type="number"
+                    value={value || ''}
+                    onChange={(e) => handleFieldChange(key, e.target.value)}
+                    disabled={readonly}
+                    className={inputClassName}
+                  />
+                ) : meta?.type === 'date' ? (
+                  <input
+                    type="date"
+                    value={value ? new Date(value).toISOString().split('T')[0] : ''}
+                    onChange={(e) => handleFieldChange(key, e.target.value)}
+                    disabled={readonly}
+                    className={inputClassName}
+                  />
                 ) : (
                   <input
-                    type={meta?.type || 'text'}
-                    value={value === null ? '' : value}
+                    type="text"
+                    value={value || ''}
                     onChange={(e) => handleFieldChange(key, e.target.value)}
-                    readOnly={readonly}
-                    className={readonly ? readOnlyClassName : inputClassName}
+                    disabled={readonly}
+                    className={inputClassName}
                   />
                 )}
               </div>
@@ -300,11 +408,14 @@ export default function DataView({
           })}
         </div>
 
-        {editable && onSave && (
-          <div className="flex justify-end pt-4">
+        {editable && onSave && Object.keys(editedData).length > 0 && (
+          <div className="flex justify-end pt-4 border-t">
             <button
-              onClick={() => onSave(mergedData)}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+              onClick={() => {
+                onSave({ ...data[0], ...editedData })
+                setEditedData({})
+              }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
             >
               Save Changes
             </button>
@@ -315,47 +426,104 @@ export default function DataView({
   }
 
   // TABLE MODE (Multiple Rows)
-  if (data.length > 0) {
-    const visibleColumns = getVisibleColumns(data[0])
+  if (sortedData.length > 0) {
+    const visibleColumns = getVisibleColumns(sortedData[0])
 
     return (
       <div>
         {title && (
           <div className="mb-4">
             <h4 className="font-semibold text-slate-800">
-              {title} ({data.length})
+              {title} ({sortedData.length})
             </h4>
             {subtitle && <p className="text-sm text-slate-600">{subtitle}</p>}
           </div>
         )}
 
-        <div className="border border-slate-200 rounded-lg overflow-x-auto max-h-96">
-          <table className="w-full text-sm">
-            <thead className="bg-slate-100 sticky top-0">
+        <div className="border border-slate-200 rounded-lg overflow-x-auto max-h-96 relative">
+          <table className="w-full text-sm border-collapse">
+            <thead className="bg-slate-100 sticky top-0 z-20">
               <tr>
-                {visibleColumns.map((key) => (
-                  <th
-                    key={key}
-                    className="px-4 py-2 text-left font-medium text-slate-700 whitespace-nowrap"
-                    style={{ width: metadata[key]?.width }}
-                  >
-                    {getColumnLabel(key)}
-                  </th>
-                ))}
+                {visibleColumns.map((key, colIndex) => {
+                  const isFrozen = colIndex < frozenColumns
+                  // Calculate left position for frozen columns
+                  let leftPos = 0
+                  if (isFrozen) {
+                    for (let i = 0; i < colIndex; i++) {
+                      const prevKey = visibleColumns[i]
+                      const prevWidth = metadata[prevKey]?.width
+                      leftPos += prevWidth ? parseInt(prevWidth) : 120
+                    }
+                  }
+                  
+                  return (
+                    <th
+                      key={key}
+                      className={`px-4 py-2 text-left font-medium text-slate-700 whitespace-nowrap ${
+                        sortable ? 'cursor-pointer hover:bg-slate-200 transition-colors select-none' : ''
+                      } ${isFrozen ? 'sticky bg-slate-100 z-10' : ''}`}
+                      style={{ 
+                        width: metadata[key]?.width,
+                        minWidth: metadata[key]?.width,
+                        left: isFrozen ? `${leftPos}px` : undefined,
+                        boxShadow: isFrozen && colIndex === frozenColumns - 1 ? '2px 0 4px -2px rgba(0,0,0,0.15)' : undefined
+                      }}
+                      onClick={() => handleSort(key)}
+                    >
+                      <div className="flex items-center gap-1">
+                        {getColumnLabel(key)}
+                        {sortable && sortKey === key && (
+                          sortAsc 
+                            ? <ChevronUp size={14} className="text-blue-600" />
+                            : <ChevronDown size={14} className="text-blue-600" />
+                        )}
+                      </div>
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
-              {data.map((row, i) => (
+              {sortedData.map((row, i) => (
                 <tr key={i} className="border-t border-slate-200 hover:bg-slate-50">
-                  {visibleColumns.map((key) => (
-                    <td key={key} className="px-4 py-2 whitespace-nowrap text-slate-600">
-                      {row[key] === null ? (
-                        <span className="text-slate-400 italic">null</span>
-                      ) : (
-                        String(row[key])
-                      )}
-                    </td>
-                  ))}
+                  {visibleColumns.map((key, colIndex) => {
+                    const value = row[key]
+                    const formattedValue = formatCellValue(value, key)
+                    const isFrozen = colIndex < frozenColumns
+                    // Calculate left position for frozen columns
+                    let leftPos = 0
+                    if (isFrozen) {
+                      for (let i = 0; i < colIndex; i++) {
+                        const prevKey = visibleColumns[i]
+                        const prevWidth = metadata[prevKey]?.width
+                        leftPos += prevWidth ? parseInt(prevWidth) : 120
+                      }
+                    }
+                    
+                    const shouldWrap = metadata[key]?.wrap
+                    
+                    return (
+                      <td 
+                        key={key} 
+                        className={`px-4 py-2 text-slate-600 ${
+                          shouldWrap ? 'whitespace-normal' : 'whitespace-nowrap'
+                        } ${
+                          isFrozen ? 'sticky bg-white z-10' : ''
+                        }`}
+                        style={{
+                          left: isFrozen ? `${leftPos}px` : undefined,
+                          boxShadow: isFrozen && colIndex === frozenColumns - 1 ? '2px 0 4px -2px rgba(0,0,0,0.15)' : undefined,
+                          maxWidth: shouldWrap ? metadata[key]?.width : undefined
+                        }}
+                      >
+                        {value === null ? (
+                          <span className="text-slate-400 italic">null</span>
+                        ) : (
+                          formattedValue
+                        )}
+                      </td>
+                    )
+                  })}
                 </tr>
               ))}
             </tbody>

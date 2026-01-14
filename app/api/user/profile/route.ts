@@ -15,7 +15,7 @@ export async function GET() {
     const query = `
       SELECT 
         id, username, name, email, nickname, phone, mobile, title, role
-      FROM users 
+      FROM Users 
       WHERE id = ?
     `
     const users = await queryPrimary(query, [session.user.id]) as any[]
@@ -51,7 +51,7 @@ export async function PUT(request: NextRequest) {
 
     // Only allow updating these specific fields
     const query = `
-      UPDATE users 
+      UPDATE Users 
       SET nickname = ?, phone = ?, mobile = ?
       WHERE id = ?
     `

@@ -51,7 +51,7 @@ export async function PUT(
 
     // Check if user exists
     const userExists = await queryPrimary<any[]>(
-      'SELECT id, username FROM users WHERE id = ?',
+      'SELECT id, username FROM Users WHERE id = ?',
       [userId]
     )
 
@@ -65,7 +65,7 @@ export async function PUT(
 
     // Update password in database
     await queryPrimary(
-      'UPDATE users SET password = ?, updatedAt = NOW() WHERE id = ?',
+      'UPDATE Users SET password = ?, updatedAt = NOW() WHERE id = ?',
       [hashedPassword, userId]
     )
 

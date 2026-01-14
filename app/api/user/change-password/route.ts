@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
 
     // Get current user's password hash
     const users = await queryPrimary(
-      'SELECT password FROM users WHERE id = ?',
+      'SELECT password FROM Users WHERE id = ?',
       [session.user.id]
     ) as any[]
 
@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
 
     // Update password
     await queryPrimary(
-      'UPDATE users SET password = ? WHERE id = ?',
+      'UPDATE Users SET password = ? WHERE id = ?',
       [hashedPassword, session.user.id]
     )
 

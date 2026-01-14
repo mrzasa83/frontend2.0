@@ -22,11 +22,6 @@ const nextConfig = {
     ignoreBuildErrors: false,
   },
   
-  eslint: {
-    // Allow production builds to succeed even with ESLint errors
-    ignoreDuringBuilds: false,
-  },
-  
   // Experimental features
   experimental: {
     // Improve performance

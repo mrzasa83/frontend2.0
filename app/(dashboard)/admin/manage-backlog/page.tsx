@@ -180,6 +180,7 @@ export default function ManageBacklogPage() {
       const data = await res.json()
       if (data.success && data.data) {
         setCurrentJobs(prev => prev.map(job => {
+          if (!job.shop_pn) return job
           const statusData = data.data[job.shop_pn]
           return statusData ? { ...job, release_status: statusData.releaseStatus, program: statusData.program } : job
         }))

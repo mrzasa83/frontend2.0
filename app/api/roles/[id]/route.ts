@@ -6,7 +6,7 @@ import { queryPrimary } from '@/lib/db/mysql-primary'
 // DELETE - Delete a role
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const session = await getServerSession(authOptions)
   
@@ -21,7 +21,8 @@ export async function DELETE(
   }
 
   try {
-    const roleId = parseInt(params.id)
+    const { id } = await params
+    const roleId = parseInt(id)
 
     if (isNaN(roleId)) {
       return NextResponse.json({ error: 'Invalid role ID' }, { status: 400 })

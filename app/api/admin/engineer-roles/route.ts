@@ -34,7 +34,7 @@ export async function GET(request: NextRequest) {
         name,
         cc_name,
         engineer_roles
-      FROM users
+      FROM Users
       WHERE active = 1
       ORDER BY name, username
     `
@@ -94,7 +94,7 @@ export async function PUT(request: NextRequest) {
 
     // Update user with CC name and engineer roles
     const updateQuery = `
-      UPDATE users 
+      UPDATE Users 
       SET cc_name = ?, engineer_roles = ?
       WHERE id = ?
     `

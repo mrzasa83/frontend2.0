@@ -194,6 +194,7 @@ export default function ProductsPage() {
       label: product.apcPN,
       content: (
         <ProductEdit
+          key={`product-edit-${product.id}`}
           product={product}
           onSave={handleSave}
           onCancel={() => handleCloseEditTab(product.id)}
@@ -211,7 +212,7 @@ export default function ProductsPage() {
 
       <div className="bg-white rounded-lg shadow">
         <div className="p-6">
-          <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+          <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} preserveState={true} />
         </div>
       </div>
 
