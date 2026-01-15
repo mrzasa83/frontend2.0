@@ -1,5 +1,7 @@
 'use client'
 
+import { getApiUrl } from '@/lib/api'
+
 import { useState } from 'react'
 import { RefreshCw, Upload, AlertTriangle } from 'lucide-react'
 
@@ -40,7 +42,7 @@ export default function SyncPartsPage() {
     setSelectedFields(new Map())
 
     try {
-      const res = await fetch('/api/admin/sync-parts')
+      const res = await fetch(getApiUrl('/api/admin/sync-parts'))
       
       if (!res.ok) {
         throw new Error('Failed to scan and compare')
@@ -90,7 +92,7 @@ export default function SyncPartsPage() {
           return update
         })
 
-      const res = await fetch('/api/admin/sync-parts', {
+      const res = await fetch(getApiUrl('/api/admin/sync-parts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates })

@@ -1,5 +1,7 @@
 'use client'
 
+import { getApiUrl } from '@/lib/api'
+
 import { useState, useEffect } from 'react'
 import Tabs from '@/components/ui/Tabs'
 import ProductTable, { TableState, DEFAULT_TYPE_FILTER, DEFAULT_SORT_KEY, DEFAULT_SORT_ASC } from '@/components/products/ProductTable'
@@ -54,7 +56,7 @@ export default function ProductsPage() {
       setLoading(true)
       setError(null)
       
-      const res = await fetch('/api/products')
+      const res = await fetch(getApiUrl('/api/products'))
       
       if (!res.ok) {
         throw new Error(`Failed to fetch products: ${res.status}`)
@@ -89,7 +91,7 @@ export default function ProductsPage() {
 
   const handleInlineSave = async (product: Product) => {
     try {
-      const res = await fetch(`/api/products/${product.id}`, {
+      const res = await fetch(getApiUrl(`/api/products/${product.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(product),
@@ -111,7 +113,7 @@ export default function ProductsPage() {
 
   const handleSave = async (product: Product) => {
     try {
-      const res = await fetch(`/api/products/${product.id}`, {
+      const res = await fetch(getApiUrl(`/api/products/${product.id}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(product),

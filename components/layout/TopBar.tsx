@@ -1,5 +1,7 @@
 'use client'
 
+import { getApiUrl } from '@/lib/api'
+
 import { useState, useEffect } from 'react'
 import { useSession, signOut } from 'next-auth/react'
 import { User, Settings, LogOut } from 'lucide-react'
@@ -34,7 +36,7 @@ export default function TopBar() {
 
   const fetchUserProfile = async () => {
     try {
-      const res = await fetch('/api/user/profile')
+      const res = await fetch(getApiUrl('/api/user/profile'))
       if (res.ok) {
         const data = await res.json()
         setUserProfile({

@@ -17,6 +17,9 @@ interface Role {
   name: string
 }
 
+// Get basePath from environment
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
+
 export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
@@ -100,7 +103,7 @@ export const authOptions: NextAuthOptions = {
     }
   },
   pages: {
-    signIn: '/login',
+    signIn: basePath ? `${basePath}/login` : '/login',
   },
   session: {
     strategy: 'jwt',

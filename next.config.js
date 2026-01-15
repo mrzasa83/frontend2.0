@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Base path for serving under /frontend
+  basePath: '/frontend',
+  
   // Enable CORS for API routes
   async headers() {
     return [

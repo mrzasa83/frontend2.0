@@ -1,5 +1,7 @@
 'use client'
 
+import { getApiUrl } from '@/lib/api'
+
 import { useState, useEffect } from 'react'
 import { ClipboardCheck, FileCheck, Calendar, Users } from 'lucide-react'
 
@@ -25,7 +27,7 @@ export default function OperationsPage() {
 
   const fetchSummary = async () => {
     try {
-      const res = await fetch('/api/operations/audits/summary')
+      const res = await fetch(getApiUrl('/api/operations/audits/summary'))
       if (res.ok) {
         const data = await res.json()
         setSummary(data)

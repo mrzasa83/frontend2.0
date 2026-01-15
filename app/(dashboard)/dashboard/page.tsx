@@ -1,5 +1,7 @@
 'use client'
 
+import { getApiUrl } from '@/lib/api'
+
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { ChevronDown, ChevronUp, BarChart3, TrendingUp, Clock, CheckCircle, AlertCircle, PlayCircle, PauseCircle, User, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
@@ -109,7 +111,7 @@ export default function DashboardPage() {
       setLoadingCurrent(true)
       setCurrentError(null)
 
-      const res = await fetch('/api/dashboard/current-jobs')
+      const res = await fetch(getApiUrl('/api/dashboard/current-jobs'))
       if (!res.ok) {
         throw new Error('Failed to fetch current jobs')
       }
@@ -133,7 +135,7 @@ export default function DashboardPage() {
       const shopPNs = jobs.map(j => j.shop_pn).filter(pn => pn && pn.trim() !== '')
       if (shopPNs.length === 0) return
 
-      const res = await fetch('/api/admin/job-status', {
+      const res = await fetch(getApiUrl('/api/admin/job-status'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shopPNs })
@@ -161,7 +163,7 @@ export default function DashboardPage() {
       setLoadingHistorical(true)
       setHistoricalError(null)
 
-      const res = await fetch('/api/dashboard/team-backlog')
+      const res = await fetch(getApiUrl('/api/dashboard/team-backlog'))
       if (!res.ok) {
         throw new Error('Failed to fetch team backlog')
       }
