@@ -1,6 +1,5 @@
 'use client'
 
-import { getApiUrl } from '@/lib/api'
 
 import { useState } from 'react'
 import { Play, Download, Trash2, Database } from 'lucide-react'
@@ -58,7 +57,7 @@ export default function SQLQueryPage() {
     setResult(null)
 
     try {
-      const res = await fetch(getApiUrl('/api/admin/query-database'), {
+      const res = await fetch('/api/admin/query-database', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

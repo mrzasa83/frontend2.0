@@ -1,6 +1,5 @@
 'use client'
 
-import { getApiUrl } from '@/lib/api'
 
 import { useState, useEffect } from 'react'
 import Tabs from '@/components/ui/Tabs'
@@ -37,7 +36,7 @@ export default function UsersPage() {
       setLoading(true)
       setError(null)
       
-      const res = await fetch(getApiUrl('/api/users'))
+      const res = await fetch('/api/users')
       
       if (!res.ok) {
         throw new Error(`Failed to fetch users: ${res.status}`)

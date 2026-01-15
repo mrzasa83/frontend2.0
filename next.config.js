@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Base path for serving under /frontend
-  basePath: '/frontend',
+  // Note: We handle the /frontend path via nginx rewrite, not Next.js basePath
+  // This allows the app to work the same in dev and production
   
   // Enable CORS for API routes
   async headers() {

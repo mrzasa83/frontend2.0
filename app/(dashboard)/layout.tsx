@@ -6,9 +6,6 @@ import TopBar from '@/components/layout/TopBar'
 import SideNav from '@/components/layout/SideNav'
 import Footer from '@/components/layout/Footer'
 
-// Get basePath from environment (only set in production)
-const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
-
 export default function DashboardLayout({
   children,
 }: {
@@ -16,11 +13,8 @@ export default function DashboardLayout({
 }) {
   const [sideNavOpen, setSideNavOpen] = useState(true)
 
-  // Only pass basePath to SessionProvider if it's set
-  const sessionProviderProps = basePath ? { basePath: `${basePath}/api/auth` } : {}
-
   return (
-    <SessionProvider {...sessionProviderProps}>
+    <SessionProvider>
       <div className="h-screen flex flex-col">
         <TopBar />
         

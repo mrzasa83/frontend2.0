@@ -1,6 +1,5 @@
 'use client'
 
-import { getApiUrl } from '@/lib/api'
 
 import { useState, useEffect } from 'react'
 import { Eye, Pencil, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
@@ -104,7 +103,7 @@ export default function ProductTable({ products, onView, onEdit, onSave, tableSt
       
       setLoadingInfo(true)
       try {
-        const res = await fetch(getApiUrl('/api/products/batch-info'), {
+        const res = await fetch('/api/products/batch-info', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ partNumbers: missingParts })

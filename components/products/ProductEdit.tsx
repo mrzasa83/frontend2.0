@@ -1,6 +1,5 @@
 'use client'
 
-import { getApiUrl } from '@/lib/api'
 
 import { useState, useEffect } from 'react'
 import { Save, X, Factory, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
@@ -40,7 +39,7 @@ export default function ProductEdit({ product, onSave, onCancel }: Props) {
     const fetchHeaderData = async () => {
       try {
         // Fetch production data for status
-        const prodRes = await fetch(getApiUrl('/api/products/production'), {
+        const prodRes = await fetch('/api/products/production', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ apcPN: product.apcPN })
@@ -53,7 +52,7 @@ export default function ProductEdit({ product, onSave, onCancel }: Props) {
         }
 
         // Fetch route data for build location
-        const routeRes = await fetch(getApiUrl('/api/products/route'), {
+        const routeRes = await fetch('/api/products/route', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ apcPN: product.apcPN })

@@ -1,6 +1,5 @@
 'use client'
 
-import { getApiUrl } from '@/lib/api'
 
 import { useState, useEffect } from 'react'
 import { Save, X, UserPlus, UserMinus } from 'lucide-react'
@@ -47,7 +46,7 @@ export default function RoleEditTab({ role, onSave, onCancel, onAddUser, onRemov
 
   const fetchAllUsers = async () => {
     try {
-      const res = await fetch(getApiUrl('/api/users'))
+      const res = await fetch('/api/users')
       if (res.ok) {
         const data = await res.json()
         setAllUsers(data)

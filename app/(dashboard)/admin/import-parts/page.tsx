@@ -1,6 +1,5 @@
 'use client'
 
-import { getApiUrl } from '@/lib/api'
 
 import { useState, useEffect } from 'react'
 import { Search, Upload, RefreshCw, CheckCircle, AlertCircle, Folder } from 'lucide-react'
@@ -48,7 +47,7 @@ export default function ImportPartsPage() {
     setSelectedParts(new Set())
 
     try {
-      const res = await fetch(getApiUrl('/api/admin/scan-parts'))
+      const res = await fetch('/api/admin/scan-parts')
       
       if (!res.ok) {
         throw new Error('Failed to scan parts')
@@ -76,7 +75,7 @@ export default function ImportPartsPage() {
     setImporting(true)
 
     try {
-      const res = await fetch(getApiUrl('/api/admin/import-parts'), {
+      const res = await fetch('/api/admin/import-parts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ parts: partsToImport })

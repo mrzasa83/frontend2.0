@@ -1,6 +1,5 @@
 'use client'
 
-import { getApiUrl } from '@/lib/api'
 
 import { useState, useEffect } from 'react'
 import { 
@@ -177,7 +176,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingProdGeneral(true)
     setProdGeneralError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/production'), {
+      const res = await fetch('/api/products/production', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -202,7 +201,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingYield(true)
     setYieldError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/yield'), {
+      const res = await fetch('/api/products/yield', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -222,7 +221,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingRoute(true)
     setRouteError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/route'), {
+      const res = await fetch('/api/products/route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -247,7 +246,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingWorkOrders(true)
     setWorkOrdersError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/work-orders'), {
+      const res = await fetch('/api/products/work-orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -268,7 +267,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingInventory(true)
     setInventoryError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/inventory'), {
+      const res = await fetch('/api/products/inventory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -289,7 +288,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingDiscrepancy(true)
     setDiscrepancyError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/discrepancy'), {
+      const res = await fetch('/api/products/discrepancy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -309,7 +308,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingChanges(true)
     setChangesError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/changes'), {
+      const res = await fetch('/api/products/changes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -332,7 +331,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setFiLoading(true)
     setFiError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/released-files'), {
+      const res = await fetch('/api/products/released-files', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ partNumber, fileType: 'finalInspection' })
@@ -359,7 +358,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setBdLoading(true)
     setBdError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/released-files'), {
+      const res = await fetch('/api/products/released-files', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ partNumber, fileType: 'buildDrawings' })
@@ -391,7 +390,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setPsLoading(true)
     setPsError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/released-files'), {
+      const res = await fetch('/api/products/released-files', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ partNumber, fileType: 'packShip' })
@@ -481,17 +480,17 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
 
   const openFile = (file: FileInfo) => {
     if (file.serveUrl) {
-      window.open(getApiUrl(file.serveUrl), '_blank')
+      window.open(file.serveUrl, '_blank')
     } else {
-      const serveUrl = getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`)
+      const serveUrl = `/api/files/serve?path=${encodeURIComponent(file.path)}`
       window.open(serveUrl, '_blank')
     }
   }
 
   const downloadFile = (file: FileInfo) => {
     const downloadUrl = file.serveUrl 
-      ? `${getApiUrl(file.serveUrl)}&download=true`
-      : getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}&download=true`)
+      ? `${file.serveUrl}&download=true`
+      : `/api/files/serve?path=${encodeURIComponent(file.path)}&download=true`
     window.open(downloadUrl, '_blank')
   }
 
