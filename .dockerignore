@@ -1,0 +1,6 @@
+node_modules
+.next
+.git
+*.tgz
+__pycache__
+*.pyc
