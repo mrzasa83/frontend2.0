@@ -4,10 +4,10 @@
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { 
-import { getApiUrl } from '@/lib/api'
   Plus, Edit2, Trash2, Users, ChevronDown, ChevronUp, 
   X, Save, FileText, ClipboardList, Eye 
 } from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
 
 type FieldDef = {
   id: string
@@ -440,7 +440,7 @@ function AuditDefModal({
     setError('')
 
     try {
-      const url = audit ? getApiUrl(`/api/operations/audits/${audit.id}`)) : getApiUrl('/api/operations/audits'))
+      const url = audit ? (`/api/operations/audits/${audit.id}`) : '/api/operations/audits'
       const method = audit ? 'PUT' : 'POST'
 
       const res = await fetch(url, {

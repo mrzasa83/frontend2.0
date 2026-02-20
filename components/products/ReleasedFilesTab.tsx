@@ -11,7 +11,6 @@ import {
 import DataView from '@/components/ui/DataView'
 import BOMTreeNavigator from '@/components/ui/BOMTreeNavigator'
 import { 
-import { getApiUrl } from '@/lib/api'
   productionGeneralMetadata,
   yieldMetadata,
   routeMetadata,
@@ -20,6 +19,7 @@ import { getApiUrl } from '@/lib/api'
   discrepancyMetadata,
   changesMetadata
 } from '@/lib/metadata/columnMetadata'
+import { getApiUrl } from '@/lib/api'
 
 type FileInfo = {
   name: string
@@ -483,7 +483,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     if (file.serveUrl) {
       window.open(file.serveUrl, '_blank')
     } else {
-      const serveUrl = getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`))
+      const serveUrl = getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`)
       window.open(serveUrl, '_blank')
     }
   }
@@ -491,7 +491,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
   const downloadFile = (file: FileInfo) => {
     const downloadUrl = file.serveUrl 
       ? `${file.serveUrl}&download=true`
-      : getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}&download=true`))
+      : getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}&download=true`)
     window.open(downloadUrl, '_blank')
   }
 
@@ -518,12 +518,12 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
       if (colType === 'date' && value) {
         try {
           const date = new Date(value)
-          if (!isNaN(date.getTime()) {
+          if (!isNaN(date.getTime())) {
             return date.toLocaleDateString('en-US')
           }
         } catch { }
       }
-      if (colType === 'percent' && !isNaN(Number(value)) {
+      if (colType === 'percent' && !isNaN(Number(value))) {
         return Number(value).toFixed(3) + '%'
       }
       return String(value)
@@ -532,7 +532,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     // Build worksheet data
     const wsData = [
       headers,
-      ...data.map(row => columns.map(col => formatValue(row[col], col))
+      ...data.map(row => columns.map(col => formatValue(row[col], col)))
     ]
 
     // Create worksheet and workbook

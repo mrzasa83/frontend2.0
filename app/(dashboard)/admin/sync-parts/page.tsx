@@ -53,7 +53,7 @@ export default function SyncPartsPage() {
       
       // Auto-select all parts with differences
       const withDiffs = data.comparisons.filter((c: PartComparison) => c.existsInDB)
-      setSelectedParts(new Set(withDiffs.map((c: PartComparison) => c.apcPN))
+      setSelectedParts(new Set(withDiffs.map((c: PartComparison) => c.apcPN)))
       
       // Auto-select all different fields
       const fieldMap = new Map()

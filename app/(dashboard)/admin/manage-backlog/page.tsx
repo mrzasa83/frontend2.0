@@ -197,10 +197,10 @@ export default function ManageBacklogPage() {
       const data = await res.json()
       const users = data.users || []
       
-      setHdwEngineers(users.filter((u: any) => u.roles.includes('HDW'))
-      setCamEngineers(users.filter((u: any) => u.roles.includes('CAM'))
-      setPcbEngineers(users.filter((u: any) => u.roles.includes('PCB'))
-      setAsmEngineers(users.filter((u: any) => u.roles.includes('ASM'))
+      setHdwEngineers(users.filter((u: any) => u.roles.includes('HDW')))
+      setCamEngineers(users.filter((u: any) => u.roles.includes('CAM')))
+      setPcbEngineers(users.filter((u: any) => u.roles.includes('PCB')))
+      setAsmEngineers(users.filter((u: any) => u.roles.includes('ASM')))
     } catch (err) { console.error('Error fetching engineers:', err) }
   }
 
