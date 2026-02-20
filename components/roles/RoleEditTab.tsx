@@ -47,7 +47,7 @@ export default function RoleEditTab({ role, onSave, onCancel, onAddUser, onRemov
 
   const fetchAllUsers = async () => {
     try {
-      const res = await fetch(getApiUrl('/api/users')
+      const res = await fetch(getApiUrl('/api/users'))
       if (res.ok) {
         const data = await res.json()
         setAllUsers(data)

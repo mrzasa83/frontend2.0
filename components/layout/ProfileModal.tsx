@@ -63,7 +63,7 @@ export default function ProfileModal({ isOpen, onClose, user }: Props) {
     setSaving(true)
     setSaveMessage(null)
     try {
-      const res = await fetch(getApiUrl('/api/user/profile', {
+      const res = await fetch(getApiUrl('/api/user/profile'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -109,7 +109,7 @@ export default function ProfileModal({ isOpen, onClose, user }: Props) {
 
     setChangingPassword(true)
     try {
-      const res = await fetch(getApiUrl('/api/user/change-password', {
+      const res = await fetch(getApiUrl('/api/user/change-password'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

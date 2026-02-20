@@ -38,7 +38,7 @@ export default function FolderRangesPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/folder-ranges')
+      const res = await fetch(getApiUrl('/api/products/folder-ranges'))
       if (!res.ok) throw new Error('Failed to fetch ranges')
       const data = await res.json()
       setRanges(data.ranges || [])
@@ -54,7 +54,7 @@ export default function FolderRangesPage() {
     setScanResults(null)
     setError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/folder-ranges', {
+      const res = await fetch(getApiUrl('/api/products/folder-ranges'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(fileType ? { fileType } : {})

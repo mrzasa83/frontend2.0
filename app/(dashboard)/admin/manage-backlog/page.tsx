@@ -156,7 +156,7 @@ export default function ManageBacklogPage() {
     try {
       setLoading(true)
       setError(null)
-      const res = await fetch(getApiUrl('/api/dashboard/current-jobs')
+      const res = await fetch(getApiUrl('/api/dashboard/current-jobs'))
       if (!res.ok) throw new Error('Failed to fetch current jobs')
       const data = await res.json()
       const jobsWithIds = (data.results || []).map((job: CurrentJob, idx: number) => ({ ...job, id: idx }))
@@ -173,7 +173,7 @@ export default function ManageBacklogPage() {
     try {
       const shopPNs = jobs.map(j => j.shop_pn).filter(pn => pn && pn.trim() !== '')
       if (shopPNs.length === 0) return
-      const res = await fetch(getApiUrl('/api/admin/job-status', {
+      const res = await fetch(getApiUrl('/api/admin/job-status'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ shopPNs })
@@ -192,22 +192,22 @@ export default function ManageBacklogPage() {
 
   const fetchEngineers = async () => {
     try {
-      const res = await fetch(getApiUrl('/api/admin/engineer-roles')
+      const res = await fetch(getApiUrl('/api/admin/engineer-roles'))
       if (!res.ok) return
       const data = await res.json()
       const users = data.users || []
       
-      setHdwEngineers(users.filter((u: any) => u.roles.includes('HDW')))
-      setCamEngineers(users.filter((u: any) => u.roles.includes('CAM')))
-      setPcbEngineers(users.filter((u: any) => u.roles.includes('PCB')))
-      setAsmEngineers(users.filter((u: any) => u.roles.includes('ASM')))
+      setHdwEngineers(users.filter((u: any) => u.roles.includes('HDW'))
+      setCamEngineers(users.filter((u: any) => u.roles.includes('CAM'))
+      setPcbEngineers(users.filter((u: any) => u.roles.includes('PCB'))
+      setAsmEngineers(users.filter((u: any) => u.roles.includes('ASM'))
     } catch (err) { console.error('Error fetching engineers:', err) }
   }
 
   const fetchJobNotes = async (jobName: string) => {
     try {
       setLoadingNotes(true)
-      const res = await fetch(getApiUrl(`/api/admin/job-notes?jobName=${encodeURIComponent(jobName)}`)
+      const res = await fetch(getApiUrl(`/api/admin/job-notes?jobName=${encodeURIComponent(jobName)}`))
       if (!res.ok) throw new Error('Failed to fetch job notes')
       const data = await res.json()
       const notes = data.notes || []
@@ -474,7 +474,7 @@ export default function ManageBacklogPage() {
       }
 
       // Save to database - create new record
-      const res = await fetch(getApiUrl('/api/admin/job-notes', {
+      const res = await fetch(getApiUrl('/api/admin/job-notes'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

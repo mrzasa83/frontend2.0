@@ -38,7 +38,7 @@ export default function ProductView({ product, onClose }: Props) {
     const fetchHeaderData = async () => {
       try {
         // Fetch production data for status
-        const prodRes = await fetch(getApiUrl('/api/products/production', {
+        const prodRes = await fetch(getApiUrl('/api/products/production'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ apcPN: product.apcPN })
@@ -51,7 +51,7 @@ export default function ProductView({ product, onClose }: Props) {
         }
 
         // Fetch route data for build location
-        const routeRes = await fetch(getApiUrl('/api/products/route', {
+        const routeRes = await fetch(getApiUrl('/api/products/route'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ apcPN: product.apcPN })

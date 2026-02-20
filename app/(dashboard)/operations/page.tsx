@@ -27,7 +27,7 @@ export default function OperationsPage() {
 
   const fetchSummary = async () => {
     try {
-      const res = await fetch(getApiUrl('/api/operations/audits/summary')
+      const res = await fetch(getApiUrl('/api/operations/audits/summary'))
       if (res.ok) {
         const data = await res.json()
         setSummary(data)

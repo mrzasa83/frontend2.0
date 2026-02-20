@@ -48,7 +48,7 @@ export default function ImportPartsPage() {
     setSelectedParts(new Set())
 
     try {
-      const res = await fetch(getApiUrl('/api/admin/scan-parts')
+      const res = await fetch(getApiUrl('/api/admin/scan-parts'))
       
       if (!res.ok) {
         throw new Error('Failed to scan parts')
@@ -59,7 +59,7 @@ export default function ImportPartsPage() {
       
       // Auto-select all new parts
       const newParts = data.parts.filter((p: ScannedPart) => !p.existsInDB)
-      setSelectedParts(new Set(newParts.map((p: ScannedPart) => getPartKey(p))))
+      setSelectedParts(new Set(newParts.map((p: ScannedPart) => getPartKey(p)))
     } catch (error) {
       console.error('Error scanning:', error)
       alert('Failed to scan parts. Check console for details.')
@@ -71,12 +71,12 @@ export default function ImportPartsPage() {
   const handleImport = async () => {
     if (!scanResult || selectedParts.size === 0) return
 
-    const partsToImport = scanResult.parts.filter(p => selectedParts.has(getPartKey(p)))
+    const partsToImport = scanResult.parts.filter(p => selectedParts.has(getPartKey(p))
 
     setImporting(true)
 
     try {
-      const res = await fetch(getApiUrl('/api/admin/import-parts', {
+      const res = await fetch(getApiUrl('/api/admin/import-parts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ parts: partsToImport })

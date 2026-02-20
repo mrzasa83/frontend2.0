@@ -42,7 +42,7 @@ export default function SyncPartsPage() {
     setSelectedFields(new Map())
 
     try {
-      const res = await fetch(getApiUrl('/api/admin/sync-parts')
+      const res = await fetch(getApiUrl('/api/admin/sync-parts'))
       
       if (!res.ok) {
         throw new Error('Failed to scan and compare')
@@ -53,7 +53,7 @@ export default function SyncPartsPage() {
       
       // Auto-select all parts with differences
       const withDiffs = data.comparisons.filter((c: PartComparison) => c.existsInDB)
-      setSelectedParts(new Set(withDiffs.map((c: PartComparison) => c.apcPN)))
+      setSelectedParts(new Set(withDiffs.map((c: PartComparison) => c.apcPN))
       
       // Auto-select all different fields
       const fieldMap = new Map()
@@ -92,7 +92,7 @@ export default function SyncPartsPage() {
           return update
         })
 
-      const res = await fetch(getApiUrl('/api/admin/sync-parts', {
+      const res = await fetch(getApiUrl('/api/admin/sync-parts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ updates })

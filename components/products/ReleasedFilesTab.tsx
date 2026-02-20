@@ -177,7 +177,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingProdGeneral(true)
     setProdGeneralError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/production', {
+      const res = await fetch(getApiUrl('/api/products/production'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -202,7 +202,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingYield(true)
     setYieldError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/yield', {
+      const res = await fetch(getApiUrl('/api/products/yield'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -222,7 +222,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingRoute(true)
     setRouteError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/route', {
+      const res = await fetch(getApiUrl('/api/products/route'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -247,7 +247,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingWorkOrders(true)
     setWorkOrdersError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/work-orders', {
+      const res = await fetch(getApiUrl('/api/products/work-orders'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -268,7 +268,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingInventory(true)
     setInventoryError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/inventory', {
+      const res = await fetch(getApiUrl('/api/products/inventory'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -289,7 +289,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingDiscrepancy(true)
     setDiscrepancyError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/discrepancy', {
+      const res = await fetch(getApiUrl('/api/products/discrepancy'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -309,7 +309,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setLoadingChanges(true)
     setChangesError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/changes', {
+      const res = await fetch(getApiUrl('/api/products/changes'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ apcPN: partNumber })
@@ -332,7 +332,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setFiLoading(true)
     setFiError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/released-files', {
+      const res = await fetch(getApiUrl('/api/products/released-files'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ partNumber, fileType: 'finalInspection' })
@@ -359,7 +359,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setBdLoading(true)
     setBdError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/released-files', {
+      const res = await fetch(getApiUrl('/api/products/released-files'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ partNumber, fileType: 'buildDrawings' })
@@ -391,7 +391,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     setPsLoading(true)
     setPsError(null)
     try {
-      const res = await fetch(getApiUrl('/api/products/released-files', {
+      const res = await fetch(getApiUrl('/api/products/released-files'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ partNumber, fileType: 'packShip' })
@@ -483,7 +483,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     if (file.serveUrl) {
       window.open(file.serveUrl, '_blank')
     } else {
-      const serveUrl = getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`)
+      const serveUrl = getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`))
       window.open(serveUrl, '_blank')
     }
   }
@@ -491,7 +491,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
   const downloadFile = (file: FileInfo) => {
     const downloadUrl = file.serveUrl 
       ? `${file.serveUrl}&download=true`
-      : getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}&download=true`)
+      : getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}&download=true`))
     window.open(downloadUrl, '_blank')
   }
 
@@ -518,12 +518,12 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
       if (colType === 'date' && value) {
         try {
           const date = new Date(value)
-          if (!isNaN(date.getTime())) {
+          if (!isNaN(date.getTime()) {
             return date.toLocaleDateString('en-US')
           }
         } catch { }
       }
-      if (colType === 'percent' && !isNaN(Number(value))) {
+      if (colType === 'percent' && !isNaN(Number(value)) {
         return Number(value).toFixed(3) + '%'
       }
       return String(value)
@@ -532,7 +532,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     // Build worksheet data
     const wsData = [
       headers,
-      ...data.map(row => columns.map(col => formatValue(row[col], col)))
+      ...data.map(row => columns.map(col => formatValue(row[col], col))
     ]
 
     // Create worksheet and workbook

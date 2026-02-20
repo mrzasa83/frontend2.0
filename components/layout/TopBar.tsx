@@ -36,7 +36,7 @@ export default function TopBar() {
 
   const fetchUserProfile = async () => {
     try {
-      const res = await fetch(getApiUrl('/api/user/profile')
+      const res = await fetch(getApiUrl('/api/user/profile'))
       if (res.ok) {
         const data = await res.json()
         setUserProfile({
