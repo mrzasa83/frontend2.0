@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { 
+import { getApiUrl } from '@/lib/api'
   Plus, Edit2, Trash2, Users, ChevronDown, ChevronUp, 
   X, Save, FileText, ClipboardList, Eye 
 } from 'lucide-react'
@@ -75,7 +76,7 @@ export default function AuditsPage() {
 
   const fetchAudits = async () => {
     try {
-      const res = await fetch('/api/operations/audits')
+      const res = await fetch(getApiUrl('/api/operations/audits')
       if (res.ok) {
         const data = await res.json()
         setAudits(data.audits || [])
@@ -90,7 +91,7 @@ export default function AuditsPage() {
 
   const fetchUsers = async () => {
     try {
-      const res = await fetch('/api/users')
+      const res = await fetch(getApiUrl('/api/users')
       if (res.ok) {
         const data = await res.json()
         // API returns array directly, not wrapped in {users: [...]}
@@ -103,7 +104,7 @@ export default function AuditsPage() {
 
   const fetchRecords = async () => {
     try {
-      const res = await fetch('/api/operations/audits/records')
+      const res = await fetch(getApiUrl('/api/operations/audits/records')
       if (res.ok) {
         const data = await res.json()
         setRecords(data.records || [])
@@ -117,7 +118,7 @@ export default function AuditsPage() {
     if (!confirm('Are you sure you want to delete this audit? All records will be deleted.')) return
     
     try {
-      const res = await fetch(`/api/operations/audits/${id}`, { method: 'DELETE' })
+      const res = await fetch(getApiUrl(`/api/operations/audits/${id}`, { method: 'DELETE' })
       if (res.ok) {
         fetchAudits()
         fetchRecords()
@@ -439,7 +440,7 @@ function AuditDefModal({
     setError('')
 
     try {
-      const url = audit ? (`/api/operations/audits/${audit.id}`) : '/api/operations/audits'
+      const url = audit ? getApiUrl(`/api/operations/audits/${audit.id}`) : getApiUrl('/api/operations/audits')
       const method = audit ? 'PUT' : 'POST'
 
       const res = await fetch(url, {
@@ -669,7 +670,7 @@ function RecordEntryForm({
     setError('')
 
     try {
-      const res = await fetch('/api/operations/audits/records', {
+      const res = await fetch(getApiUrl('/api/operations/audits/records', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

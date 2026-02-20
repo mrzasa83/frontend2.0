@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { ChevronRight, ChevronDown, Package, Loader2, AlertCircle, Maximize2 } from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
 
 export type BOMItem = {
   id: string
@@ -35,7 +36,7 @@ export default function BOMTreeNavigator({ rootPartNumber, onPartClick }: Props)
     setError(null)
 
     try {
-      const res = await fetch('/api/products/bom', {
+      const res = await fetch(getApiUrl('/api/products/bom', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -61,7 +62,7 @@ export default function BOMTreeNavigator({ rootPartNumber, onPartClick }: Props)
     setLoadingNodes(prev => new Set(prev).add(item.id))
 
     try {
-      const res = await fetch('/api/products/bom', {
+      const res = await fetch(getApiUrl('/api/products/bom', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 

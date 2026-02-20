@@ -8,6 +8,7 @@ import ProductView from '@/components/products/ProductView'
 import ProductEdit from '@/components/products/ProductEdit'
 import { Plus } from 'lucide-react'
 import { useSession } from 'next-auth/react'
+import { getApiUrl } from '@/lib/api'
 
 type Product = {
   id: number
@@ -55,7 +56,7 @@ export default function ProductsPage() {
       setLoading(true)
       setError(null)
       
-      const res = await fetch('/api/products')
+      const res = await fetch(getApiUrl('/api/products')
       
       if (!res.ok) {
         throw new Error(`Failed to fetch products: ${res.status}`)
@@ -90,7 +91,7 @@ export default function ProductsPage() {
 
   const handleInlineSave = async (product: Product) => {
     try {
-      const res = await fetch(`/api/products/${product.id}`, {
+      const res = await fetch(getApiUrl(`/api/products/${product.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(product),
@@ -112,7 +113,7 @@ export default function ProductsPage() {
 
   const handleSave = async (product: Product) => {
     try {
-      const res = await fetch(`/api/products/${product.id}`, {
+      const res = await fetch(getApiUrl(`/api/products/${product.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(product),

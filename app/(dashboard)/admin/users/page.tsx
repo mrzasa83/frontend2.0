@@ -8,6 +8,7 @@ import UserForm from '@/components/users/UserForm'
 import UserEditTab from '@/components/users/UserEditTab'
 import UserAddForm from '@/components/users/UserAddForm'
 import { Plus, Shield } from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
 
 type User = {
   id: number
@@ -62,7 +63,7 @@ export default function AdminUserManagementPage() {
       setLoading(true)
       setError(null)
       
-      const usersRes = await fetch('/api/users')
+      const usersRes = await fetch(getApiUrl('/api/users')
       
       if (!usersRes.ok) {
         throw new Error('Failed to fetch users')
@@ -73,7 +74,7 @@ export default function AdminUserManagementPage() {
       
       // Try to fetch roles, but don't fail if endpoint doesn't exist yet
       try {
-        const rolesRes = await fetch('/api/roles')
+        const rolesRes = await fetch(getApiUrl('/api/roles')
         if (rolesRes.ok) {
           const rolesData = await rolesRes.json()
           setRoles(rolesData)
@@ -111,7 +112,7 @@ export default function AdminUserManagementPage() {
   const handleSave = async (user: User) => {
     try {
       // Save user basic info
-      const res = await fetch(`/api/users/${user.id}`, {
+      const res = await fetch(getApiUrl(`/api/users/${user.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(user),
@@ -135,7 +136,7 @@ export default function AdminUserManagementPage() {
 
   const handleAddUser = async (newUser: NewUser) => {
     try {
-      const res = await fetch('/api/users', {
+      const res = await fetch(getApiUrl('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newUser),
@@ -233,7 +234,7 @@ export default function AdminUserManagementPage() {
             // Fetch fresh user data and update both users and editingUsers
             await fetchData()
             // Update the editing user with fresh data
-            const usersRes = await fetch('/api/users')
+            const usersRes = await fetch(getApiUrl('/api/users')
             if (usersRes.ok) {
               const freshUsers = await usersRes.json()
               const freshUser = freshUsers.find((u: User) => u.id === editUser.id)

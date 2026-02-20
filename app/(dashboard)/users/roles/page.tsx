@@ -9,6 +9,7 @@ import RolesTable from '@/components/roles/RolesTable'
 import RoleView from '@/components/roles/RoleView'
 import RoleEditTab from '@/components/roles/RoleEditTab'
 import { Plus } from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
 
 type Role = {
   id: number
@@ -56,7 +57,7 @@ export default function RolesPage() {
       setLoading(true)
       setError(null)
       
-      const res = await fetch('/api/roles')
+      const res = await fetch(getApiUrl('/api/roles')
       
       if (!res.ok) {
         throw new Error(`Failed to fetch roles: ${res.status}`)
@@ -73,7 +74,7 @@ export default function RolesPage() {
   }
 
   const fetchRoleDetail = async (roleId: number): Promise<RoleDetail> => {
-    const res = await fetch(`/api/roles/${roleId}`)
+    const res = await fetch(getApiUrl(`/api/roles/${roleId}`)
     if (!res.ok) throw new Error('Failed to fetch role details')
     return res.json()
   }
@@ -109,7 +110,7 @@ export default function RolesPage() {
 
   const handleSave = async (role: RoleDetail) => {
     try {
-      const res = await fetch(`/api/roles/${role.id}`, {
+      const res = await fetch(getApiUrl(`/api/roles/${role.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: role.name }),
@@ -130,7 +131,7 @@ export default function RolesPage() {
 
   const handleAddUser = async (roleId: number, userId: number) => {
     try {
-      const res = await fetch(`/api/roles/${roleId}/users`, {
+      const res = await fetch(getApiUrl(`/api/roles/${roleId}/users`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId }),
@@ -153,7 +154,7 @@ export default function RolesPage() {
 
   const handleRemoveUser = async (roleId: number, userId: number) => {
     try {
-      const res = await fetch(`/api/roles/${roleId}/users?userId=${userId}`, {
+      const res = await fetch(getApiUrl(`/api/roles/${roleId}/users?userId=${userId}`, {
         method: 'DELETE',
       })
       
@@ -177,7 +178,7 @@ export default function RolesPage() {
     }
 
     try {
-      const res = await fetch(`/api/roles/${role.id}`, {
+      const res = await fetch(getApiUrl(`/api/roles/${role.id}`, {
         method: 'DELETE',
       })
       
@@ -199,7 +200,7 @@ export default function RolesPage() {
     if (!name || !name.trim()) return
 
     try {
-      const res = await fetch('/api/roles', {
+      const res = await fetch(getApiUrl('/api/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim() }),

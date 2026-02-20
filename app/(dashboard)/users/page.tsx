@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import Tabs from '@/components/ui/Tabs'
 import UserTable from '@/components/users/UserTable'
 import { Users as UsersIcon } from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
 
 type User = {
   id: number
@@ -36,7 +37,7 @@ export default function UsersPage() {
       setLoading(true)
       setError(null)
       
-      const res = await fetch('/api/users')
+      const res = await fetch(getApiUrl('/api/users')
       
       if (!res.ok) {
         throw new Error(`Failed to fetch users: ${res.status}`)

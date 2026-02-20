@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { ClipboardCheck, FileCheck, Calendar, Users } from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
 
 type AuditSummary = {
   totalAudits: number
@@ -26,7 +27,7 @@ export default function OperationsPage() {
 
   const fetchSummary = async () => {
     try {
-      const res = await fetch('/api/operations/audits/summary')
+      const res = await fetch(getApiUrl('/api/operations/audits/summary')
       if (res.ok) {
         const data = await res.json()
         setSummary(data)

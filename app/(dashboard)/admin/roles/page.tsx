@@ -3,6 +3,7 @@
 
 import { useState, useEffect } from 'react'
 import { Shield, Plus, Trash2, Users } from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
 
 type Role = {
   id: number
@@ -29,7 +30,7 @@ export default function AdminRoleManagementPage() {
       setLoading(true)
       setError(null)
 
-      const res = await fetch('/api/roles')
+      const res = await fetch(getApiUrl('/api/roles')
       if (!res.ok) {
         throw new Error('Failed to fetch roles')
       }
@@ -55,7 +56,7 @@ export default function AdminRoleManagementPage() {
     try {
       setSaving(true)
 
-      const res = await fetch('/api/roles', {
+      const res = await fetch(getApiUrl('/api/roles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newRoleName.trim() })
@@ -88,7 +89,7 @@ export default function AdminRoleManagementPage() {
     }
 
     try {
-      const res = await fetch(`/api/roles/${roleId}`, {
+      const res = await fetch(getApiUrl(`/api/roles/${roleId}`, {
         method: 'DELETE'
       })
 

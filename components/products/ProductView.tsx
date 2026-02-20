@@ -6,6 +6,7 @@ import { X, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
 import Tabs from '@/components/ui/Tabs'
 import DataView, { ColumnMetadata } from '@/components/ui/DataView'
 import ReleasedFilesTab from '@/components/products/ReleasedFilesTab'
+import { getApiUrl } from '@/lib/api'
 
 type Product = {
   id: number
@@ -37,7 +38,7 @@ export default function ProductView({ product, onClose }: Props) {
     const fetchHeaderData = async () => {
       try {
         // Fetch production data for status
-        const prodRes = await fetch('/api/products/production', {
+        const prodRes = await fetch(getApiUrl('/api/products/production', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ apcPN: product.apcPN })
@@ -50,7 +51,7 @@ export default function ProductView({ product, onClose }: Props) {
         }
 
         // Fetch route data for build location
-        const routeRes = await fetch('/api/products/route', {
+        const routeRes = await fetch(getApiUrl('/api/products/route', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ apcPN: product.apcPN })

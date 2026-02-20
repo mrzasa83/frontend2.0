@@ -4,6 +4,7 @@
 import { useState, useEffect } from 'react'
 import Tabs from '@/components/ui/Tabs'
 import { Save, X, Key, Link2, Wrench } from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
 
 type User = {
   id: number
@@ -73,7 +74,7 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
   const fetchCcUsers = async () => {
     try {
       setLoadingCcUsers(true)
-      const res = await fetch('/api/admin/cc-users')
+      const res = await fetch(getApiUrl('/api/admin/cc-users')
       if (res.ok) {
         const data = await res.json()
         setCcUsers(data.users || [])
@@ -116,7 +117,7 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
       setResettingPassword(true)
       setPasswordError('')
 
-      const res = await fetch(`/api/users/${user.id}/password`, {
+      const res = await fetch(getApiUrl(`/api/users/${user.id}/password`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -145,7 +146,7 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
     try {
       setSavingRoles(true)
 
-      const res = await fetch(`/api/users/${user.id}/roles`, {
+      const res = await fetch(getApiUrl(`/api/users/${user.id}/roles`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ roles: selectedRoles })
@@ -191,7 +192,7 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
     try {
       setSavingEngineerRoles(true)
 
-      const res = await fetch('/api/admin/engineer-roles', {
+      const res = await fetch(getApiUrl('/api/admin/engineer-roles', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

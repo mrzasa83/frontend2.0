@@ -12,7 +12,8 @@ function LoginForm() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
+  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
+  const callbackUrl = searchParams.get('callbackUrl') || `${basePath}/dashboard`
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

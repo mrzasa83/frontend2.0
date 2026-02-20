@@ -6,6 +6,7 @@ import { useSession, signOut } from 'next-auth/react'
 import { User, Settings, LogOut } from 'lucide-react'
 import ProfileModal from './ProfileModal'
 import SettingsModal from './SettingsModal'
+import { getApiUrl } from '@/lib/api'
 
 type UserProfile = {
   id: number
@@ -35,7 +36,7 @@ export default function TopBar() {
 
   const fetchUserProfile = async () => {
     try {
-      const res = await fetch('/api/user/profile')
+      const res = await fetch(getApiUrl('/api/user/profile')
       if (res.ok) {
         const data = await res.json()
         setUserProfile({
