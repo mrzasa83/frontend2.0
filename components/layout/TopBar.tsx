@@ -50,7 +50,8 @@ export default function TopBar() {
   }
 
   const handleLogout = async () => {
-    await signOut({ callbackUrl: '/login' })
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
+    await signOut({ callbackUrl: `${basePath}/login` })
   }
 
   const openProfile = () => {

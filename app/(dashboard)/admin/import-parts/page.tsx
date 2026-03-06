@@ -224,7 +224,7 @@ export default function ImportPartsPage() {
 
         <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
           <p className="text-sm text-blue-800">
-            <strong>Scan Path:</strong> /mnt/jdrive/APC EngJobs/
+            <strong>Scan Path:</strong> J:\APC EngJobs\ (mapped to server mount)
           </p>
           <p className="text-xs text-blue-600 mt-1">
             Only folders matching pattern #####-##### will be scanned. Part folders must start with 5 digits.

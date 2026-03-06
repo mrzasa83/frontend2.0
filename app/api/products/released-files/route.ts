@@ -5,6 +5,7 @@ import { getMySQLPrimaryPool } from '@/lib/db/mysql-primary'
 import { getMSSQLPool } from '@/lib/db/mssql'
 import * as fs from 'fs'
 import * as path from 'path'
+import { windowsToLinuxPath } from '@/lib/config/drives'
 
 type FileInfo = {
   name: string
@@ -262,19 +263,7 @@ async function queryParadigmAttachments(partNumber: string): Promise<FileInfo[]>
         const ext = path.extname(fileName).toLowerCase().slice(1)
         
         // Convert Windows path to Linux path for serving
-        let linuxPath = docPath
-        
-        // Handle UNC paths like \\APCFS04\SHARED2\path\to\file -> /mnt/sdrive/path/to/file
-        if (docPath.startsWith('\\\\APCFS04\\SHARED2')) {
-          const restOfPath = docPath.substring('\\\\APCFS04\\SHARED2'.length).replace(/\\/g, '/')
-          linuxPath = `/mnt/sdrive${restOfPath}`
-        }
-        // Handle drive letter paths like S:\path\to\file -> /mnt/sdrive/path/to/file
-        else if (docPath.match(/^[A-Za-z]:\\/)) {
-          const driveLetter = docPath[0].toLowerCase()
-          const restOfPath = docPath.substring(3).replace(/\\/g, '/')
-          linuxPath = `/mnt/${driveLetter}drive/${restOfPath}`
-        }
+        let linuxPath = windowsToLinuxPath(docPath)
         
         files.push({
           name: fileName,

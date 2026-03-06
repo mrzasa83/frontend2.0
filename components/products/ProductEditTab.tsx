@@ -215,7 +215,7 @@ export default function ProductEditTab({ product, onSave, onCancel }: Props) {
                 value={formData.fullPath || ''}
                 onChange={(e) => handleChange('fullPath', e.target.value)}
                 className={`${inputClassName} flex-1`}
-                placeholder="/mnt/jdrive/APC EngJobs/..."
+                placeholder="J:\APC EngJobs\..."
               />
               {formData.fullPath && (
                 <button

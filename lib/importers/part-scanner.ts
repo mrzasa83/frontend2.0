@@ -1,8 +1,7 @@
 import fs from 'fs/promises'
 import path from 'path'
 import { ScannedPart, parseFolderName, getItemTypeFromPartNumber } from '@/lib/types/items'
-
-const BASE_PATH = '/mnt/jdrive/APC EngJobs'
+import { ENGJOBS_PATH } from '@/lib/config/drives'
 
 // Check if folder name matches range pattern: #####-#####
 function isRangeFolder(name: string): boolean {
@@ -50,17 +49,17 @@ export async function scanAllParts(): Promise<ScannedPart[]> {
   const allParts: ScannedPart[] = []
   
   try {
-    const entries = await fs.readdir(BASE_PATH, { withFileTypes: true })
+    const entries = await fs.readdir(ENGJOBS_PATH(), { withFileTypes: true })
     
     for (const entry of entries) {
       if (entry.isDirectory() && isRangeFolder(entry.name)) {
-        const rangePath = path.join(BASE_PATH, entry.name)
+        const rangePath = path.join(ENGJOBS_PATH(), entry.name)
         const parts = await scanRangeFolder(rangePath)
         allParts.push(...parts)
       }
     }
   } catch (error) {
-    console.error(`Error scanning base path ${BASE_PATH}:`, error)
+    console.error(`Error scanning base path ${ENGJOBS_PATH()}:`, error)
     throw error
   }
   
@@ -70,7 +69,7 @@ export async function scanAllParts(): Promise<ScannedPart[]> {
 // Get list of range folders
 export async function getRangeFolders(): Promise<string[]> {
   try {
-    const entries = await fs.readdir(BASE_PATH, { withFileTypes: true })
+    const entries = await fs.readdir(ENGJOBS_PATH(), { withFileTypes: true })
     return entries
       .filter(entry => entry.isDirectory() && isRangeFolder(entry.name))
       .map(entry => entry.name)
@@ -86,7 +85,7 @@ export async function scanSpecificRanges(ranges: string[]): Promise<ScannedPart[
   const allParts: ScannedPart[] = []
   
   for (const range of ranges) {
-    const rangePath = path.join(BASE_PATH, range)
+    const rangePath = path.join(ENGJOBS_PATH(), range)
     const parts = await scanRangeFolder(rangePath)
     allParts.push(...parts)
   }

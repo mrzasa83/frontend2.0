@@ -1,0 +1,62 @@
+# docker-compose.yml — frontend2.0
+# Place this alongside the Dockerfile (or reference the build context).
+#
+# IMPORTANT:  NEXTAUTH_URL *must* include the basePath (/frontend2.0)
+#             so that NextAuth constructs callback URLs correctly.
+
+version: '3.8'
+
+services:
+  frontend2:
+    build:
+      context: .
+      args:
+        APP_VERSION: "2.4.0"
+    container_name: frontend2
+    restart: unless-stopped
+    ports:
+      - "3002:3000"      # host:container — adjust host port as needed
+
+    # ── Network drive mounts ──────────────────────────────────────────
+    # The host must have these drives already mounted (CIFS/SMB/NFS).
+    # Paths inside the container match what the app code expects by
+    # default.  Override with DRIVE_MOUNT_* env vars if the container
+    # paths differ.
+    volumes:
+      - /mnt/jdrive:/mnt/jdrive:ro      # J: drive  (EngJobs)
+      - /mnt/sdrive:/mnt/sdrive:ro      # S: drive  (APCFS04\SHARED2)
+      - /mnt/tdrive:/mnt/tdrive:ro      # T: drive  (Packaging)
+
+    environment:
+      # ── NextAuth ────────────────────────────────────────────────────
+      # MUST include the basePath so login/logout redirects work!
+      NEXTAUTH_URL: "http://your-server-hostname/frontend2.0"
+      NEXTAUTH_SECRET: "change-me-to-a-random-secret"
+
+      # ── MySQL primary (app database) ───────────────────────────────
+      DB_MYSQL_PRIMARY_HOST: "your-mysql-host"
+      DB_MYSQL_PRIMARY_PORT: "3306"
+      DB_MYSQL_PRIMARY_USER: "frontend_user"
+      DB_MYSQL_PRIMARY_PASSWORD: "changeme"
+      DB_MYSQL_PRIMARY_DATABASE: "frontend2"
+
+      # ── MySQL secondary (Paradigm read replica, optional) ──────────
+      # DB_MYSQL_SECONDARY_HOST: ""
+      # DB_MYSQL_SECONDARY_PORT: "3306"
+      # DB_MYSQL_SECONDARY_USER: ""
+      # DB_MYSQL_SECONDARY_PASSWORD: ""
+      # DB_MYSQL_SECONDARY_DATABASE: ""
+
+      # ── SQL Server (Paradigm ERP, optional) ────────────────────────
+      # DB_MSSQL_HOST: ""
+      # DB_MSSQL_PORT: "1433"
+      # DB_MSSQL_USER: ""
+      # DB_MSSQL_PASSWORD: ""
+      # DB_MSSQL_DATABASE: ""
+
+      # ── Drive mount overrides (only needed if container paths differ)
+      # DRIVE_MOUNT_J: "/mnt/jdrive"
+      # DRIVE_MOUNT_S: "/mnt/sdrive"
+      # DRIVE_MOUNT_T: "/mnt/tdrive"
+      # UNC_SERVER_NAME: "APCFS04"
+      # UNC_SHARE_NAME:  "SHARED2"

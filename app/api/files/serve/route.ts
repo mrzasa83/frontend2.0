@@ -3,14 +3,10 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import * as fs from 'fs'
 import * as path from 'path'
+import { FILE_SERVE_ALLOWED_BASES } from '@/lib/config/drives'
 
-// Map of allowed base paths (security: only serve from these directories)
-const ALLOWED_BASES = [
-  '/mnt/sdrive/FrontEndQCFolders',
-  '/mnt/sdrive/AttDocs',
-  '/mnt/tdrive/Packaging and Shipping',
-  '/mnt/jdrive'
-]
+// Allowed base paths loaded from centralized config (security whitelist)
+const ALLOWED_BASES = FILE_SERVE_ALLOWED_BASES()
 
 // MIME types for common file extensions
 const MIME_TYPES: Record<string, string> = {

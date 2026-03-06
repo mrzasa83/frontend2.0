@@ -333,7 +333,7 @@ export default function DataView({
                           value={value || ''}
                           onChange={(e) => handleFieldChange(key, e.target.value)}
                           className={`${inputClassName} flex-1`}
-                          placeholder="/mnt/jdrive/..."
+                          placeholder="J:\path\to\folder"
                         />
                       )}
                       {value && (

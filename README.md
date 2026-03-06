@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# frontEnd 2.0
 
-## Getting Started
+Internal manufacturing application — product management, work orders, audits and file serving from network drives.
 
-First, run the development server:
+## Local Development
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+cp .env.example .env.local   # edit with your DB credentials
+npm install
+npm run dev                   # http://localhost:4221
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Docker / Production
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 1. Build
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+docker compose build
+```
 
-## Learn More
+### 2. Configure
 
-To learn more about Next.js, take a look at the following resources:
+Edit `docker-compose.yml` and set:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- **`NEXTAUTH_URL`** — Must include the basePath: `http://your-host/frontend2.0`
+- **`NEXTAUTH_SECRET`** — Generate with `openssl rand -base64 32`
+- **Database credentials** — MySQL primary, MySQL secondary (Paradigm), SQL Server
+- **Volume mounts** — Network drives (J:, S:, T:) must be mounted on the Docker host
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+### 3. Run
 
-## Deploy on Vercel
+```bash
+docker compose up -d
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### 4. nginx
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Copy `nginx-frontend2.conf` to `/etc/nginx/conf.d/` and reload nginx. The config proxies `/frontend2.0/*` to the container.
+
+## Network Drive Mounts
+
+The app serves files from three network drives that must be mounted on the Docker host:
+
+| Windows | Default Linux Mount | Env Override    |
+|---------|-------------------|-----------------|
+| `J:\`   | `/mnt/jdrive`     | `DRIVE_MOUNT_J` |
+| `S:\`   | `/mnt/sdrive`     | `DRIVE_MOUNT_S` |
+| `T:\`   | `/mnt/tdrive`     | `DRIVE_MOUNT_T` |
+
+The UNC server mapping (`\\APCFS04\SHARED2` → S: drive) is configurable via `UNC_SERVER_NAME` and `UNC_SHARE_NAME`.
+
+Mount configuration is centralized in `lib/config/drives.ts`.
+
+## Key Architecture Notes
+
+- **basePath**: The Docker build uses `basePath: '/frontend2.0'` in `next.config.docker.js`. The local dev config has no basePath.
+- **Middleware**: Authentication middleware lives at the **project root** (`middleware.ts`), not inside `app/`.
+- **API calls**: Client components use `getApiUrl()` from `lib/api.ts` which prepends `NEXT_PUBLIC_BASE_PATH` to fetch URLs.
+- **SessionProvider**: Configured in `app/providers.tsx` with the correct basePath for NextAuth client calls.

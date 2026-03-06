@@ -41,4 +41,20 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+# =====================================================================
+# Required runtime env vars (set via docker-compose.yml or docker run):
+# =====================================================================
+#   NEXTAUTH_URL        = http://your-host/frontend2.0   ← MUST include basePath!
+#   NEXTAUTH_SECRET     = <random-secret>
+#   DB_MYSQL_PRIMARY_HOST / _PORT / _USER / _PASSWORD / _DATABASE
+#   DB_MYSQL_SECONDARY_HOST / ... (Paradigm read replica)
+#   DB_MSSQL_HOST / ... (SQL Server)
+#
+# Optional drive-mount overrides (defaults match typical volume mounts):
+#   DRIVE_MOUNT_J = /mnt/jdrive
+#   DRIVE_MOUNT_S = /mnt/sdrive
+#   DRIVE_MOUNT_T = /mnt/tdrive
+#   UNC_SERVER_NAME = APCFS04
+#   UNC_SHARE_NAME  = SHARED2
+
 CMD ["node", "server.js"]

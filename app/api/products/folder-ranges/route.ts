@@ -4,21 +4,10 @@ import { authOptions } from '@/lib/auth'
 import { getMySQLPrimaryPool } from '@/lib/db/mysql-primary'
 import * as fs from 'fs'
 import * as path from 'path'
+import { SITE_PATHS as getSitePaths } from '@/lib/config/drives'
 
-// Base paths for each site and file type
-const SITE_PATHS: Record<string, Record<string, string>> = {
-  finalInspection: {
-    Nashua: '/mnt/sdrive/FrontEndQCFolders/Nashua',
-    Nogales: '/mnt/sdrive/FrontEndQCFolders/Nogales',
-    Mesa: '/mnt/sdrive/FrontEndQCFolders/Mesa'
-  },
-  buildDrawings: {
-    Default: '/mnt/sdrive/AttDocs/MfgParts'
-  },
-  packShip: {
-    Default: '/mnt/tdrive/Packaging and Shipping/$Pack & Ship by Part'
-  }
-}
+// Base paths loaded from centralized drive config
+const SITE_PATHS: Record<string, Record<string, string>> = getSitePaths()
 
 type RangeInfo = {
   folderName: string
