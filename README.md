@@ -54,6 +54,6 @@ Mount configuration is centralized in `lib/config/drives.ts`.
 ## Key Architecture Notes
 
 - **basePath**: The Docker build uses `basePath: '/frontend2.0'` in `next.config.docker.js`. The local dev config has no basePath.
-- **Middleware**: Authentication middleware lives at the **project root** (`middleware.ts`), not inside `app/`.
+- **Proxy/Auth**: Next.js 16 uses `proxy.ts` (at the project root) instead of `middleware.ts`. Authentication and role-checking logic lives there.
 - **API calls**: Client components use `getApiUrl()` from `lib/api.ts` which prepends `NEXT_PUBLIC_BASE_PATH` to fetch URLs.
 - **SessionProvider**: Configured in `app/providers.tsx` with the correct basePath for NextAuth client calls.
