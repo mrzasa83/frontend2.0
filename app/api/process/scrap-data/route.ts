@@ -26,8 +26,11 @@ function findLatestFile(dir: string, prefix: string, excludePrefix?: string): st
 }
 
 // Parse .xls file — find header row with "YR Month", then read data rows
+// Note: Using fs.readFileSync + XLSX.read instead of XLSX.readFile because
+// the standalone Next.js bundle breaks XLSX's internal file access.
 function parseExcelFile(filePath: string): any[] {
-  const wb = XLSX.readFile(filePath)
+  const buffer = fs.readFileSync(filePath)
+  const wb = XLSX.read(buffer, { type: 'buffer' })
   const ws = wb.Sheets[wb.SheetNames[0]]
   const raw: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
 
