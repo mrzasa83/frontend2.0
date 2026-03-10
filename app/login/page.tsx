@@ -12,8 +12,9 @@ function LoginForm() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
 
-  const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
-  const callbackUrl = searchParams.get('callbackUrl') || `${basePath}/dashboard`
+  // router.push() automatically prepends basePath, so callbackUrl must be
+  // a plain path like "/dashboard", NOT "/frontend2.0/dashboard"
+  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

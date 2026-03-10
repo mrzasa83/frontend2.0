@@ -30,25 +30,25 @@ export const MODULES: Module[] = [
     id: 'products', 
     name: 'Product', 
     icon: Package,
-    requiredRoles: ['Admin', 'roUser', 'ProductEng', 'ProcessEng', 'Operations'],
+    requiredRoles: ['Admin', 'roUser', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations'],
     subModules: [
       { 
         id: 'products-list', 
         name: 'Products', 
         path: '/products',
-        requiredRoles: ['Admin', 'roUser', 'ProductEng', 'ProcessEng', 'Operations']
+        requiredRoles: ['Admin', 'roUser', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations']
       },
       { 
         id: 'documents', 
         name: 'Documents', 
         path: '/products/documents',
-        requiredRoles: ['Admin', 'roUser', 'ProductEng', 'ProcessEng', 'Operations']
+        requiredRoles: ['Admin', 'roUser', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations']
       },
       { 
         id: 'changes', 
         name: 'Changes', 
         path: '/products/changes',
-        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng']
+        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
       }
     ]
   },
@@ -56,25 +56,31 @@ export const MODULES: Module[] = [
     id: 'process', 
     name: 'Process', 
     icon: Cog,
-    requiredRoles: ['Admin', 'ProductEng', 'ProcessEng'],
+    requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng'],
     subModules: [
       { 
         id: 'process-list', 
         name: 'Processes', 
         path: '/process',
-        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng']
+        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
       },
       { 
         id: 'department-list', 
         name: 'Department', 
         path: '/process/department-list',
-        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng']
+        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
       },
       { 
         id: 'processsequence-list', 
         name: 'Process Sequences', 
         path: '/process/sequence-list',
-        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng']
+        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
+      },
+      { 
+        id: 'scrap-charts', 
+        name: 'Scrap Charts', 
+        path: '/process/scrap-charts',
+        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations']
       }
     ]
   },
@@ -96,19 +102,19 @@ export const MODULES: Module[] = [
     id: 'operations',
     name: 'Operations',
     icon: ClipboardCheck,
-    requiredRoles: ['Admin', 'ProcessEng', 'ProductEng'],
+    requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng'],
     subModules: [
       {
         id: 'operations-dashboard',
         name: 'Dashboard',
         path: '/operations',
-        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng']
+        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng']
       },
       {
         id: 'audits',
         name: 'Audits',
         path: '/operations/audits',
-        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng']
+        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng']
       }
     ]
   },
@@ -152,6 +158,12 @@ export const MODULES: Module[] = [
         id: 'sql-query', 
         name: 'SQL Query', 
         path: '/admin/sql-query',
+        requiredRoles: ['Admin']
+      },
+      { 
+        id: 'dept-groupings', 
+        name: 'Scrap Disciplines', 
+        path: '/admin/scrap-disciplines',
         requiredRoles: ['Admin']
       }
     ]
