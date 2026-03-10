@@ -10,11 +10,12 @@ import * as XLSX from 'xlsx'
 // ─── File location on the network share ─────────────────────────
 const YIELD_DIR = () => `${JDRIVE()}/APC EngJobs/_admin/yield`
 
-// Find the latest file matching a prefix pattern
-function findLatestFile(dir: string, prefix: string): string | null {
+// Find the latest file matching a prefix pattern, with optional exclusion
+function findLatestFile(dir: string, prefix: string, excludePrefix?: string): string | null {
   try {
     const files = fs.readdirSync(dir)
       .filter(f => f.startsWith(prefix) && (f.endsWith('.xls') || f.endsWith('.xlsx')))
+      .filter(f => !excludePrefix || !f.startsWith(excludePrefix))
       .sort()
       .reverse()
     return files.length > 0 ? path.join(dir, files[0]) : null
@@ -85,20 +86,20 @@ export async function POST(request: NextRequest) {
     const yieldDir = YIELD_DIR()
 
     // ─── Find latest files ──────────────────────────────────────
-    // Summary: Net_Yield_20260310... (NOT Net_Yield_Detail_)
-    const summaryFile = findLatestFile(yieldDir, 'Net_Yield_2')
-    const detailFile = findLatestFile(yieldDir, 'Net_Yield_Detail_')
+    // Summary: "Net Yield_2026..." — exclude "Net Yield Detail_"
+    const summaryFile = findLatestFile(yieldDir, 'Net Yield_', 'Net Yield Detail_')
+    const detailFile = findLatestFile(yieldDir, 'Net Yield Detail_')
 
     if (!summaryFile) {
       return NextResponse.json({
         error: 'Net Yield summary file not found',
-        details: `Looked in: ${yieldDir} for files starting with "Net_Yield_2..."`,
+        details: `Looked in: ${yieldDir} for files starting with "Net Yield_..."`,
       }, { status: 404 })
     }
     if (!detailFile) {
       return NextResponse.json({
         error: 'Net Yield Detail file not found',
-        details: `Looked in: ${yieldDir} for files starting with "Net_Yield_Detail_..."`,
+        details: `Looked in: ${yieldDir} for files starting with "Net Yield Detail_..."`,
       }, { status: 404 })
     }
 
