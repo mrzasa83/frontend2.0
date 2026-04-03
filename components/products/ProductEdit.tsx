@@ -2,10 +2,11 @@
 
 
 import { useState, useEffect } from 'react'
-import { Save, X, Factory, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
+import { Save, X, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
 import Tabs from '@/components/ui/Tabs'
 import DataView, { ColumnMetadata } from '@/components/ui/DataView'
 import ReleasedFilesTab from '@/components/products/ReleasedFilesTab'
+import EngineeringTab from '@/components/products/EngineeringTab'
 import { getApiUrl } from '@/lib/api'
 
 type Product = {
@@ -181,11 +182,7 @@ export default function ProductEdit({ product, onSave, onCancel }: Props) {
 
   // TAB 2: ENGINEERING (Coming Soon)
   const engineeringTab = (
-    <div className="flex flex-col items-center justify-center py-16 text-slate-500">
-      <Factory size={64} className="mb-4 opacity-50" />
-      <h3 className="text-xl font-semibold mb-2">Engineering Data</h3>
-      <p className="text-sm">Coming soon - provide database details</p>
-    </div>
+    <EngineeringTab partNumber={formData.apcPN} />
   )
 
   // TAB 3: RELEASED (Production + Files)
