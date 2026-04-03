@@ -70,10 +70,19 @@ export async function GET(request: NextRequest) {
       return (parseInt(b.Version) || 0) - (parseInt(a.Version) || 0)
     })
 
+    // Get file modification date
+    const filePath = SCALE_FILE()
+    const stat = fs.statSync(filePath)
+    const fileDate = new Date(stat.mtimeMs).toLocaleDateString('en-US', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit',
+    })
+
     return NextResponse.json({
       success: true,
       count: filtered.length,
       totalRecords: data.length,
+      fileDate,
       data: filtered,
     })
   } catch (error) {
