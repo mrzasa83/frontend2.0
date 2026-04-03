@@ -6,7 +6,7 @@ import {
   FileText, FolderOpen, ChevronDown, ChevronRight, 
   Download, ExternalLink, File, FileImage, FileSpreadsheet,
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
-  TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History
+  TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History, Ruler
 } from 'lucide-react'
 import DataView from '@/components/ui/DataView'
 import BOMTreeNavigator from '@/components/ui/BOMTreeNavigator'
@@ -143,6 +143,11 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
   const [loadingChanges, setLoadingChanges] = useState(false)
   const [changesError, setChangesError] = useState<string | null>(null)
   const [showAcceptedOnly, setShowAcceptedOnly] = useState(true) // Default to accepted only
+
+  // Scale History
+  const [scaleData, setScaleData] = useState<any[]>([])
+  const [loadingScale, setLoadingScale] = useState(false)
+  const [scaleError, setScaleError] = useState<string | null>(null)
 
   // ========================================
   // RELEASED FILES STATES
@@ -325,6 +330,26 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     }
   }
 
+  const fetchScaleData = async () => {
+    if (loadingScale || scaleData.length > 0) return
+    setLoadingScale(true)
+    setScaleError(null)
+    try {
+      const res = await fetch(getApiUrl(`/api/process/scales?partNumber=${encodeURIComponent(partNumber)}`))
+      if (!res.ok) throw new Error('Failed to fetch')
+      const result = await res.json()
+      // Sort by version descending
+      const sorted = (result.data || []).sort((a: any, b: any) =>
+        (parseInt(b.Version) || 0) - (parseInt(a.Version) || 0)
+      )
+      setScaleData(sorted)
+    } catch (err) {
+      setScaleError(err instanceof Error ? err.message : 'Failed to load')
+    } finally {
+      setLoadingScale(false)
+    }
+  }
+
   // ========================================
   // FETCH FUNCTIONS - RELEASED FILES
   // ========================================
@@ -440,6 +465,9 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
         break
       case 'changes':
         fetchChangesData()
+        break
+      case 'scale-history':
+        fetchScaleData()
         break
     }
   }, [activeSubTab, partNumber])
@@ -569,6 +597,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     { id: 'build-drawings', label: 'Build Drawings', icon: FileText },
     { id: 'pack-ship', label: 'Pack & Ship', icon: Truck },
     { id: 'changes', label: 'Changes', icon: History },
+    { id: 'scale-history', label: 'Scale History', icon: Ruler },
   ]
 
   // ========================================
@@ -1271,6 +1300,58 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
               editable={false}
               mode="table"
             />
+          </div>
+        )}
+
+        {activeSubTab === 'scale-history' && (
+          <div>
+            <div className="mb-4">
+              <h4 className="font-semibold text-slate-800">
+                Scale History ({scaleData.length})
+              </h4>
+              <p className="text-sm text-slate-600">Scale records for part {partNumber}</p>
+            </div>
+            {loadingScale ? (
+              <div className="flex items-center justify-center py-8 text-slate-500">
+                <RefreshCw size={18} className="animate-spin mr-2" />
+                Loading...
+              </div>
+            ) : scaleError ? (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">
+                {scaleError}
+              </div>
+            ) : scaleData.length === 0 ? (
+              <p className="text-sm text-slate-500 italic py-4">No scale records found for part {partNumber}</p>
+            ) : (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 border-b border-slate-200">
+                      <th className="px-4 py-2 text-left font-medium text-slate-600 w-20">Version</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-600 w-52">Date</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-600 w-28">User</th>
+                      <th className="px-4 py-2 text-left font-medium text-slate-600">Note</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scaleData.map((row, i) => (
+                      <tr key={i} className="border-b border-slate-100 hover:bg-slate-50">
+                        <td className="px-4 py-2">
+                          <span className="inline-block bg-slate-100 text-slate-700 font-mono px-2 py-0.5 rounded text-xs">
+                            v{row.Version}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-slate-600 text-xs">{row.Date}</td>
+                        <td className="px-4 py-2 text-slate-600">{row.User}</td>
+                        <td className="px-4 py-2 text-slate-600 text-xs">
+                          {row.Note || <span className="text-slate-300">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
       </div>

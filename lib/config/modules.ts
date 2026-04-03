@@ -59,21 +59,9 @@ export const MODULES: Module[] = [
     requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng'],
     subModules: [
       { 
-        id: 'process-list', 
-        name: 'Processes', 
-        path: '/process',
-        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
-      },
-      { 
-        id: 'department-list', 
-        name: 'Department', 
-        path: '/process/department-list',
-        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
-      },
-      { 
-        id: 'processsequence-list', 
-        name: 'Process Sequences', 
-        path: '/process/sequence-list',
+        id: 'scales', 
+        name: 'Scales', 
+        path: '/process/scales',
         requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
       },
       { 
