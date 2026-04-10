@@ -71,6 +71,12 @@ export const MODULES: Module[] = [
         requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
       },
       { 
+        id: 'classification', 
+        name: 'Classification', 
+        path: '/process/classification',
+        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
+      },
+      { 
         id: 'scrap-charts', 
         name: 'Scrap Charts', 
         path: '/process/scrap-charts',
