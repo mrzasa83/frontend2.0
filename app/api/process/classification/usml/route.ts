@@ -15,11 +15,42 @@ type USMLRow = {
   SME: string | null
 }
 
-// ─── GET: serve stored data + metadata ──────────────────────────
-export async function GET() {
+// ─── GET: serve stored data (or debug XML with ?debug=1) ────────
+export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const { searchParams } = new URL(request.url)
+
+  // Debug mode: fetch XML and show what the parser sees
+  if (searchParams.get('debug') === '1') {
+    try {
+      const { xmlText, apiDate } = await fetchECFR()
+      const lines = stripToLines(xmlText)
+
+      // Find lines containing "Category" or "121"
+      const interesting = lines
+        .map((l, i) => ({ i, l }))
+        .filter(({ l }) => /category/i.test(l) || /121/.test(l) || /firearms/i.test(l))
+        .slice(0, 50)
+
+      return NextResponse.json({
+        debug: true,
+        apiDate,
+        totalChars: xmlText.length,
+        totalLines: lines.length,
+        first50Lines: lines.slice(0, 50),
+        interestingLines: interesting,
+        rawFirst500: xmlText.slice(0, 500),
+      })
+    } catch (error) {
+      return NextResponse.json({
+        error: 'Debug fetch failed',
+        details: error instanceof Error ? error.message : String(error),
+      }, { status: 500 })
+    }
   }
 
   try {
@@ -46,7 +77,55 @@ export async function GET() {
   }
 }
 
-// ─── POST: refresh from eCFR XML API ────────────────────────────
+// ─── Fetch from eCFR XML API ────────────────────────────────────
+async function fetchECFR(): Promise<{ xmlText: string; apiDate: string }> {
+  for (let daysBack = 0; daysBack <= 14; daysBack++) {
+    const d = new Date()
+    d.setDate(d.getDate() - daysBack)
+    const dateStr = d.toISOString().slice(0, 10)
+    const url = `${ECFR_API_BASE}/${dateStr}/title-22.xml?part=121`
+
+    console.log(`  Trying ${dateStr}...`)
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(60000) })
+      if (res.ok) {
+        const xmlText = await res.text()
+        console.log(`  OK — ${xmlText.length.toLocaleString()} chars from ${dateStr}`)
+        return { xmlText, apiDate: dateStr }
+      }
+      console.log(`  ${res.status} for ${dateStr}`)
+    } catch (err) {
+      console.log(`  Error for ${dateStr}: ${err}`)
+    }
+  }
+  throw new Error('Could not fetch from eCFR XML API for any recent date')
+}
+
+// ─── Strip XML to text lines ────────────────────────────────────
+function stripToLines(xmlText: string): string[] {
+  let text = xmlText
+    // Strip tags
+    .replace(/<[^>]+>/g, '\n')
+    // Decode XML/HTML entities
+    .replace(/&#x2014;/gi, '\u2014')
+    .replace(/&#8212;/g, '\u2014')
+    .replace(/&#x2013;/gi, '\u2013')
+    .replace(/&#8211;/g, '\u2013')
+    .replace(/&#xA7;/gi, '\u00A7')
+    .replace(/&#167;/g, '\u00A7')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&mdash;/g, '\u2014')
+    .replace(/&ndash;/g, '\u2013')
+    .replace(/&#\d+;/g, '')  // strip remaining numeric entities
+    .replace(/&#x[0-9a-f]+;/gi, '')  // strip remaining hex entities
+
+  return text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
+}
+
+// ─── POST: refresh from eCFR ────────────────────────────────────
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) {
@@ -59,49 +138,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
     }
 
-    // Fetch from eCFR XML API — try today, then back up to 14 days
     console.log('Fetching USML data from eCFR XML API...')
-    let xmlText = ''
-    let apiDate = ''
+    const { xmlText, apiDate } = await fetchECFR()
+    const lines = stripToLines(xmlText)
+    console.log(`  ${lines.length} text lines after stripping`)
 
-    for (let daysBack = 0; daysBack <= 14; daysBack++) {
-      const d = new Date()
-      d.setDate(d.getDate() - daysBack)
-      const dateStr = d.toISOString().slice(0, 10)
-      const url = `${ECFR_API_BASE}/${dateStr}/title-22.xml?part=121`
-
-      console.log(`  Trying ${dateStr}...`)
-      try {
-        const res = await fetch(url, { signal: AbortSignal.timeout(60000) })
-        if (res.ok) {
-          xmlText = await res.text()
-          apiDate = dateStr
-          console.log(`  OK — ${xmlText.length.toLocaleString()} chars from ${dateStr}`)
-          break
-        } else if (res.status === 404) {
-          console.log(`  404 for ${dateStr}`)
-        } else {
-          console.log(`  ${res.status} for ${dateStr}`)
-        }
-      } catch (err) {
-        console.log(`  Error for ${dateStr}: ${err}`)
-      }
-    }
-
-    if (!xmlText) {
-      throw new Error('Could not fetch from eCFR XML API for any recent date (tried 15 days)')
-    }
-
-    // Parse XML text into records
-    const records = parseUSML(xmlText)
+    const records = parseLines(lines)
 
     if (records.length === 0) {
-      throw new Error(`Parser returned 0 records from ${apiDate} data — format may have changed`)
+      // Log debug info
+      const catLines = lines.filter(l => /category/i.test(l)).slice(0, 10)
+      console.error('Parser found 0 records. Lines containing "category":')
+      catLines.forEach(l => console.error(`  "${l}"`))
+      console.error('First 20 lines:')
+      lines.slice(0, 20).forEach(l => console.error(`  "${l}"`))
+
+      throw new Error(
+        `Parser returned 0 records from ${apiDate} data. ` +
+        `${lines.length} lines extracted. ` +
+        `Found ${catLines.length} lines containing "category". ` +
+        `Use ?debug=1 on GET to inspect.`
+      )
     }
 
     console.log(`Parsed ${records.length} USML records from ${apiDate}`)
 
-    // Replace all data in a transaction
+    // Replace in transaction
     const pool = getMySQLPrimaryPool()
     const conn = await pool.getConnection()
     try {
@@ -157,19 +219,7 @@ type ParsedRecord = {
   SME: string | null
 }
 
-function parseUSML(xmlText: string): ParsedRecord[] {
-  // Strip all XML/HTML tags to get plain text lines
-  const text = xmlText
-    .replace(/<[^>]+>/g, '\n')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&#8212;/g, '\u2014')
-    .replace(/&#8217;/g, '\u2019')
-
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
-
+function parseLines(lines: string[]): ParsedRecord[] {
   const records: ParsedRecord[] = []
   let nextId = 1
   let currentCatId = 0
@@ -177,20 +227,39 @@ function parseUSML(xmlText: string): ParsedRecord[] {
   let currentNumberId = 0
   let inSection = false
 
-  const catRe = /Category\s+(I{1,3}|IV|V?I{0,3}|VI{1,3}|IX|X{1,3}|XI{1,3}|XII{1,3}|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX|XXI)\s*[\u2014\u2013\-]\s*(.+)/i
+  // Broad category regex: handles em-dash, en-dash, hyphen, and various whitespace
+  const catRe = /Category\s+(I{1,3}|IV|V?I{0,3}|VI{1,3}|IX|X{1,3}|XI{1,3}|XII{1,3}|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX|XXI)\s*[\u2014\u2013\-\u2012\u2015]+\s*(.+)/i
   const letterRe = /^(\*\s*)?\(([a-z])\)\s+(.+)/i
   const numberRe = /^(\*\s*)?\((\d+)\)\s+(.+)/
   const romanSubRe = /^(\*\s*)?\((i{1,3}|iv|vi{0,3}|v)\)\s+(.+)/i
-  const reservedRangeRe = /^\*?\s*\([a-z]\)\s*-\s*\([a-z]\)\s*\[Reserved\]/i
+  const reservedRangeRe = /^\*?\s*\([a-z]\)\s*[\-\u2013\u2014]\s*\([a-z]\)\s*\[Reserved\]/i
 
   for (const line of lines) {
-    if (line.includes('121.1') && (line.includes('Munitions') || line.includes('United States'))) {
-      inSection = true
-      continue
+    // Broad detection for § 121.1 — handle § as unicode or text
+    if (!inSection) {
+      if (
+        (line.includes('121.1') && (line.includes('Munitions') || line.includes('United States'))) ||
+        (line.includes('121.1') && line.includes('List'))
+      ) {
+        inSection = true
+        console.log(`  Parser: entering section at: "${line.slice(0, 80)}"`)
+        continue
+      }
+      // Also check for the actual category start without the section header
+      if (catRe.test(line) && /Category\s+I\b/i.test(line)) {
+        inSection = true
+        console.log(`  Parser: entering section via first category: "${line.slice(0, 80)}"`)
+        // Don't continue — let it fall through to category matching below
+      }
     }
+
     if (!inSection) continue
-    if (/§\s*121\.[2-9]/.test(line) || /§§\s*121\.2/.test(line)) break
-    if (line.startsWith('Note ') || line.startsWith('Note:')) continue
+
+    // Stop at next section
+    if (/121\.[2-9]/.test(line) && /Reserved/.test(line)) break
+
+    // Skip notes
+    if (/^Note\s+\d/i.test(line) || line.startsWith('Note:')) continue
 
     // Category
     const catMatch = catRe.exec(line)
