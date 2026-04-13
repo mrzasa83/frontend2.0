@@ -229,9 +229,9 @@ function parseLines(lines: string[]): ParsedRecord[] {
 
   // Broad category regex: handles em-dash, en-dash, hyphen, and various whitespace
   const catRe = /Category\s+(I{1,3}|IV|V?I{0,3}|VI{1,3}|IX|X{1,3}|XI{1,3}|XII{1,3}|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX|XXI)\s*[\u2014\u2013\-\u2012\u2015]+\s*(.+)/i
-  const letterRe = /^(\*\s*)?\(([a-z])\)\s+(.+)/i
+  const letterRe = /^(\*\s*)?\(([a-z])\)\s+(.+)/
   const numberRe = /^(\*\s*)?\((\d+)\)\s+(.+)/
-  const romanSubRe = /^(\*\s*)?\((i{1,3}|iv|vi{0,3}|v)\)\s+(.+)/i
+  const romanSubRe = /^(\*\s*)?\((i{1,3}|iv|vi{0,3}|v)\)\s+(.+)/
   const reservedRangeRe = /^\*?\s*\([a-z]\)\s*[\-\u2013\u2014]\s*\([a-z]\)\s*\[Reserved\]/i
 
   for (const line of lines) {
