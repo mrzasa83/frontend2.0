@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   ArrowLeft, RefreshCw, ChevronRight, ChevronDown, Shield,
-  CheckCircle, Search, Clock, AlertTriangle
+  CheckCircle, Search, Clock, AlertTriangle, ChevronsDown, ChevronsUp
 } from 'lucide-react'
 import Link from 'next/link'
 import { getApiUrl } from '@/lib/api'
@@ -153,9 +153,6 @@ export default function USMLPage() {
       const result = await res.json()
       setData(result.data || [])
       setMetadata(result.metadata)
-      // Auto-expand top-level categories
-      const catIds = (result.data || []).filter((r: USMLRecord) => r.level === 0).map((r: USMLRecord) => r.id)
-      setExpanded(new Set(catIds))
     } catch (err: any) {
       setError(err.message || 'Failed to load')
     } finally {
@@ -236,6 +233,18 @@ export default function USMLPage() {
     })
   }
 
+  const expandAll = () => {
+    const allIds = data.filter(r => {
+      // Expand any node that has children
+      return data.some(child => child.parentId === r.id)
+    }).map(r => r.id)
+    setExpanded(new Set(allIds))
+  }
+
+  const collapseAll = () => {
+    setExpanded(new Set())
+  }
+
   const handleSelect = (node: TreeNode) => {
     setSelectedNode(prev => prev?.id === node.id ? null : node)
   }
@@ -280,6 +289,22 @@ export default function USMLPage() {
             className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none"
           />
         </div>
+        <button
+          onClick={expandAll}
+          disabled={data.length === 0}
+          className="px-2 py-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-30 transition-colors"
+          title="Expand all"
+        >
+          <ChevronsDown size={16} />
+        </button>
+        <button
+          onClick={collapseAll}
+          disabled={data.length === 0}
+          className="px-2 py-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-30 transition-colors"
+          title="Collapse all"
+        >
+          <ChevronsUp size={16} />
+        </button>
         <div className="flex-1" />
         <div className="flex items-center gap-2 text-xs text-slate-500">
           <Clock size={14} />
