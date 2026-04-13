@@ -222,20 +222,28 @@ type ParsedRecord = {
 function parseLines(lines: string[]): ParsedRecord[] {
   const records: ParsedRecord[] = []
   let nextId = 1
-  let currentCatId = 0
-  let currentLetterId = 0
-  let currentNumberId = 0
+  let currentCatId = 0      // Level 0: Category (Roman)
+  let currentLetterId = 0   // Level 1: (a)-(z) lowercase
+  let currentNumberId = 0   // Level 2: (1)-(99)
+  let currentRomanId = 0    // Level 3: (i)-(xxix) lowercase roman
   let inSection = false
 
-  // Broad category regex: handles em-dash, en-dash, hyphen, and various whitespace
+  // Valid lowercase roman numerals up to ~30
+  const ROMAN_NUMERALS = new Set([
+    'i','ii','iii','iv','v','vi','vii','viii','ix','x',
+    'xi','xii','xiii','xiv','xv','xvi','xvii','xviii','xix','xx',
+    'xxi','xxii','xxiii','xxiv','xxv','xxvi','xxvii','xxviii','xxix','xxx',
+  ])
+
   const catRe = /Category\s+(I{1,3}|IV|V?I{0,3}|VI{1,3}|IX|X{1,3}|XI{1,3}|XII{1,3}|XIII|XIV|XV|XVI|XVII|XVIII|XIX|XX|XXI)\s*[\u2014\u2013\-\u2012\u2015]+\s*(.+)/i
-  const letterRe = /^(\*\s*)?\(([a-z])\)\s+(.+)/
-  const numberRe = /^(\*\s*)?\((\d+)\)\s+(.+)/
-  const romanSubRe = /^(\*\s*)?\((i{1,3}|iv|vi{0,3}|v)\)\s+(.+)/
+  const letterRe = /^(\*\s*)?\(([a-z])\)\s+(.+)/           // Level 1: lowercase single letter
+  const numberRe = /^(\*\s*)?\((\d+)\)\s+(.+)/              // Level 2: number
+  const romanRe = /^(\*\s*)?\(([xvi]+)\)\s+(.+)/            // Level 3: lowercase roman numeral chars
+  const upperLetterRe = /^(\*\s*)?\(([A-Z])\)\s+(.+)/       // Level 4: uppercase single letter
   const reservedRangeRe = /^\*?\s*\([a-z]\)\s*[\-\u2013\u2014]\s*\([a-z]\)\s*\[Reserved\]/i
 
   for (const line of lines) {
-    // Broad detection for § 121.1 — handle § as unicode or text
+    // Detect start of § 121.1
     if (!inSection) {
       if (
         (line.includes('121.1') && (line.includes('Munitions') || line.includes('United States'))) ||
@@ -245,11 +253,9 @@ function parseLines(lines: string[]): ParsedRecord[] {
         console.log(`  Parser: entering section at: "${line.slice(0, 80)}"`)
         continue
       }
-      // Also check for the actual category start without the section header
       if (catRe.test(line) && /Category\s+I\b/i.test(line)) {
         inSection = true
         console.log(`  Parser: entering section via first category: "${line.slice(0, 80)}"`)
-        // Don't continue — let it fall through to category matching below
       }
     }
 
@@ -261,7 +267,7 @@ function parseLines(lines: string[]): ParsedRecord[] {
     // Skip notes
     if (/^Note\s+\d/i.test(line) || line.startsWith('Note:')) continue
 
-    // Category
+    // ── Level 0: Category ──
     const catMatch = catRe.exec(line)
     if (catMatch) {
       records.push({
@@ -271,6 +277,7 @@ function parseLines(lines: string[]): ParsedRecord[] {
       currentCatId = nextId
       currentLetterId = 0
       currentNumberId = 0
+      currentRomanId = 0
       nextId++
       continue
     }
@@ -278,26 +285,57 @@ function parseLines(lines: string[]): ParsedRecord[] {
     if (currentCatId === 0) continue
     if (reservedRangeRe.test(line)) continue
 
-    // Letter
-    const letterMatch = letterRe.exec(line)
-    if (letterMatch) {
-      const letter = letterMatch[2].toLowerCase()
-      if (letter.length === 1 && letter >= 'a' && letter <= 'z') {
-        const desc = letterMatch[3].trim()
-        if (/^\[Reserved\]$/i.test(desc)) continue
+    // ── Level 4: Uppercase letter (A)-(Z) — check FIRST to avoid conflicts ──
+    // Only valid if we're inside a roman numeral sub-item
+    const upperMatch = upperLetterRe.exec(line)
+    if (upperMatch && currentRomanId > 0) {
+      records.push({
+        id: nextId, category: upperMatch[2], parentId: currentRomanId,
+        level: 4, cDescription: upperMatch[3].trim(),
+        SME: upperMatch[1] ? 'YES' : null,
+      })
+      nextId++
+      continue
+    }
+
+    // ── Level 3: Roman numeral (i)-(xxix) ──
+    // Must be inside a number-level item
+    const romanMatch = romanRe.exec(line)
+    if (romanMatch && currentNumberId > 0) {
+      const rv = romanMatch[2].toLowerCase()
+      if (ROMAN_NUMERALS.has(rv)) {
         records.push({
-          id: nextId, category: letter, parentId: currentCatId,
-          level: 1, cDescription: desc,
-          SME: letterMatch[1] ? 'YES' : null,
+          id: nextId, category: rv, parentId: currentNumberId,
+          level: 3, cDescription: romanMatch[3].trim(),
+          SME: romanMatch[1] ? 'YES' : null,
         })
-        currentLetterId = nextId
-        currentNumberId = 0
+        currentRomanId = nextId
         nextId++
         continue
       }
     }
 
-    // Number
+    // ── Level 1: Lowercase letter (a)-(z) ──
+    const letterMatch = letterRe.exec(line)
+    if (letterMatch) {
+      const letter = letterMatch[2]
+      // Skip if this could be a roman numeral and we're in a number context
+      if (currentNumberId > 0 && ROMAN_NUMERALS.has(letter)) continue
+      const desc = letterMatch[3].trim()
+      if (/^\[Reserved\]$/i.test(desc)) continue
+      records.push({
+        id: nextId, category: letter, parentId: currentCatId,
+        level: 1, cDescription: desc,
+        SME: letterMatch[1] ? 'YES' : null,
+      })
+      currentLetterId = nextId
+      currentNumberId = 0
+      currentRomanId = 0
+      nextId++
+      continue
+    }
+
+    // ── Level 2: Number (1)-(99) ──
     const numMatch = numberRe.exec(line)
     if (numMatch && currentLetterId > 0) {
       records.push({
@@ -306,23 +344,9 @@ function parseLines(lines: string[]): ParsedRecord[] {
         SME: numMatch[1] ? 'YES' : null,
       })
       currentNumberId = nextId
+      currentRomanId = 0
       nextId++
       continue
-    }
-
-    // Roman sub-item
-    const romanMatch = romanSubRe.exec(line)
-    if (romanMatch && currentNumberId > 0) {
-      const rv = romanMatch[2].toLowerCase()
-      if (['i', 'ii', 'iii', 'iv', 'v', 'vi', 'vii'].includes(rv)) {
-        records.push({
-          id: nextId, category: rv, parentId: currentNumberId,
-          level: 3, cDescription: romanMatch[3].trim(),
-          SME: romanMatch[1] ? 'YES' : null,
-        })
-        nextId++
-        continue
-      }
     }
   }
 
