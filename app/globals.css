@@ -12,15 +12,128 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* ============================================================
+   DARK MODE OVERRIDES
+   Applied when <html class="dark"> is set via Settings.
+   The TopBar, SideNav, and Footer are already dark-themed
+   (bg-slate-800/900), so they stay as-is. These rules only
+   remap the light content-area colors.
+   ============================================================ */
+
+html.dark {
+  --background: #0f172a;
+  --foreground: #e2e8f0;
+  color-scheme: dark;
+}
+
+/* ── Backgrounds ──────────────────────────────────────────── */
+html.dark .bg-white          { background-color: #1e293b !important; }
+html.dark .bg-slate-50       { background-color: #0f172a !important; }
+html.dark .bg-slate-100      { background-color: #1e293b !important; }
+html.dark .bg-slate-200      { background-color: #334155 !important; }
+
+/* Tinted backgrounds (alerts, badges, highlights) */
+html.dark .bg-red-50         { background-color: rgba(239,68,68,0.1) !important; }
+html.dark .bg-green-50       { background-color: rgba(16,185,129,0.1) !important; }
+html.dark .bg-blue-50        { background-color: rgba(59,130,246,0.1) !important; }
+html.dark .bg-orange-50      { background-color: rgba(249,115,22,0.1) !important; }
+html.dark .bg-yellow-50      { background-color: rgba(234,179,8,0.1) !important; }
+html.dark .bg-blue-100       { background-color: rgba(59,130,246,0.15) !important; }
+html.dark .bg-red-100        { background-color: rgba(239,68,68,0.15) !important; }
+html.dark .bg-green-100      { background-color: rgba(16,185,129,0.15) !important; }
+html.dark .bg-emerald-100    { background-color: rgba(16,185,129,0.15) !important; }
+html.dark .bg-cyan-100       { background-color: rgba(6,182,212,0.15) !important; }
+
+/* Hover backgrounds on content rows/buttons */
+html.dark .hover\:bg-slate-50:hover  { background-color: #334155 !important; }
+html.dark .hover\:bg-slate-100:hover { background-color: #334155 !important; }
+html.dark .hover\:bg-blue-50:hover   { background-color: rgba(59,130,246,0.15) !important; }
+
+/* ── Text ─────────────────────────────────────────────────── */
+html.dark .text-slate-800    { color: #e2e8f0 !important; }
+html.dark .text-slate-700    { color: #cbd5e1 !important; }
+html.dark .text-slate-600    { color: #94a3b8 !important; }
+html.dark .text-slate-500    { color: #64748b !important; }
+html.dark .text-slate-400    { color: #64748b !important; }
+html.dark .text-slate-300    { color: #94a3b8 !important; }
+
+/* Colored text stays readable */
+html.dark .text-red-700      { color: #fca5a5 !important; }
+html.dark .text-red-600      { color: #f87171 !important; }
+html.dark .text-green-700    { color: #6ee7b7 !important; }
+html.dark .text-green-600    { color: #34d399 !important; }
+html.dark .text-blue-700     { color: #93c5fd !important; }
+html.dark .text-blue-600     { color: #60a5fa !important; }
+html.dark .text-orange-600   { color: #fb923c !important; }
+
+/* ── Borders ──────────────────────────────────────────────── */
+html.dark .border-slate-200  { border-color: #334155 !important; }
+html.dark .border-slate-100  { border-color: #1e293b !important; }
+html.dark .border-slate-300  { border-color: #475569 !important; }
+html.dark .border-red-200    { border-color: rgba(239,68,68,0.3) !important; }
+html.dark .border-green-200  { border-color: rgba(16,185,129,0.3) !important; }
+html.dark .border-blue-200   { border-color: rgba(59,130,246,0.3) !important; }
+
+/* ── Form inputs ──────────────────────────────────────────── */
+html.dark input,
+html.dark select,
+html.dark textarea {
+  background-color: #1e293b !important;
+  color: #e2e8f0 !important;
+  border-color: #475569 !important;
+}
+html.dark input::placeholder,
+html.dark textarea::placeholder {
+  color: #64748b !important;
+}
+html.dark input:focus,
+html.dark select:focus,
+html.dark textarea:focus {
+  border-color: #3b82f6 !important;
+}
+
+/* ── Shadows ──────────────────────────────────────────────── */
+html.dark .shadow,
+html.dark .shadow-lg,
+html.dark .shadow-xl,
+html.dark .shadow-2xl {
+  --tw-shadow-color: rgba(0,0,0,0.5) !important;
+}
+
+/* ── Tables ───────────────────────────────────────────────── */
+html.dark thead,
+html.dark .bg-slate-50 thead {
+  background-color: #1e293b !important;
+}
+
+/* ── Recharts (SVG charts) ────────────────────────────────── */
+html.dark .recharts-cartesian-grid line {
+  stroke: #334155 !important;
+}
+html.dark .recharts-text {
+  fill: #94a3b8 !important;
+}
+
+/* ── Login page gradient (keep as-is, already dark) ──────── */
+
+/* ── Scrollbars ───────────────────────────────────────────── */
+html.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+html.dark ::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+html.dark ::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 4px;
+}
+html.dark ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }

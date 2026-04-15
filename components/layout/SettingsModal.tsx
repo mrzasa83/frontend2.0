@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { X, Moon, Sun, Monitor } from 'lucide-react'
 
 type ThemeMode = 'light' | 'dark' | 'system'
@@ -13,16 +13,7 @@ type Props = {
 export default function SettingsModal({ isOpen, onClose }: Props) {
   const [theme, setTheme] = useState<ThemeMode>('light')
 
-  useEffect(() => {
-    // Load saved theme preference
-    const savedTheme = localStorage.getItem('theme') as ThemeMode | null
-    if (savedTheme) {
-      setTheme(savedTheme)
-      applyTheme(savedTheme)
-    }
-  }, [])
-
-  const applyTheme = (mode: ThemeMode) => {
+  const applyTheme = useCallback((mode: ThemeMode) => {
     const root = document.documentElement
     
     if (mode === 'dark') {
@@ -38,7 +29,29 @@ export default function SettingsModal({ isOpen, onClose }: Props) {
         root.classList.remove('dark')
       }
     }
-  }
+  }, [])
+
+  useEffect(() => {
+    // Load saved theme preference
+    const savedTheme = localStorage.getItem('theme') as ThemeMode | null
+    if (savedTheme) {
+      setTheme(savedTheme)
+      applyTheme(savedTheme)
+    }
+  }, [applyTheme])
+
+  // Listen for system preference changes when in "system" mode
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    const handler = () => {
+      const current = localStorage.getItem('theme') as ThemeMode | null
+      if (current === 'system') {
+        applyTheme('system')
+      }
+    }
+    mediaQuery.addEventListener('change', handler)
+    return () => mediaQuery.removeEventListener('change', handler)
+  }, [applyTheme])
 
   const handleThemeChange = (mode: ThemeMode) => {
     setTheme(mode)
@@ -56,15 +69,15 @@ export default function SettingsModal({ isOpen, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
-          <h2 className="text-xl font-bold text-slate-800 dark:text-white">Settings</h2>
+        <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
+          <h2 className="text-xl font-bold text-slate-800">Settings</h2>
           <button 
             onClick={onClose} 
-            className="p-2 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors"
+            className="p-2 hover:bg-slate-100 rounded-lg transition-colors"
           >
-            <X size={20} className="text-slate-600 dark:text-slate-300" />
+            <X size={20} className="text-slate-600" />
           </button>
         </div>
 
@@ -72,8 +85,8 @@ export default function SettingsModal({ isOpen, onClose }: Props) {
         <div className="p-6">
           {/* Appearance Section */}
           <div>
-            <h3 className="text-sm font-semibold text-slate-800 dark:text-white mb-1">Appearance</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mb-4">Choose how the application looks</p>
+            <h3 className="text-sm font-semibold text-slate-800 mb-1">Appearance</h3>
+            <p className="text-sm text-slate-500 mb-4">Choose how the application looks</p>
 
             <div className="space-y-2">
               {themeOptions.map(option => (
@@ -82,26 +95,26 @@ export default function SettingsModal({ isOpen, onClose }: Props) {
                   onClick={() => handleThemeChange(option.id)}
                   className={`w-full flex items-center gap-3 p-3 rounded-lg border-2 transition-colors ${
                     theme === option.id
-                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30'
-                      : 'border-slate-200 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-500'
+                      ? 'border-blue-500 bg-blue-50'
+                      : 'border-slate-200 hover:border-blue-300'
                   }`}
                 >
                   <div className={`p-2 rounded-lg ${
                     theme === option.id 
                       ? 'bg-blue-500 text-white' 
-                      : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                      : 'bg-slate-100 text-slate-600'
                   }`}>
                     <option.icon size={20} />
                   </div>
                   <div className="text-left">
                     <p className={`font-medium ${
                       theme === option.id 
-                        ? 'text-blue-700 dark:text-blue-300' 
-                        : 'text-slate-700 dark:text-slate-200'
+                        ? 'text-blue-700' 
+                        : 'text-slate-700'
                     }`}>
                       {option.label}
                     </p>
-                    <p className="text-xs text-slate-500 dark:text-slate-400">{option.description}</p>
+                    <p className="text-xs text-slate-500">{option.description}</p>
                   </div>
                   {theme === option.id && (
                     <div className="ml-auto">
@@ -118,8 +131,8 @@ export default function SettingsModal({ isOpen, onClose }: Props) {
           </div>
 
           {/* Placeholder for future settings */}
-          <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
-            <p className="text-sm text-slate-500 dark:text-slate-400 text-center">
+          <div className="mt-6 pt-6 border-t border-slate-200">
+            <p className="text-sm text-slate-500 text-center">
               More settings coming soon...
             </p>
           </div>
