@@ -1,11 +1,11 @@
 'use client'
 
-import { useState, useEffect, useMemo, Suspense } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback, Suspense } from 'react'
 import { useSession } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
 import {
   ArrowLeft, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown,
-  X, ChevronRight, MessageSquare, Send, Filter
+  X, ChevronLeft, ChevronRight, MessageSquare, Send, Filter
 } from 'lucide-react'
 import Link from 'next/link'
 import { getApiUrl } from '@/lib/api'
@@ -88,12 +88,48 @@ function PostOpInline({ mcnId, current, canEdit, onSaved }: {
 }
 
 // ─── Detail View ─────────────────────────────────────────────────
-function RecordDetail({ record, canEdit, onClose }: {
+function RecordDetail({ record, canEdit, onClose, onPrev, onNext, hasPrev, hasNext }: {
   record: MCNRecord; canEdit: boolean; onClose: () => void
+  onPrev: () => void; onNext: () => void; hasPrev: boolean; hasNext: boolean
 }) {
   const [comments, setComments] = useState<any[]>([])
   const [newComment, setNewComment] = useState('')
   const [savingComment, setSavingComment] = useState(false)
+  const pendingCommentRef = useRef('')
+
+  // Keep ref in sync with state
+  useEffect(() => { pendingCommentRef.current = newComment }, [newComment])
+
+  // Auto-save pending comment before navigating away
+  const autoSave = useCallback(async () => {
+    const pending = pendingCommentRef.current.trim()
+    if (pending && canEdit) {
+      try {
+        await fetch(getApiUrl('/api/process/drill-rout/postop-comments'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mcnId: record.id, comment: pending }),
+        })
+      } catch (e) { console.error('Auto-save failed:', e) }
+    }
+  }, [record.id, canEdit])
+
+  const handleClose = async () => {
+    await autoSave()
+    onClose()
+  }
+
+  const handlePrev = async () => {
+    await autoSave()
+    setNewComment('')
+    onPrev()
+  }
+
+  const handleNext = async () => {
+    await autoSave()
+    setNewComment('')
+    onNext()
+  }
 
   useEffect(() => {
     fetchComments()
@@ -142,7 +178,7 @@ function RecordDetail({ record, canEdit, onClose }: {
     <div className="h-full flex flex-col">
       <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
         <div className="flex items-center gap-3">
-          <button onClick={onClose} className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded">
+          <button onClick={handleClose} className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded">
             <ArrowLeft size={20} />
           </button>
           <div>
@@ -152,7 +188,25 @@ function RecordDetail({ record, canEdit, onClose }: {
             <p className="text-sm text-slate-500">{record.initiator} · {formatDate(record.subDate)}</p>
           </div>
         </div>
-        <button onClick={onClose} className="p-1 text-slate-400 hover:text-slate-600"><X size={20} /></button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={handlePrev}
+            disabled={!hasPrev}
+            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Previous record"
+          >
+            <ChevronLeft size={20} />
+          </button>
+          <button
+            onClick={handleNext}
+            disabled={!hasNext}
+            className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            title="Next record"
+          >
+            <ChevronRight size={20} />
+          </button>
+          <button onClick={handleClose} className="p-1 ml-2 text-slate-400 hover:text-slate-600"><X size={20} /></button>
+        </div>
       </div>
 
       <div className="border-b border-slate-200 px-6 flex-shrink-0">
@@ -377,6 +431,32 @@ function PageContent() {
   }
 
   // Detail view
+  const currentIndex = useMemo(() => {
+    if (!selectedRecord) return -1
+    return sorted.findIndex(r => r.id === selectedRecord.id)
+  }, [sorted, selectedRecord])
+
+  const navigateTo = async (index: number) => {
+    const rec = sorted[index]
+    if (!rec) return
+    setSelectedRecord(rec)
+    setDetailRecord(null)
+    setLoadingDetail(true)
+    try {
+      const res = await fetch(getApiUrl(`/api/process/drill-rout/rout-speed-feed?id=${rec.id}`))
+      if (res.ok) {
+        const result = await res.json()
+        setDetailRecord(result.record)
+      } else {
+        setDetailRecord(rec)
+      }
+    } catch {
+      setDetailRecord(rec)
+    } finally {
+      setLoadingDetail(false)
+    }
+  }
+
   if (selectedRecord && (detailRecord || loadingDetail)) {
     if (loadingDetail) {
       return (
@@ -386,7 +466,17 @@ function PageContent() {
         </div>
       )
     }
-    return <RecordDetail record={detailRecord!} canEdit={canEdit} onClose={() => { setSelectedRecord(null); setDetailRecord(null) }} />
+    return (
+      <RecordDetail
+        record={detailRecord!}
+        canEdit={canEdit}
+        onClose={() => { setSelectedRecord(null); setDetailRecord(null); handleCommentSaved() }}
+        onPrev={() => navigateTo(currentIndex - 1)}
+        onNext={() => navigateTo(currentIndex + 1)}
+        hasPrev={currentIndex > 0}
+        hasNext={currentIndex < sorted.length - 1}
+      />
+    )
   }
 
   const COL = { date: '10%', part: '10%', tool: '10%', init: '12%', change: '38%', postop: '20%' }

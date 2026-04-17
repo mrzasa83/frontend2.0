@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS drill_rout_searches (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
   description VARCHAR(255) DEFAULT NULL,
-  conditions TEXT NOT NULL,
+  conditions JSON NOT NULL,
   -- conditions format: [{"field":"change","op":"contains","value":"feed","logic":"AND"},...]
   -- field: "change" | "chngeffect"
   -- op: "contains" | "equals" | "startsWith"
