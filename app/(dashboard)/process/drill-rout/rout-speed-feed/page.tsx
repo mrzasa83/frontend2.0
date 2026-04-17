@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
 import {
   ArrowLeft, Search, RefreshCw, ArrowUpDown, ArrowUp, ArrowDown,
-  X, ChevronLeft, ChevronRight, MessageSquare, Send, Filter
+  X, ChevronLeft, ChevronRight, MessageSquare, Send, Filter, Download
 } from 'lucide-react'
 import Link from 'next/link'
 import { getApiUrl } from '@/lib/api'
@@ -430,6 +430,29 @@ function PageContent() {
     if (ids.length > 0) fetchComments(ids)
   }
 
+  const downloadExcel = useCallback(async () => {
+    const XLSX = await import('xlsx')
+    const rows = sorted.map(r => ({
+      'Date': formatDate(r.subDate),
+      'Part Number': r.partnum || '',
+      'Tool Number': r.toolnum || '',
+      'Initiator': r.initiator || '',
+      'Change': r.change || '',
+      'Reason': r.reason || '',
+      'Change Effect': r.chngeffect || '',
+      'PostOp Comment': commentMap[r.id] || '',
+    }))
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'MCN Records')
+    ws['!cols'] = [
+      { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 18 },
+      { wch: 60 }, { wch: 40 }, { wch: 16 }, { wch: 40 },
+    ]
+    const safeName = searchName.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_')
+    XLSX.writeFile(wb, `${safeName}.xlsx`)
+  }, [sorted, commentMap, searchName])
+
   // Detail view
   const currentIndex = useMemo(() => {
     if (!selectedRecord) return -1
@@ -529,6 +552,15 @@ function PageContent() {
           </button>
         )}
         <div className="flex-1" />
+        <button
+          onClick={downloadExcel}
+          disabled={sorted.length === 0}
+          className="px-3 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 flex items-center gap-2 whitespace-nowrap"
+          title="Download as Excel"
+        >
+          <Download size={15} />
+          Excel
+        </button>
         <button onClick={fetchData} disabled={loading} className="px-3 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
         </button>
