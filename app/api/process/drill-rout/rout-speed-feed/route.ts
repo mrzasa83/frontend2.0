@@ -93,6 +93,9 @@ export async function GET(request: NextRequest) {
       SELECT
         id, initiator,
         STR_TO_DATE(subdate, '%d%b%Y') as subDate,
+        subtime,
+        STR_TO_DATE(closeddate, '%d%b%Y') as closedDate,
+        closedtime,
         toolnum, partnum,
         \`change\`, reason, chngeffect
       FROM mcn

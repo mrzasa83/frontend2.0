@@ -14,6 +14,9 @@ type MCNRecord = {
   id: number
   initiator: string | null
   subDate: string | null
+  subtime: string | null
+  closedDate: string | null
+  closedtime: string | null
   toolnum: string | null
   partnum: string | null
   change: string | null
@@ -30,6 +33,13 @@ function formatDate(d: string | null): string {
   try {
     return new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' })
   } catch { return String(d) }
+}
+
+function formatDateTime(d: string | null, t: string | null): string {
+  if (!d) return ''
+  const datePart = formatDate(d)
+  if (!t) return datePart
+  return `${datePart} ${t}`
 }
 
 // ─── PostOp Comment Inline Editor ────────────────────────────────
@@ -163,13 +173,14 @@ function RecordDetail({ record, canEdit, onClose, onPrev, onNext, hasPrev, hasNe
   const summaryFields = [
     { label: 'ID', value: record.id },
     { label: 'Initiator', value: record.initiator },
-    { label: 'Date', value: formatDate(record.subDate) },
+    { label: 'Submitted Date', value: formatDateTime(record.subDate, record.subtime) },
     { label: 'Part Number', value: record.partnum },
     { label: 'Tool Number', value: record.toolnum },
     { label: 'Change Effect', value: record.chngeffect },
+    { label: 'Closed Date', value: formatDateTime(record.closedDate, record.closedtime) },
   ]
 
-  const knownKeys = new Set(['id', 'initiator', 'subDate', 'toolnum', 'partnum', 'change', 'reason', 'chngeffect'])
+  const knownKeys = new Set(['id', 'initiator', 'subDate', 'subtime', 'closedDate', 'closedtime', 'toolnum', 'partnum', 'change', 'reason', 'chngeffect'])
   const extraFields = Object.entries(record)
     .filter(([k, v]) => !knownKeys.has(k) && v !== null && v !== '')
     .map(([k, v]) => ({ label: k, value: String(v) }))
@@ -185,7 +196,7 @@ function RecordDetail({ record, canEdit, onClose, onPrev, onNext, hasPrev, hasNe
             <h3 className="text-lg font-semibold text-slate-800">
               MCN #{record.id} <span className="text-sm font-normal text-slate-500">— {record.partnum}</span>
             </h3>
-            <p className="text-sm text-slate-500">{record.initiator} · {formatDate(record.subDate)}</p>
+            <p className="text-sm text-slate-500">{record.initiator} · {formatDateTime(record.subDate, record.subtime)}</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -433,11 +444,12 @@ function PageContent() {
   const downloadExcel = useCallback(async () => {
     const XLSX = await import('xlsx')
     const rows = sorted.map(r => ({
-      'Date': formatDate(r.subDate),
       'Part Number': r.partnum || '',
       'Tool Number': r.toolnum || '',
       'Initiator': r.initiator || '',
       'Change': r.change || '',
+      'Submitted Date': formatDateTime(r.subDate, r.subtime),
+      'Closed Date': formatDateTime(r.closedDate, r.closedtime),
       'Reason': r.reason || '',
       'Change Effect': r.chngeffect || '',
       'PostOp Comment': commentMap[r.id] || '',
@@ -446,8 +458,8 @@ function PageContent() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'MCN Records')
     ws['!cols'] = [
-      { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 18 },
-      { wch: 60 }, { wch: 40 }, { wch: 16 }, { wch: 40 },
+      { wch: 14 }, { wch: 14 }, { wch: 18 }, { wch: 60 },
+      { wch: 20 }, { wch: 20 }, { wch: 40 }, { wch: 16 }, { wch: 40 },
     ]
     const safeName = searchName.replace(/[^a-zA-Z0-9 _-]/g, '').replace(/\s+/g, '_')
     XLSX.writeFile(wb, `${safeName}.xlsx`)
@@ -502,7 +514,7 @@ function PageContent() {
     )
   }
 
-  const COL = { date: '10%', part: '10%', tool: '10%', init: '12%', change: '38%', postop: '20%' }
+  const COL = { part: '10%', tool: '10%', init: '12%', change: '28%', subDate: '10%', closedDate: '10%', postop: '20%' }
 
   return (
     <div className="p-6 flex flex-col h-[calc(100vh-4rem)]">
@@ -574,18 +586,16 @@ function PageContent() {
       <div className="flex-1 min-h-0 bg-white rounded-lg border border-slate-200 overflow-y-auto">
         <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{ width: COL.date }} />
             <col style={{ width: COL.part }} />
             <col style={{ width: COL.tool }} />
             <col style={{ width: COL.init }} />
             <col style={{ width: COL.change }} />
+            <col style={{ width: COL.subDate }} />
+            <col style={{ width: COL.closedDate }} />
             <col style={{ width: COL.postop }} />
           </colgroup>
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr className="border-b border-slate-200">
-              <th className="px-3 py-3 text-left font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none" onClick={() => toggleSort('subDate')}>
-                <div className="flex items-center gap-1">Date <SortIcon col="subDate" /></div>
-              </th>
               <th className="px-3 py-3 text-left font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none" onClick={() => toggleSort('partnum')}>
                 <div className="flex items-center gap-1">Part # <SortIcon col="partnum" /></div>
               </th>
@@ -596,21 +606,25 @@ function PageContent() {
                 <div className="flex items-center gap-1">Initiator <SortIcon col="initiator" /></div>
               </th>
               <th className="px-3 py-3 text-left font-medium text-slate-600">Change</th>
+              <th className="px-3 py-3 text-left font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none" onClick={() => toggleSort('subDate')}>
+                <div className="flex items-center gap-1">Submitted <SortIcon col="subDate" /></div>
+              </th>
+              <th className="px-3 py-3 text-left font-medium text-slate-600">Closed</th>
               <th className="px-3 py-3 text-left font-medium text-slate-600">
-                <div className="flex items-center gap-1"><MessageSquare size={14} /> PostOp Comments</div>
+                <div className="flex items-center gap-1"><MessageSquare size={14} /> PostOp</div>
               </th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-slate-500">
+                <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
                   <RefreshCw size={20} className="animate-spin mx-auto mb-2" /> Loading...
                 </td>
               </tr>
             ) : sorted.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-slate-500">
+                <td colSpan={7} className="px-4 py-12 text-center text-slate-500">
                   {search || filterInitiator || filterPartnum ? 'No matching records' : 'No records found'}
                 </td>
               </tr>
@@ -621,7 +635,6 @@ function PageContent() {
                   onClick={() => handleRowClick(row)}
                   className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer group"
                 >
-                  <td className="px-3 py-2.5 text-slate-600 text-xs">{formatDate(row.subDate)}</td>
                   <td className="px-3 py-2.5 font-mono font-medium text-slate-800">{row.partnum || '—'}</td>
                   <td className="px-3 py-2.5 text-slate-700">{row.toolnum || '—'}</td>
                   <td className="px-3 py-2.5 text-slate-600 truncate">{row.initiator || '—'}</td>
@@ -630,6 +643,8 @@ function PageContent() {
                       {row.change || '—'}
                     </div>
                   </td>
+                  <td className="px-3 py-2.5 text-slate-600 text-xs">{formatDateTime(row.subDate, row.subtime)}</td>
+                  <td className="px-3 py-2.5 text-slate-600 text-xs">{formatDateTime(row.closedDate, row.closedtime)}</td>
                   <td className="px-3 py-2.5">
                     <PostOpInline
                       mcnId={row.id}
