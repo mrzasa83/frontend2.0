@@ -9,6 +9,7 @@ RUN echo 'Acquire::https::Verify-Peer "false";' > /etc/apt/apt.conf.d/99no-ssl-v
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xpra \
+    xpra-html5 \
     xvfb \
     xfce4-terminal \
     dbus-x11 \
