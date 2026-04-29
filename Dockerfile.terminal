@@ -3,10 +3,12 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Xpra + X11 deps + xfce4-terminal
+# Bypass SSL verification for corporate proxy
+RUN echo 'Acquire::https::Verify-Peer "false";' > /etc/apt/apt.conf.d/99no-ssl-verify && \
+    echo 'Acquire::https::Verify-Host "false";' >> /etc/apt/apt.conf.d/99no-ssl-verify
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xpra \
-    xpra-html5 \
     xvfb \
     xfce4-terminal \
     dbus-x11 \
@@ -16,9 +18,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     procps \
     ca-certificates \
-    python3-paramiko \
-    python3-rencode \
-    python3-websockify \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user matching the app container
