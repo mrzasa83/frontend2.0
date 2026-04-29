@@ -1,0 +1,39 @@
+# Dockerfile.terminal — lightweight web terminal via ttyd
+FROM alpine:3.20
+
+RUN apk add --no-cache \
+    ttyd \
+    bash \
+    openssh-client \
+    curl \
+    vim \
+    less \
+    git \
+    procps \
+    coreutils \
+    && rm -rf /var/cache/apk/*
+
+# Create a non-root user matching the app container
+RUN adduser -D -u 2029 -s /bin/bash appuser
+
+# SSH config dir for the user
+RUN mkdir -p /home/appuser/.ssh && \
+    chmod 700 /home/appuser/.ssh && \
+    chown -R appuser:appuser /home/appuser
+
+# Default bashrc with a useful prompt
+RUN echo 'PS1="\\[\\e[32m\\]\\u@terminal\\[\\e[0m\\]:\\[\\e[34m\\]\\w\\[\\e[0m\\]\\$ "' > /home/appuser/.bashrc && \
+    echo 'alias ll="ls -la"' >> /home/appuser/.bashrc && \
+    echo 'echo "Web Terminal — Type ssh <hostname> to connect to remote hosts"' >> /home/appuser/.bashrc && \
+    chown appuser:appuser /home/appuser/.bashrc
+
+USER appuser
+WORKDIR /home/appuser
+
+EXPOSE 7681
+
+# ttyd options:
+#   -W  = writable (allow input)
+#   -t  = terminal options
+#   -p  = port
+CMD ["ttyd", "-W", "-p", "7681", "-t", "fontSize=14", "-t", "theme={\"background\":\"#0f172a\",\"foreground\":\"#e2e8f0\"}", "bash"]
