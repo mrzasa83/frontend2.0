@@ -21,8 +21,8 @@ export default function TerminalPage() {
           </div>
           <h2 className="text-2xl font-bold text-slate-800 mb-2">Web Terminal</h2>
           <p className="text-slate-600 mb-6">
-            Launch a terminal session in your browser. Use it to SSH into remote hosts
-            or run commands on the server.
+            Launch a graphical terminal session in your browser via Xpra.
+            Run X applications, SSH into remote hosts, or work locally.
           </p>
           <div className="flex gap-3 justify-center">
             <button
@@ -51,7 +51,7 @@ export default function TerminalPage() {
       <div className="flex items-center justify-between px-4 py-2 bg-slate-800 border-b border-slate-700 flex-shrink-0">
         <div className="flex items-center gap-2">
           <Terminal size={16} className="text-green-400" />
-          <span className="text-sm font-medium text-slate-200">Terminal</span>
+          <span className="text-sm font-medium text-slate-200">Terminal (Xpra)</span>
         </div>
         <div className="flex items-center gap-1">
           <button
