@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Download Xpra HTML5 client (skip SSL for corporate proxy)
-RUN curl -kfsSL "https://github.com/Xpra-org/xpra-html5/archive/refs/tags/v15.0.tar.gz" \
+RUN curl -kfsSL "https://github.com/Xpra-org/xpra-html5/archive/refs/tags/v19.tar.gz" \
     -o /tmp/xpra-html5.tar.gz && \
     mkdir -p /tmp/xpra-html5-extract && \
     tar xzf /tmp/xpra-html5.tar.gz -C /tmp/xpra-html5-extract --strip-components=1 && \
