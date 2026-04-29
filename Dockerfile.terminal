@@ -1,23 +1,16 @@
-# Dockerfile.terminal — lightweight web terminal via ttyd
-FROM ubuntu:24.04
+# Dockerfile.terminal — web terminal via ttyd
+# Uses the official ttyd image which already has the binary
+FROM tsl0922/ttyd:latest
 
-ENV DEBIAN_FRONTEND=noninteractive
+USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    bash \
     openssh-client \
-    curl \
     vim-tiny \
     less \
     git \
-    ca-certificates \
     procps \
     && rm -rf /var/lib/apt/lists/*
-
-# Install ttyd from GitHub releases
-RUN ARCH=$(uname -m) && \
-    curl -fsSL "https://github.com/tsl0922/ttyd/releases/download/1.7.7/ttyd.${ARCH}" -o /usr/local/bin/ttyd && \
-    chmod +x /usr/local/bin/ttyd
 
 # Create a non-root user matching the app container
 RUN useradd -m -u 2029 -s /bin/bash appuser
