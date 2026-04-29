@@ -1,4 +1,4 @@
-import { Home, Package, Users, Settings, Cog, ClipboardCheck } from 'lucide-react'
+import { Home, Package, Users, Settings, Cog, ClipboardCheck, AppWindow } from 'lucide-react'
 
 export type SubModule = {
   id: string
@@ -81,6 +81,26 @@ export const MODULES: Module[] = [
         name: 'Scrap Charts', 
         path: '/process/scrap-charts',
         requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations']
+      }
+    ]
+  },
+  { 
+    id: 'apps', 
+    name: 'App', 
+    icon: AppWindow,
+    requiredRoles: [],
+    subModules: [
+      { 
+        id: 'frontvue', 
+        name: 'FrontVue', 
+        path: '/apps/frontvue',
+        requiredRoles: []
+      },
+      { 
+        id: 'terminal', 
+        name: 'Terminal', 
+        path: '/apps/terminal',
+        requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
       }
     ]
   },

@@ -45,6 +45,7 @@ export default async function proxy(request: NextRequest) {
     pathname.startsWith('/admin') ||
     pathname.startsWith('/products') ||
     pathname.startsWith('/process') ||
+    pathname.startsWith('/apps') ||
     pathname.startsWith('/users')
   ) {
     const hasAccess = canAccessPath(userRoles, pathname)
