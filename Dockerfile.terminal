@@ -9,7 +9,6 @@ RUN echo 'Acquire::https::Verify-Peer "false";' > /etc/apt/apt.conf.d/99no-ssl-v
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xpra \
-    xpra-html5 \
     xvfb \
     xfce4-terminal \
     dbus-x11 \
@@ -18,8 +17,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     less \
     git \
     procps \
+    curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
+
+# Download Xpra HTML5 client (skip SSL for corporate proxy)
+RUN curl -kfsSL "https://github.com/Xpra-org/xpra-html5/archive/refs/tags/v15.0.tar.gz" \
+    -o /tmp/xpra-html5.tar.gz && \
+    mkdir -p /tmp/xpra-html5-extract && \
+    tar xzf /tmp/xpra-html5.tar.gz -C /tmp/xpra-html5-extract --strip-components=1 && \
+    mkdir -p /usr/share/xpra/www && \
+    cp -r /tmp/xpra-html5-extract/html5/* /usr/share/xpra/www/ && \
+    rm -rf /tmp/xpra-html5*
 
 # Create non-root user matching the app container
 RUN useradd -m -u 2029 -s /bin/bash appuser
