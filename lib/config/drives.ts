@@ -66,17 +66,20 @@ export const SITE_PATHS = () => ({
 export function windowsToLinuxPath(windowsPath: string): string {
   if (!windowsPath) return windowsPath
 
-  // UNC path  \\APCFS04\SHARED2\rest  →  /mnt/sdrive/rest
+  // Normalize: forward slashes to backslashes
+  const normalized = windowsPath.replace(/\//g, '\\')
+
+  // UNC path  \\APCFS04\SHARED2\rest  →  /mnt/sdrive/rest  (case-insensitive match)
   const uncPrefix = `\\\\${UNC_SERVER()}\\${UNC_SHARE()}`
-  if (windowsPath.startsWith(uncPrefix)) {
-    const rest = windowsPath.substring(uncPrefix.length).replace(/\\/g, '/')
+  if (normalized.toLowerCase().startsWith(uncPrefix.toLowerCase())) {
+    const rest = normalized.substring(uncPrefix.length).replace(/\\/g, '/')
     return `${SDRIVE()}${rest}`
   }
 
   // Drive letter  X:\rest  →  /mnt/xdrive/rest
-  if (/^[A-Za-z]:\\/.test(windowsPath)) {
-    const letter = windowsPath[0].toLowerCase()
-    const rest = windowsPath.substring(3).replace(/\\/g, '/')
+  if (/^[A-Za-z]:\\/.test(normalized)) {
+    const letter = normalized[0].toLowerCase()
+    const rest = normalized.substring(3).replace(/\\/g, '/')
     // Map known drive letters to their mount points
     const driveMap: Record<string, () => string> = {
       j: JDRIVE,

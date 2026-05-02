@@ -252,7 +252,7 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
   const [prefixes, setPrefixes] = useState<{prefix:string;count:number}[]>([])
   const [selectedPrefix, setSelectedPrefix] = useState('')
   const [fromPrefix, setFromPrefix] = useState('')
-  const [toPrefix, setToPrefix] = useState('\\\\APCFS04\\SHARED2\\')
+  const [toPrefix, setToPrefix] = useState('\\\\APCFS04\\SHARED2\\AttDocs\\')
   const [data, setData] = useState<any[]>([])
   const [summary, setSummary] = useState<any>(null)
   const [loading, setLoading] = useState(false)

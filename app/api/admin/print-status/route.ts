@@ -149,16 +149,38 @@ export async function GET(request: NextRequest) {
 
       const fromLower = fromPrefix.toLowerCase()
 
-      // Helper: check if file/dir exists on the Linux mount
+      // Helper: resolve a path case-insensitively on the Linux filesystem.
+      // Windows paths are case-insensitive but Linux isn't — walk each segment.
+      function resolveCaseInsensitive(targetPath: string): string | null {
+        const segments = targetPath.split('/').filter(Boolean)
+        let current = '/'
+
+        for (const seg of segments) {
+          try {
+            const entries = fs.readdirSync(current)
+            const match = entries.find(e => e.toLowerCase() === seg.toLowerCase())
+            if (!match) return null
+            current = current === '/' ? `/${match}` : `${current}/${match}`
+          } catch {
+            return null
+          }
+        }
+        return current
+      }
+
+      // Check if file/dir exists on the Linux mount (case-insensitive)
       function checkPath(winPath: string): 'found' | 'missing' | 'unmapped' {
         try {
           const linuxPath = windowsToLinuxPath(winPath)
-          // If windowsToLinuxPath returned the input unchanged, we can't map it
           if (linuxPath === winPath) return 'unmapped'
+
+          // Try exact match first (fast path)
           if (fs.existsSync(linuxPath)) return 'found'
-          // Check if the parent directory exists (file may have been moved/renamed)
-          const dir = linuxPath.substring(0, linuxPath.lastIndexOf('/'))
-          if (dir && fs.existsSync(dir)) return 'missing' // dir exists but file doesn't
+
+          // Try case-insensitive resolution
+          const resolved = resolveCaseInsensitive(linuxPath)
+          if (resolved && fs.existsSync(resolved)) return 'found'
+
           return 'missing'
         } catch {
           return 'unmapped'
