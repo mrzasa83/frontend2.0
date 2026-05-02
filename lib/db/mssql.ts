@@ -84,6 +84,25 @@ export async function queryMSSQL<T = any>(
   return result.recordset as T
 }
 
+// Execute an UPDATE/INSERT/DELETE (returns rowsAffected)
+export async function executeMSSQL(
+  name: string,
+  query: string,
+  params?: { [key: string]: any }
+): Promise<number> {
+  const pool = await getMSSQLPool(name)
+  const request = pool.request()
+
+  if (params) {
+    Object.entries(params).forEach(([key, value]) => {
+      request.input(key, value)
+    })
+  }
+
+  const result = await request.query(query)
+  return result.rowsAffected.reduce((a, b) => a + b, 0)
+}
+
 // Test connection
 export async function testMSSQLConnection(name: string) {
   try {

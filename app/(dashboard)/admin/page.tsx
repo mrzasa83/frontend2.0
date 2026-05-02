@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { FileInput, Database, GitCompare, Terminal, ClipboardList, FolderSearch } from 'lucide-react'
+import { FileInput, Database, GitCompare, Terminal, ClipboardList, FolderSearch, Printer } from 'lucide-react'
 
 export default function AdminPage() {
   const adminTools = [
@@ -37,6 +37,13 @@ export default function AdminPage() {
       icon: Terminal,
       href: '/admin/sql-query',
       color: 'green'
+    },
+    {
+      title: 'Print Status',
+      description: 'Manage Paradigm attachment print settings and fix document paths',
+      icon: Printer,
+      href: '/admin/print-status',
+      color: 'red'
     },
     {
       title: 'Database Management',

@@ -185,6 +185,12 @@ export const MODULES: Module[] = [
         name: 'Scrap Disciplines', 
         path: '/admin/scrap-disciplines',
         requiredRoles: ['Admin']
+      },
+      { 
+        id: 'print-status', 
+        name: 'Print Status', 
+        path: '/admin/print-status',
+        requiredRoles: ['Admin']
       }
     ]
   }
