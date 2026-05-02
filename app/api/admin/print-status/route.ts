@@ -188,7 +188,7 @@ export async function GET(request: NextRequest) {
       }
 
       const data = rows.map(r => {
-        const oldPath = (r.DOCUMENT_PATH || '').replace(/\//g, '\\')
+        const oldPath = (r.DOCUMENT_PATH || '').trim().replace(/\//g, '\\')
         let newPath = oldPath
         if (fromPrefix && toPrefix && oldPath.toLowerCase().startsWith(fromLower)) {
           newPath = toPrefix + oldPath.substring(fromPrefix.length)

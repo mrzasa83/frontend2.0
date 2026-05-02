@@ -66,8 +66,12 @@ export const SITE_PATHS = () => ({
 export function windowsToLinuxPath(windowsPath: string): string {
   if (!windowsPath) return windowsPath
 
+  // Trim whitespace — Paradigm ERP pads fields with trailing spaces
+  const trimmed = windowsPath.trim()
+  if (!trimmed) return windowsPath
+
   // Normalize: forward slashes to backslashes
-  const normalized = windowsPath.replace(/\//g, '\\')
+  const normalized = trimmed.replace(/\//g, '\\')
 
   // UNC path  \\APCFS04\SHARED2\rest  →  /mnt/sdrive/rest  (case-insensitive match)
   const uncPrefix = `\\\\${UNC_SERVER()}\\${UNC_SHARE()}`
