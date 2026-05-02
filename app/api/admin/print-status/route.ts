@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryMSSQL, executeMSSQL } from '@/lib/db/mssql'
+import { windowsToLinuxPath } from '@/lib/config/drives'
+import * as fs from 'fs'
 
 // Connection names — env vars: DB_MSSQL_1_* (read), DB_MSSQL_ADMIN_* (write)
 const READ_CONN = '1'
@@ -139,19 +141,66 @@ export async function GET(request: NextRequest) {
 
     if (tab === 'fixpaths') {
       const prefix = searchParams.get('prefix')
+      const fromPrefix = searchParams.get('fromPrefix') || ''
+      const toPrefix = searchParams.get('toPrefix') || ''
       if (!prefix) return NextResponse.json({ error: 'prefix required' }, { status: 400 })
 
       const rows = await queryMSSQL<any[]>(READ_CONN, FIXPATHS_SQL, { prefix: prefix.toLowerCase() })
-      return NextResponse.json({
-        success: true, tab: 'fixpaths', count: rows.length,
-        data: rows.map(r => ({
+
+      const fromLower = fromPrefix.toLowerCase()
+
+      // Helper: check if file/dir exists on the Linux mount
+      function checkPath(winPath: string): 'found' | 'missing' | 'unmapped' {
+        try {
+          const linuxPath = windowsToLinuxPath(winPath)
+          // If windowsToLinuxPath returned the input unchanged, we can't map it
+          if (linuxPath === winPath) return 'unmapped'
+          if (fs.existsSync(linuxPath)) return 'found'
+          // Check if the parent directory exists (file may have been moved/renamed)
+          const dir = linuxPath.substring(0, linuxPath.lastIndexOf('/'))
+          if (dir && fs.existsSync(dir)) return 'missing' // dir exists but file doesn't
+          return 'missing'
+        } catch {
+          return 'unmapped'
+        }
+      }
+
+      const data = rows.map(r => {
+        const oldPath = (r.DOCUMENT_PATH || '').replace(/\//g, '\\')
+        let newPath = oldPath
+        if (fromPrefix && toPrefix && oldPath.toLowerCase().startsWith(fromLower)) {
+          newPath = toPrefix + oldPath.substring(fromPrefix.length)
+        }
+
+        const oldStatus = checkPath(oldPath)
+        const newStatus = (fromPrefix && toPrefix && oldPath !== newPath) ? checkPath(newPath) : null
+
+        return {
           rkey: r.RKEY,
           item: r.ITEM?.trim(),
           description: r.DESCRIPTION?.trim(),
-          documentPath: (r.DOCUMENT_PATH || '').replace(/\//g, '\\'),
+          documentPath: oldPath,
+          newPath,
           sourceType: r.SOURCE_TYPE,
           sourcePtr: r.SOURCE_PTR,
-        })),
+          oldStatus,   // 'found' | 'missing' | 'unmapped'
+          newStatus,   // 'found' | 'missing' | 'unmapped' | null
+          changed: oldPath !== newPath,
+        }
+      })
+
+      const summary = {
+        total: data.length,
+        oldFound: data.filter(d => d.oldStatus === 'found').length,
+        oldMissing: data.filter(d => d.oldStatus === 'missing').length,
+        oldUnmapped: data.filter(d => d.oldStatus === 'unmapped').length,
+        newFound: data.filter(d => d.newStatus === 'found').length,
+        newMissing: data.filter(d => d.newStatus === 'missing').length,
+      }
+
+      return NextResponse.json({
+        success: true, tab: 'fixpaths', count: rows.length,
+        data, summary,
       })
     }
 

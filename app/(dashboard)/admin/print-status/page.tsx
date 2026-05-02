@@ -254,12 +254,14 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
   const [fromPrefix, setFromPrefix] = useState('')
   const [toPrefix, setToPrefix] = useState('\\\\APCFS04\\SHARED2\\')
   const [data, setData] = useState<any[]>([])
+  const [summary, setSummary] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [loadingPrefixes, setLoadingPrefixes] = useState(false)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [updating, setUpdating] = useState(false)
   const [search, setSearch] = useState('')
+  const [filterStatus, setFilterStatus] = useState<string>('')
 
   const loadPrefixes = async () => {
     setLoadingPrefixes(true); setError('')
@@ -275,10 +277,17 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
     if (!selectedPrefix) return
     setLoading(true); setError(''); setSelected(new Set())
     try {
-      const res = await fetch(getApiUrl(`/api/admin/print-status?tab=fixpaths&prefix=${encodeURIComponent(selectedPrefix)}`))
+      const params = new URLSearchParams({
+        tab: 'fixpaths',
+        prefix: selectedPrefix,
+        fromPrefix,
+        toPrefix,
+      })
+      const res = await fetch(getApiUrl(`/api/admin/print-status?${params}`))
       if (!res.ok) throw new Error((await res.json()).details || 'Failed')
       const r = await res.json()
       setData(r.data || [])
+      setSummary(r.summary || null)
     } catch (e: any) { setError(e.message) } finally { setLoading(false) }
   }
 
@@ -287,31 +296,31 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
     setFromPrefix(prefix)
   }
 
-  // Compute new paths based on from/to prefix
-  const computedData = useMemo(() => {
-    const fromLower = fromPrefix.toLowerCase()
-    return data.map(r => {
-      const oldPath = r.documentPath || ''
-      let newPath = oldPath
-      if (oldPath.toLowerCase().startsWith(fromLower)) {
-        newPath = toPrefix + oldPath.substring(fromPrefix.length)
-      }
-      const changed = oldPath !== newPath
-      return { ...r, newPath, changed }
-    })
-  }, [data, fromPrefix, toPrefix])
-
   const filtered = useMemo(() => {
-    if (!search.trim()) return computedData
-    const q = search.toLowerCase()
-    return computedData.filter(r => [r.item,r.description,r.documentPath,r.newPath].some(v => (v||'').toLowerCase().includes(q)))
-  }, [computedData, search])
+    let rows = data
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      rows = rows.filter((r: any) => [r.item,r.description,r.documentPath,r.newPath].some((v: string) => (v||'').toLowerCase().includes(q)))
+    }
+    if (filterStatus) {
+      rows = rows.filter((r: any) => {
+        if (filterStatus === 'old-found') return r.oldStatus === 'found'
+        if (filterStatus === 'old-missing') return r.oldStatus === 'missing'
+        if (filterStatus === 'new-found') return r.newStatus === 'found'
+        if (filterStatus === 'new-missing') return r.newStatus === 'missing'
+        if (filterStatus === 'unmapped') return r.oldStatus === 'unmapped'
+        return true
+      })
+    }
+    return rows
+  }, [data, search, filterStatus])
 
   const handleUpdate = async () => {
     if (!selected.size) return; setUpdating(true)
     const updates = filtered
-      .filter(r => selected.has(r.rkey) && r.changed)
-      .map(r => ({ rkey: r.rkey, newPath: r.newPath }))
+      .filter((r: any) => selected.has(r.rkey) && r.changed)
+      .map((r: any) => ({ rkey: r.rkey, newPath: r.newPath }))
+    if (updates.length === 0) { alert('No changed paths in selection'); setUpdating(false); return }
     try {
       const res = await fetch(getApiUrl('/api/admin/print-status'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -322,6 +331,27 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
       alert(`Updated ${r.updated} path(s)`)
       await loadPaths()
     } catch (e: any) { setError(e.message) } finally { setUpdating(false) }
+  }
+
+  // Status dot component
+  const StatusDot = ({ status }: { status: string | null }) => {
+    if (!status) return <span className="text-slate-300">—</span>
+    const colors: Record<string, string> = {
+      found: 'bg-green-500',
+      missing: 'bg-red-500',
+      unmapped: 'bg-yellow-500',
+    }
+    const labels: Record<string, string> = {
+      found: 'File exists',
+      missing: 'Not found',
+      unmapped: 'Cannot verify',
+    }
+    return (
+      <span className="flex items-center gap-1" title={labels[status] || status}>
+        <span className={`inline-block w-2.5 h-2.5 rounded-full ${colors[status] || 'bg-slate-300'}`} />
+        <span className="text-xs text-slate-500">{status}</span>
+      </span>
+    )
   }
 
   return (
@@ -338,12 +368,7 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
             <option value="">Select a prefix...</option>
             {prefixes.map(p => <option key={p.prefix} value={p.prefix}>{p.prefix} ({p.count})</option>)}
           </select>
-          <button onClick={loadPaths} disabled={loading || !selectedPrefix}
-            className="px-3 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 text-sm">
-            Load Paths
-          </button>
         </div>
-        {/* Prefix summary */}
         {prefixes.length > 0 && (
           <div className="max-h-32 overflow-y-auto border border-slate-100 rounded text-xs">
             <table className="w-full">
@@ -360,10 +385,10 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
         )}
       </div>
 
-      {/* Replacement rules */}
+      {/* Replacement rules + Validate */}
       <div className="bg-white rounded-lg border border-slate-200 p-4 flex-shrink-0">
         <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Replacement Rules</p>
-        <div className="flex gap-4">
+        <div className="flex gap-4 items-end">
           <div className="flex-1">
             <label className="text-xs text-slate-500">From prefix:</label>
             <input type="text" value={fromPrefix} onChange={e => setFromPrefix(e.target.value)}
@@ -374,8 +399,49 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
             <input type="text" value={toPrefix} onChange={e => setToPrefix(e.target.value)}
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono focus:ring-1 focus:ring-blue-500 outline-none" />
           </div>
+          <button onClick={loadPaths} disabled={loading || !selectedPrefix}
+            className="px-4 py-2 bg-slate-700 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50 text-sm font-medium flex items-center gap-2 whitespace-nowrap">
+            <RefreshCw size={14} className={loading?'animate-spin':''} />
+            {data.length === 0 ? 'Load & Validate' : 'Re-validate'}
+          </button>
         </div>
       </div>
+
+      {/* Validation summary */}
+      {summary && (
+        <div className="flex items-center gap-4 text-xs flex-shrink-0 bg-white rounded-lg border border-slate-200 px-4 py-2">
+          <span className="font-medium text-slate-600">Validation:</span>
+          <button onClick={() => setFilterStatus(filterStatus === 'old-found' ? '' : 'old-found')}
+            className={`flex items-center gap-1 px-2 py-1 rounded ${filterStatus==='old-found'?'bg-green-100':'hover:bg-slate-50'}`}>
+            <span className="w-2 h-2 rounded-full bg-green-500" />
+            Current OK: {summary.oldFound}
+          </button>
+          <button onClick={() => setFilterStatus(filterStatus === 'old-missing' ? '' : 'old-missing')}
+            className={`flex items-center gap-1 px-2 py-1 rounded ${filterStatus==='old-missing'?'bg-red-100':'hover:bg-slate-50'}`}>
+            <span className="w-2 h-2 rounded-full bg-red-500" />
+            Current Missing: {summary.oldMissing}
+          </button>
+          <span className="text-slate-300">|</span>
+          <button onClick={() => setFilterStatus(filterStatus === 'new-found' ? '' : 'new-found')}
+            className={`flex items-center gap-1 px-2 py-1 rounded ${filterStatus==='new-found'?'bg-green-100':'hover:bg-slate-50'}`}>
+            <span className="w-2 h-2 rounded-full bg-green-500" />
+            New OK: {summary.newFound}
+          </button>
+          <button onClick={() => setFilterStatus(filterStatus === 'new-missing' ? '' : 'new-missing')}
+            className={`flex items-center gap-1 px-2 py-1 rounded ${filterStatus==='new-missing'?'bg-red-100':'hover:bg-slate-50'}`}>
+            <span className="w-2 h-2 rounded-full bg-red-500" />
+            New Missing: {summary.newMissing}
+          </button>
+          <button onClick={() => setFilterStatus(filterStatus === 'unmapped' ? '' : 'unmapped')}
+            className={`flex items-center gap-1 px-2 py-1 rounded ${filterStatus==='unmapped'?'bg-yellow-100':'hover:bg-slate-50'}`}>
+            <span className="w-2 h-2 rounded-full bg-yellow-500" />
+            Unmapped: {summary.oldUnmapped}
+          </button>
+          {filterStatus && (
+            <button onClick={() => setFilterStatus('')} className="text-blue-600 hover:text-blue-800 ml-2">Clear filter</button>
+          )}
+        </div>
+      )}
 
       {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
 
@@ -399,32 +465,47 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
       {/* Table */}
       <div className="flex-1 min-h-0 bg-white rounded-lg border border-slate-200 overflow-y-auto">
         <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
-          <colgroup><col style={{width:'4%'}}/><col style={{width:'8%'}}/><col style={{width:'10%'}}/><col style={{width:'14%'}}/><col style={{width:'27%'}}/><col style={{width:'27%'}}/><col style={{width:'5%'}}/><col style={{width:'5%'}}/></colgroup>
+          <colgroup>
+            <col style={{width:'3%'}}/>
+            <col style={{width:'6%'}}/>
+            <col style={{width:'9%'}}/>
+            <col style={{width:'12%'}}/>
+            <col style={{width:'24%'}}/>
+            <col style={{width:'5%'}}/>
+            <col style={{width:'24%'}}/>
+            <col style={{width:'5%'}}/>
+            <col style={{width:'6%'}}/>
+            <col style={{width:'6%'}}/>
+          </colgroup>
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr className="border-b border-slate-200">
-              <th className="px-2 py-3 text-center"><button onClick={()=>{selected.size===filtered.length?setSelected(new Set()):setSelected(new Set(filtered.map(r=>r.rkey)))}} className="text-slate-500 hover:text-blue-600">{selected.size===filtered.length&&filtered.length>0?<CheckSquare size={16}/>:<Square size={16}/>}</button></th>
+              <th className="px-1 py-3 text-center"><button onClick={()=>{selected.size===filtered.length?setSelected(new Set()):setSelected(new Set(filtered.map((r:any)=>r.rkey)))}} className="text-slate-500 hover:text-blue-600">{selected.size===filtered.length&&filtered.length>0?<CheckSquare size={16}/>:<Square size={16}/>}</button></th>
               <th className="px-2 py-3 text-left font-medium text-slate-600 text-xs">RKEY</th>
               <th className="px-2 py-3 text-left font-medium text-slate-600 text-xs">Item</th>
               <th className="px-2 py-3 text-left font-medium text-slate-600 text-xs">Description</th>
               <th className="px-2 py-3 text-left font-medium text-slate-600 text-xs">Current Path</th>
+              <th className="px-2 py-3 text-center font-medium text-slate-600 text-xs">Status</th>
               <th className="px-2 py-3 text-left font-medium text-slate-600 text-xs">New Path</th>
+              <th className="px-2 py-3 text-center font-medium text-slate-600 text-xs">Status</th>
               <th className="px-2 py-3 text-left font-medium text-slate-600 text-xs">Type</th>
               <th className="px-2 py-3 text-left font-medium text-slate-600 text-xs">Ptr</th>
             </tr>
           </thead>
           <tbody>
             {filtered.length === 0 ? (
-              <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-500">{data.length===0?'Select a prefix and click Load Paths':'No matches'}</td></tr>
-            ) : filtered.map(r => (
+              <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-500">{data.length===0?'Select a prefix, set rules, and click Load & Validate':'No matches'}</td></tr>
+            ) : filtered.map((r: any) => (
               <tr key={r.rkey}
-                className={`border-b border-slate-100 cursor-pointer ${r.changed?'bg-green-50 hover:bg-green-100':'bg-red-50 hover:bg-red-100'}`}
+                className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50`}
                 onClick={() => { const n = new Set(selected); n.has(r.rkey)?n.delete(r.rkey):n.add(r.rkey); setSelected(n) }}>
-                <td className="px-2 py-2 text-center">{selected.has(r.rkey)?<CheckSquare size={16} className="text-blue-600 mx-auto"/>:<Square size={16} className="text-slate-300 mx-auto"/>}</td>
+                <td className="px-1 py-2 text-center">{selected.has(r.rkey)?<CheckSquare size={16} className="text-blue-600 mx-auto"/>:<Square size={16} className="text-slate-300 mx-auto"/>}</td>
                 <td className="px-2 py-2 text-slate-500 text-xs">{r.rkey}</td>
                 <td className="px-2 py-2 font-mono text-slate-800 text-xs truncate">{r.item}</td>
                 <td className="px-2 py-2 text-slate-700 text-xs truncate">{r.description}</td>
                 <td className="px-2 py-2 text-slate-600 text-xs break-all whitespace-pre-wrap leading-tight">{r.documentPath}</td>
+                <td className="px-2 py-2 text-center"><StatusDot status={r.oldStatus} /></td>
                 <td className="px-2 py-2 text-xs break-all whitespace-pre-wrap leading-tight" style={{color: r.changed ? '#16a34a' : '#94a3b8'}}>{r.newPath}</td>
+                <td className="px-2 py-2 text-center"><StatusDot status={r.newStatus} /></td>
                 <td className="px-2 py-2 text-slate-500 text-xs">{r.sourceType}</td>
                 <td className="px-2 py-2 text-slate-500 text-xs">{r.sourcePtr}</td>
               </tr>
