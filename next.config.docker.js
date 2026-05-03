@@ -21,5 +21,16 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', 'recharts'],
   },
+  // Keep child_process as a real Node.js require (not stubbed by webpack)
+  serverExternalPackages: ['child_process'],
+  webpack: (config, { isServer }) => {
+    if (isServer) {
+      config.externals = config.externals || []
+      if (Array.isArray(config.externals)) {
+        config.externals.push('child_process')
+      }
+    }
+    return config
+  },
 }
 module.exports = nextConfig

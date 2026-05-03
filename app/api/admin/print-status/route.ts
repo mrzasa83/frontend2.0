@@ -278,15 +278,18 @@ export async function POST(request: NextRequest) {
       const { items } = await request.clone().json()
       if (!items?.length) return NextResponse.json({ error: 'items required' }, { status: 400 })
 
-      // Dynamic require to bypass webpack stripping child_process in standalone builds
-      // eslint-disable-next-line no-eval
-      const { execSync } = eval('require')('child_process') as typeof import('child_process')
+      // Bypass webpack's module stubbing for child_process
+      // __non_webpack_require__ maps to real Node.js require at runtime
+      /* eslint-disable no-undef */
+      // @ts-ignore
+      const _nwpr = typeof __non_webpack_require__ !== 'undefined' ? __non_webpack_require__ : require
+      // @ts-ignore
+      const { execSync } = _nwpr('child_process')
 
       const allResults: Record<number, string[]> = {}
 
       for (const item of items) {
         const docPath = (item.documentPath || '').trim()
-        // Extract filename after last slash/backslash, trim non-printable chars
         const fileName = docPath.replace(/^.*[/\\]/, '').replace(/[\x00-\x1f]+$/g, '').trim()
         if (!fileName) {
           allResults[item.rkey] = []
@@ -294,10 +297,9 @@ export async function POST(request: NextRequest) {
         }
 
         try {
-          // Shell out to find — same command that works on the Linux box
           const cmd = `find /mnt/sdrive -type f -iname ${JSON.stringify(fileName)} 2>/dev/null | head -20`
           const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' })
-          allResults[item.rkey] = output.split('\n').filter(l => l.trim())
+          allResults[item.rkey] = output.split('\n').filter((l: string) => l.trim())
         } catch {
           allResults[item.rkey] = []
         }

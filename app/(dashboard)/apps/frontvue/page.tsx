@@ -94,20 +94,29 @@ function FrontVueContent() {
             const r = radio as HTMLInputElement
             const label = r.parentElement?.textContent?.toLowerCase() || ''
             const val = (r.value || '').toLowerCase()
-            if (label.includes('pcb') || val.includes('pcb')) {
-              r.checked = true
-              r.dispatchEvent(new Event('change', { bubbles: true }))
-              r.dispatchEvent(new Event('click', { bubbles: true }))
-              // Also try React's synthetic event
-              const nativeCheckedSetter = Object.getOwnPropertyDescriptor(
-                window.HTMLInputElement.prototype, 'checked'
-              )?.set
+            const isPcbRadio = label.includes('pcb') || val.includes('pcb')
+
+            // Use native setter to properly trigger React state
+            const nativeCheckedSetter = Object.getOwnPropertyDescriptor(
+              window.HTMLInputElement.prototype, 'checked'
+            )?.set
+
+            if (isPcbRadio) {
+              // Check the PCB radio
               if (nativeCheckedSetter) {
                 nativeCheckedSetter.call(r, true)
-                r.dispatchEvent(new Event('input', { bubbles: true }))
-                r.dispatchEvent(new Event('change', { bubbles: true }))
+              } else {
+                r.checked = true
               }
-              break
+              r.click()
+              r.dispatchEvent(new Event('change', { bubbles: true }))
+            } else {
+              // Uncheck all other radios (CAM, etc.)
+              if (nativeCheckedSetter) {
+                nativeCheckedSetter.call(r, false)
+              } else {
+                r.checked = false
+              }
             }
           }
         }
