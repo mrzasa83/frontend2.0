@@ -87,6 +87,29 @@ function FrontVueContent() {
               }
             }
           }
+
+          // Also check/click PCB radio buttons
+          const radios = iframeDoc.querySelectorAll('input[type="radio"]')
+          for (const radio of radios) {
+            const r = radio as HTMLInputElement
+            const label = r.parentElement?.textContent?.toLowerCase() || ''
+            const val = (r.value || '').toLowerCase()
+            if (label.includes('pcb') || val.includes('pcb')) {
+              r.checked = true
+              r.dispatchEvent(new Event('change', { bubbles: true }))
+              r.dispatchEvent(new Event('click', { bubbles: true }))
+              // Also try React's synthetic event
+              const nativeCheckedSetter = Object.getOwnPropertyDescriptor(
+                window.HTMLInputElement.prototype, 'checked'
+              )?.set
+              if (nativeCheckedSetter) {
+                nativeCheckedSetter.call(r, true)
+                r.dispatchEvent(new Event('input', { bubbles: true }))
+                r.dispatchEvent(new Event('change', { bubbles: true }))
+              }
+              break
+            }
+          }
         }
 
       } catch (e) {

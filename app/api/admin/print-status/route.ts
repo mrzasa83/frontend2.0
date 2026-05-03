@@ -4,7 +4,6 @@ import { authOptions } from '@/lib/auth'
 import { queryMSSQL, executeMSSQL } from '@/lib/db/mssql'
 import { windowsToLinuxPath } from '@/lib/config/drives'
 import * as fs from 'fs'
-import * as path from 'path'
 
 // Connection names — env vars: DB_MSSQL_1_* (read), DB_MSSQL_ADMIN_* (write)
 const READ_CONN = '1'
@@ -279,39 +278,29 @@ export async function POST(request: NextRequest) {
       const { items } = await request.clone().json()
       if (!items?.length) return NextResponse.json({ error: 'items required' }, { status: 400 })
 
-      // Recursive file finder using fs (no child_process needed)
-      function findFileRecursive(dir: string, targetName: string, maxDepth: number, results: string[]): void {
-        if (maxDepth <= 0 || results.length >= 20) return
-        try {
-          const entries = fs.readdirSync(dir, { withFileTypes: true })
-          for (const entry of entries) {
-            if (results.length >= 20) return
-            const fullPath = path.join(dir, entry.name)
-            if (entry.isFile() && entry.name.toLowerCase() === targetName) {
-              results.push(fullPath)
-            } else if (entry.isDirectory() && !entry.name.startsWith('.')) {
-              findFileRecursive(fullPath, targetName, maxDepth - 1, results)
-            }
-          }
-        } catch {
-          // Permission denied or other fs error — skip this directory
-        }
-      }
+      // Dynamic require to bypass webpack stripping child_process in standalone builds
+      // eslint-disable-next-line no-eval
+      const { execSync } = eval('require')('child_process') as typeof import('child_process')
 
       const allResults: Record<number, string[]> = {}
 
       for (const item of items) {
         const docPath = (item.documentPath || '').trim()
         // Extract filename after last slash/backslash, trim non-printable chars
-        const fileName = docPath.replace(/^.*[/\\]/, '').replace(/[\x00-\x1f]+$/g, '').trim().toLowerCase()
+        const fileName = docPath.replace(/^.*[/\\]/, '').replace(/[\x00-\x1f]+$/g, '').trim()
         if (!fileName) {
           allResults[item.rkey] = []
           continue
         }
 
-        const found: string[] = []
-        findFileRecursive('/mnt/sdrive', fileName, 10, found)
-        allResults[item.rkey] = found
+        try {
+          // Shell out to find — same command that works on the Linux box
+          const cmd = `find /mnt/sdrive -type f -iname ${JSON.stringify(fileName)} 2>/dev/null | head -20`
+          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' })
+          allResults[item.rkey] = output.split('\n').filter(l => l.trim())
+        } catch {
+          allResults[item.rkey] = []
+        }
       }
 
       return NextResponse.json({ success: true, results: allResults })
