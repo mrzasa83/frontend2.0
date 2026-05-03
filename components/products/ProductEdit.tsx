@@ -3,7 +3,6 @@
 
 import { useState, useEffect } from 'react'
 import { Save, X, CheckCircle, Clock, XCircle, MapPin, Pencil, ExternalLink } from 'lucide-react'
-import { useRouter } from 'next/navigation'
 import Tabs from '@/components/ui/Tabs'
 import DataView, { ColumnMetadata } from '@/components/ui/DataView'
 import ReleasedFilesTab from '@/components/products/ReleasedFilesTab'
@@ -39,15 +38,13 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
   const [activeTab, setActiveTab] = useState('general')
   const [productStatus, setProductStatus] = useState<string>('Loading...')
   const [buildLocation, setBuildLocation] = useState<string | null>(null)
-  const router = useRouter()
 
   const isPCB = product.item_type_name === 'Printed Circuit Board'
 
   const openInFrontVue = () => {
-    // Extract the 5-digit part number
     const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
     const pn = product.apcPN.trim()
-    window.open(`${basePath}/apps/frontvue?job=${encodeURIComponent(pn)}`, '_blank')
+    window.open(`${basePath}/apps/frontvue?job=${encodeURIComponent(pn)}&type=pcb`, '_blank')
   }
 
   // Fetch status and build location on mount
