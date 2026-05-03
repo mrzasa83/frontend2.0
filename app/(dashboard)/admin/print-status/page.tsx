@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import {
   RefreshCw, Search, CheckSquare, Square, Download,
@@ -262,6 +262,25 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
   const [updating, setUpdating] = useState(false)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState<string>('')
+  const [finding, setFinding] = useState(false)
+  const [findResults, setFindResults] = useState<Record<number, string[]>>({})
+
+  const handleFindFiles = async () => {
+    if (!selected.size) return
+    setFinding(true); setError('')
+    const items = filtered
+      .filter((r: any) => selected.has(r.rkey))
+      .map((r: any) => ({ rkey: r.rkey, documentPath: r.documentPath }))
+    try {
+      const res = await fetch(getApiUrl('/api/admin/print-status'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'findFiles', items }),
+      })
+      if (!res.ok) throw new Error((await res.json()).details || 'Find failed')
+      const r = await res.json()
+      setFindResults(prev => ({ ...prev, ...r.results }))
+    } catch (e: any) { setError(e.message) } finally { setFinding(false) }
+  }
 
   const loadPrefixes = async () => {
     setLoadingPrefixes(true); setError('')
@@ -454,6 +473,13 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
         </div>
         <span className="text-sm text-slate-500">Rows: {filtered.length} · Selected: {selected.size}</span>
         <div className="flex-1" />
+        {selected.size > 0 && (
+          <button onClick={handleFindFiles} disabled={finding}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium flex items-center gap-2">
+            <Search size={14} className={finding ? 'animate-spin' : ''} />
+            {finding ? 'Searching...' : `Find File (${selected.size})`}
+          </button>
+        )}
         {isAdmin && selected.size > 0 && (
           <button onClick={handleUpdate} disabled={updating}
             className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 text-sm font-medium">
@@ -495,20 +521,41 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
             {filtered.length === 0 ? (
               <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-500">{data.length===0?'Select a prefix, set rules, and click Load & Validate':'No matches'}</td></tr>
             ) : filtered.map((r: any) => (
-              <tr key={r.rkey}
-                className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50`}
-                onClick={() => { const n = new Set(selected); n.has(r.rkey)?n.delete(r.rkey):n.add(r.rkey); setSelected(n) }}>
-                <td className="px-1 py-2 text-center">{selected.has(r.rkey)?<CheckSquare size={16} className="text-blue-600 mx-auto"/>:<Square size={16} className="text-slate-300 mx-auto"/>}</td>
-                <td className="px-2 py-2 text-slate-500 text-xs">{r.rkey}</td>
-                <td className="px-2 py-2 font-mono text-slate-800 text-xs truncate">{r.item}</td>
-                <td className="px-2 py-2 text-slate-700 text-xs truncate">{r.description}</td>
-                <td className="px-2 py-2 text-slate-600 text-xs break-all whitespace-pre-wrap leading-tight">{r.documentPath}</td>
-                <td className="px-2 py-2 text-center"><StatusDot status={r.oldStatus} /></td>
-                <td className="px-2 py-2 text-xs break-all whitespace-pre-wrap leading-tight" style={{color: r.changed ? '#16a34a' : '#94a3b8'}}>{r.newPath}</td>
-                <td className="px-2 py-2 text-center"><StatusDot status={r.newStatus} /></td>
-                <td className="px-2 py-2 text-slate-500 text-xs">{r.sourceType}</td>
-                <td className="px-2 py-2 text-slate-500 text-xs">{r.sourcePtr}</td>
-              </tr>
+              <React.Fragment key={r.rkey}>
+                <tr
+                  className={`border-b border-slate-100 cursor-pointer hover:bg-slate-50`}
+                  onClick={() => { const n = new Set(selected); n.has(r.rkey)?n.delete(r.rkey):n.add(r.rkey); setSelected(n) }}>
+                  <td className="px-1 py-2 text-center">{selected.has(r.rkey)?<CheckSquare size={16} className="text-blue-600 mx-auto"/>:<Square size={16} className="text-slate-300 mx-auto"/>}</td>
+                  <td className="px-2 py-2 text-slate-500 text-xs">{r.rkey}</td>
+                  <td className="px-2 py-2 font-mono text-slate-800 text-xs truncate">{r.item}</td>
+                  <td className="px-2 py-2 text-slate-700 text-xs truncate">{r.description}</td>
+                  <td className="px-2 py-2 text-slate-600 text-xs break-all whitespace-pre-wrap leading-tight">{r.documentPath}</td>
+                  <td className="px-2 py-2 text-center"><StatusDot status={r.oldStatus} /></td>
+                  <td className="px-2 py-2 text-xs break-all whitespace-pre-wrap leading-tight" style={{color: r.changed ? '#16a34a' : '#94a3b8'}}>{r.newPath}</td>
+                  <td className="px-2 py-2 text-center"><StatusDot status={r.newStatus} /></td>
+                  <td className="px-2 py-2 text-slate-500 text-xs">{r.sourceType}</td>
+                  <td className="px-2 py-2 text-slate-500 text-xs">{r.sourcePtr}</td>
+                </tr>
+                {findResults[r.rkey] && findResults[r.rkey].length > 0 && (
+                  <tr className="bg-blue-50 border-b border-blue-100">
+                    <td className="px-1 py-1" />
+                    <td colSpan={9} className="px-2 py-2">
+                      <p className="text-xs font-medium text-blue-700 mb-1">Found {findResults[r.rkey].length} match(es) on /mnt/sdrive:</p>
+                      {findResults[r.rkey].map((path: string, i: number) => (
+                        <p key={i} className="text-xs font-mono text-blue-600 pl-2">{path}</p>
+                      ))}
+                    </td>
+                  </tr>
+                )}
+                {findResults[r.rkey] && findResults[r.rkey].length === 0 && (
+                  <tr className="bg-red-50 border-b border-red-100">
+                    <td className="px-1 py-1" />
+                    <td colSpan={9} className="px-2 py-2 text-xs text-red-600">
+                      No matches found on /mnt/sdrive
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
             ))}
           </tbody>
         </table>
@@ -534,7 +581,7 @@ export default function PrintStatusPage() {
   return (
     <div className="p-6 flex flex-col h-[calc(100vh-4rem)]">
       <div className="mb-4 flex-shrink-0">
-        <h1 className="text-2xl font-bold text-slate-800">Paradigm Auto Print Status</h1>
+        <h1 className="text-2xl font-bold text-slate-800">Paradigm File Status</h1>
         <p className="text-sm text-slate-600">Manage attachment print settings in Paradigm ERP</p>
       </div>
       <div className="border-b border-slate-200 mb-4 flex-shrink-0">

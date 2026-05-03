@@ -1,15 +1,24 @@
 'use client'
 
-import { useState } from 'react'
-import { ExternalLink, Maximize2, AlertTriangle } from 'lucide-react'
+import { useState, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { ExternalLink, Maximize2, AlertTriangle, RefreshCw } from 'lucide-react'
 
-const FRONTVUE_URL = '/frontVue'
+const FRONTVUE_BASE_URL = '/frontVue'
 
-export default function FrontVuePage() {
+function FrontVueContent() {
+  const searchParams = useSearchParams()
+  const jobParam = searchParams.get('job')
+
+  // Build iframe URL with job parameter if provided
+  const iframeUrl = jobParam
+    ? `${FRONTVUE_BASE_URL}?job=${encodeURIComponent(jobParam)}`
+    : FRONTVUE_BASE_URL
+
   const [iframeError, setIframeError] = useState(false)
 
   const openInNewTab = () => {
-    window.open(FRONTVUE_URL, '_blank', 'noopener,noreferrer')
+    window.open(iframeUrl, '_blank', 'noopener,noreferrer')
   }
 
   return (
@@ -19,6 +28,11 @@ export default function FrontVuePage() {
         <div className="flex items-center gap-2">
           <h2 className="text-sm font-semibold text-slate-700">FrontVue</h2>
           <span className="text-xs text-slate-400">— ODB++ PCB Viewer</span>
+          {jobParam && (
+            <span className="px-2 py-0.5 bg-indigo-100 text-indigo-700 rounded text-xs font-mono">
+              Job: {jobParam}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -63,7 +77,7 @@ export default function FrontVuePage() {
       ) : (
         <iframe
           id="frontvue-frame"
-          src={FRONTVUE_URL}
+          src={iframeUrl}
           className="flex-1 w-full border-0"
           onError={() => setIframeError(true)}
           allow="fullscreen"
@@ -71,5 +85,17 @@ export default function FrontVuePage() {
         />
       )}
     </div>
+  )
+}
+
+export default function FrontVuePage() {
+  return (
+    <Suspense fallback={
+      <div className="flex items-center justify-center h-full py-20">
+        <RefreshCw size={24} className="animate-spin text-blue-600 mr-3" />
+      </div>
+    }>
+      <FrontVueContent />
+    </Suspense>
   )
 }

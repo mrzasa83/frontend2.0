@@ -39,7 +39,7 @@ export default function AdminPage() {
       color: 'green'
     },
     {
-      title: 'Print Status',
+      title: 'Paradigm File Status',
       description: 'Manage Paradigm attachment print settings and fix document paths',
       icon: Printer,
       href: '/admin/print-status',

@@ -188,7 +188,7 @@ export const MODULES: Module[] = [
       },
       { 
         id: 'print-status', 
-        name: 'Print Status', 
+        name: 'Paradigm File Status', 
         path: '/admin/print-status',
         requiredRoles: ['Admin']
       }

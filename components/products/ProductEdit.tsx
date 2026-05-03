@@ -2,7 +2,8 @@
 
 
 import { useState, useEffect } from 'react'
-import { Save, X, CheckCircle, Clock, XCircle, MapPin, Pencil } from 'lucide-react'
+import { Save, X, CheckCircle, Clock, XCircle, MapPin, Pencil, ExternalLink } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import Tabs from '@/components/ui/Tabs'
 import DataView, { ColumnMetadata } from '@/components/ui/DataView'
 import ReleasedFilesTab from '@/components/products/ReleasedFilesTab'
@@ -38,6 +39,16 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
   const [activeTab, setActiveTab] = useState('general')
   const [productStatus, setProductStatus] = useState<string>('Loading...')
   const [buildLocation, setBuildLocation] = useState<string | null>(null)
+  const router = useRouter()
+
+  const isPCB = product.item_type_name === 'Printed Circuit Board'
+
+  const openInFrontVue = () => {
+    // Extract the 5-digit part number
+    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
+    const pn = product.apcPN.trim()
+    window.open(`${basePath}/apps/frontvue?job=${encodeURIComponent(pn)}`, '_blank')
+  }
 
   // Fetch status and build location on mount
   useEffect(() => {
@@ -215,6 +226,16 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
             </h3>
             {getStatusBadge()}
             {getBuildLocationBadge()}
+            {isPCB && (
+              <button
+                onClick={openInFrontVue}
+                className="inline-flex items-center gap-1.5 px-3 py-1 bg-indigo-100 text-indigo-700 rounded-full text-sm hover:bg-indigo-200 transition-colors"
+                title="Open in FrontVue PCB viewer"
+              >
+                <ExternalLink size={14} />
+                Open in FrontVue
+              </button>
+            )}
           </div>
           {!readOnly && hasChanges && (
             <p className="text-sm text-orange-600 mt-1">

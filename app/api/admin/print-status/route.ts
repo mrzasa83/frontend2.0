@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { queryMSSQL, executeMSSQL } from '@/lib/db/mssql'
 import { windowsToLinuxPath } from '@/lib/config/drives'
 import * as fs from 'fs'
+import { execSync } from 'child_process'
 
 // Connection names — env vars: DB_MSSQL_1_* (read), DB_MSSQL_ADMIN_* (write)
 const READ_CONN = '1'
@@ -271,6 +272,36 @@ export async function POST(request: NextRequest) {
       }
       console.log(`Path update: ${total} rows by ${session.user?.name}`)
       return NextResponse.json({ success: true, updated: total })
+    }
+
+    if (action === 'findFiles') {
+      // items: [{ rkey, documentPath }]
+      const { items } = await request.clone().json()
+      if (!items?.length) return NextResponse.json({ error: 'items required' }, { status: 400 })
+
+      const results: Record<number, string[]> = {}
+
+      for (const item of items) {
+        const docPath = (item.documentPath || '').trim()
+        // Extract filename after last slash/backslash, trim whitespace/non-printable chars
+        const fileName = docPath.replace(/^.*[/\\]/, '').replace(/[\x00-\x1f]+$/g, '').trim()
+        if (!fileName) {
+          results[item.rkey] = []
+          continue
+        }
+
+        try {
+          // Case-insensitive find on /mnt/sdrive, limit results, timeout after 15s
+          const cmd = `find /mnt/sdrive -maxdepth 10 -iname ${JSON.stringify(fileName)} -type f 2>/dev/null | head -20`
+          const output = execSync(cmd, { timeout: 15000, encoding: 'utf-8' })
+          const found = output.split('\n').filter(l => l.trim())
+          results[item.rkey] = found
+        } catch {
+          results[item.rkey] = []
+        }
+      }
+
+      return NextResponse.json({ success: true, results })
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
