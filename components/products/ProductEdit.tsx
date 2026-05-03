@@ -2,7 +2,7 @@
 
 
 import { useState, useEffect } from 'react'
-import { Save, X, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
+import { Save, X, CheckCircle, Clock, XCircle, MapPin, Pencil } from 'lucide-react'
 import Tabs from '@/components/ui/Tabs'
 import DataView, { ColumnMetadata } from '@/components/ui/DataView'
 import ReleasedFilesTab from '@/components/products/ReleasedFilesTab'
@@ -27,9 +27,12 @@ type Props = {
   product: Product
   onSave: (product: Product) => void
   onCancel: () => void
+  readOnly?: boolean
+  canEdit?: boolean
+  onEditMode?: () => void
 }
 
-export default function ProductEdit({ product, onSave, onCancel }: Props) {
+export default function ProductEdit({ product, onSave, onCancel, readOnly = false, canEdit = false, onEditMode }: Props) {
   const [formData, setFormData] = useState(product)
   const [hasChanges, setHasChanges] = useState(false)
   const [activeTab, setActiveTab] = useState('general')
@@ -158,7 +161,7 @@ export default function ProductEdit({ product, onSave, onCancel }: Props) {
     item_type_name: { label: 'Item Type', type: 'text' },
   }
 
-  // TAB 1: GENERAL (Editable)
+  // TAB 1: GENERAL
   const generalTab = (
     <div className="space-y-4">
       <DataView
@@ -168,8 +171,8 @@ export default function ProductEdit({ product, onSave, onCancel }: Props) {
         error={null}
         emptyMessage=""
         title="General Information"
-        subtitle="Edit basic product information"
-        editable={true}
+        subtitle={readOnly ? "Product information (read-only)" : "Edit basic product information"}
+        editable={!readOnly}
         onChange={handleChange}
       />
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
@@ -208,33 +211,56 @@ export default function ProductEdit({ product, onSave, onCancel }: Props) {
         <div>
           <div className="flex items-center gap-3">
             <h3 className="text-lg font-semibold text-slate-800">
-              Editing: {formData.apcPN}
+              {readOnly ? '' : 'Editing: '}{formData.apcPN}
             </h3>
             {getStatusBadge()}
             {getBuildLocationBadge()}
           </div>
-          {hasChanges && (
+          {!readOnly && hasChanges && (
             <p className="text-sm text-orange-600 mt-1">
               ⚠️ You have unsaved changes
             </p>
           )}
         </div>
         <div className="flex gap-3">
-          <button
-            onClick={onCancel}
-            className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2"
-          >
-            <X size={18} />
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={!hasChanges}
-            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <Save size={18} />
-            Save Changes
-          </button>
+          {readOnly ? (
+            <>
+              {canEdit && onEditMode && (
+                <button
+                  onClick={onEditMode}
+                  className="px-4 py-2 text-green-700 hover:bg-green-50 rounded-lg transition-colors flex items-center gap-2 border border-green-200"
+                >
+                  <Pencil size={18} />
+                  Edit
+                </button>
+              )}
+              <button
+                onClick={onCancel}
+                className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <X size={18} />
+                Close
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={onCancel}
+                className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <X size={18} />
+                Cancel
+              </button>
+              <button
+                onClick={handleSave}
+                disabled={!hasChanges}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Save size={18} />
+                Save Changes
+              </button>
+            </>
+          )}
         </div>
       </div>
 

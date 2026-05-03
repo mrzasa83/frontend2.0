@@ -1,10 +1,8 @@
 'use client'
 
-
 import { useState, useEffect } from 'react'
 import Tabs from '@/components/ui/Tabs'
 import ProductTable, { TableState, DEFAULT_TYPE_FILTER, DEFAULT_SORT_KEY, DEFAULT_SORT_ASC } from '@/components/products/ProductTable'
-import ProductView from '@/components/products/ProductView'
 import ProductEdit from '@/components/products/ProductEdit'
 import { Plus } from 'lucide-react'
 import { useSession } from 'next-auth/react'
@@ -30,38 +28,39 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [viewProduct, setViewProduct] = useState<Product | null>(null)
-  const [editingProducts, setEditingProducts] = useState<Product[]>([])
+  const [openProducts, setOpenProducts] = useState<{ product: Product; editing: boolean }[]>([])
   const [activeTab, setActiveTab] = useState('all')
   
-  // Initialize with default filters (Circuit Card Assembly, sorted by part number descending)
+  // Read saved default type from settings
   const [tableState, setTableState] = useState<TableState>({
     search: '',
-    sortKey: DEFAULT_SORT_KEY,        // 'apcPN'
-    sortAsc: DEFAULT_SORT_ASC,        // false (descending = biggest first)
+    sortKey: DEFAULT_SORT_KEY,
+    sortAsc: DEFAULT_SORT_ASC,
     pageSize: 25,
     page: 0,
-    typeFilter: DEFAULT_TYPE_FILTER   // 'Circuit Card Assembly'
+    typeFilter: DEFAULT_TYPE_FILTER
   })
 
-  // Check if user is admin
-  const isAdmin = session?.user?.roles?.includes('admin') || false
-
   useEffect(() => {
-    fetchProducts()
+    const savedType = localStorage.getItem('defaultProductType')
+    if (savedType) {
+      setTableState(prev => ({ ...prev, typeFilter: savedType, page: 0 }))
+    }
   }, [])
+
+  // Check roles
+  const canEdit = session?.user?.roles?.some(
+    (r: string) => ['Admin', 'ProductEng', 'ProcessEng'].includes(r)
+  ) || false
+
+  useEffect(() => { fetchProducts() }, [])
 
   const fetchProducts = async () => {
     try {
       setLoading(true)
       setError(null)
-      
       const res = await fetch(getApiUrl('/api/products'))
-      
-      if (!res.ok) {
-        throw new Error(`Failed to fetch products: ${res.status}`)
-      }
-      
+      if (!res.ok) throw new Error(`Failed to fetch products: ${res.status}`)
       const data = await res.json()
       setProducts(data)
     } catch (error) {
@@ -72,43 +71,39 @@ export default function ProductsPage() {
     }
   }
 
-  const handleView = (product: Product) => {
-    setViewProduct(product)
+  // Row click — open in read-only view tab
+  const handleRowClick = (product: Product) => {
+    const existing = openProducts.find(p => p.product.id === product.id)
+    if (!existing) {
+      setOpenProducts(prev => [...prev, { product, editing: false }])
+    }
+    setActiveTab(`product-${product.id}`)
   }
 
+  // Pencil click — open in edit mode
   const handleEdit = (product: Product) => {
-    const alreadyEditing = editingProducts.find(p => p.id === product.id)
-    if (!alreadyEditing) {
-      setEditingProducts(prev => [...prev, product])
+    const existing = openProducts.find(p => p.product.id === product.id)
+    if (existing) {
+      // Switch to edit mode
+      setOpenProducts(prev => prev.map(p => 
+        p.product.id === product.id ? { ...p, editing: true } : p
+      ))
+    } else {
+      setOpenProducts(prev => [...prev, { product, editing: true }])
     }
-    setActiveTab(`edit-${product.id}`)
+    setActiveTab(`product-${product.id}`)
   }
 
-  const handleCloseEditTab = (productId: number) => {
-    setEditingProducts(prev => prev.filter(p => p.id !== productId))
+  // Switch from view to edit mode within a tab
+  const handleSwitchToEdit = (productId: number) => {
+    setOpenProducts(prev => prev.map(p => 
+      p.product.id === productId ? { ...p, editing: true } : p
+    ))
+  }
+
+  const handleCloseTab = (productId: number) => {
+    setOpenProducts(prev => prev.filter(p => p.product.id !== productId))
     setActiveTab('all')
-  }
-
-  const handleInlineSave = async (product: Product) => {
-    try {
-      const res = await fetch(getApiUrl(`/api/products/${product.id}`), {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(product),
-      })
-      
-      if (!res.ok) {
-        const responseData = await res.json()
-        throw new Error(responseData.error || 'Failed to save product')
-      }
-      
-      await fetchProducts()
-      
-    } catch (error) {
-      console.error('Error saving product:', error)
-      alert(`Failed to save product: ${error instanceof Error ? error.message : 'Unknown error'}`)
-      throw error
-    }
   }
 
   const handleSave = async (product: Product) => {
@@ -118,18 +113,37 @@ export default function ProductsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(product),
       })
-      
       if (!res.ok) {
         const responseData = await res.json()
         throw new Error(responseData.error || 'Failed to save product')
       }
-      
       await fetchProducts()
-      handleCloseEditTab(product.id)
-      
+      // Switch back to view mode after save
+      setOpenProducts(prev => prev.map(p => 
+        p.product.id === product.id ? { ...p, editing: false } : p
+      ))
     } catch (error) {
       console.error('Error saving product:', error)
       alert(`Failed to save product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    }
+  }
+
+  const handleInlineSave = async (product: Product) => {
+    try {
+      const res = await fetch(getApiUrl(`/api/products/${product.id}`), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(product),
+      })
+      if (!res.ok) {
+        const responseData = await res.json()
+        throw new Error(responseData.error || 'Failed to save product')
+      }
+      await fetchProducts()
+    } catch (error) {
+      console.error('Error saving product:', error)
+      alert(`Failed to save product: ${error instanceof Error ? error.message : 'Unknown error'}`)
+      throw error
     }
   }
 
@@ -150,12 +164,7 @@ export default function ProductsPage() {
         <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
           <p className="font-semibold">Error loading products</p>
           <p className="text-sm">{error}</p>
-          <button 
-            onClick={fetchProducts}
-            className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-          >
-            Retry
-          </button>
+          <button onClick={fetchProducts} className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700">Retry</button>
         </div>
       </div>
     )
@@ -167,19 +176,21 @@ export default function ProductsPage() {
         <h3 className="text-lg font-semibold text-slate-800">
           All Products ({products.length})
         </h3>
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
-          <Plus size={18} />
-          Add Product
-        </button>
+        {canEdit && (
+          <button className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2">
+            <Plus size={18} />
+            Add Product
+          </button>
+        )}
       </div>
       <ProductTable 
         products={products} 
-        onView={handleView} 
+        onRowClick={handleRowClick} 
         onEdit={handleEdit}
         onSave={handleInlineSave}
         tableState={tableState}
         onTableStateChange={setTableState}
-        isAdmin={isAdmin}
+        canEdit={canEdit}
       />
     </div>
   )
@@ -191,19 +202,22 @@ export default function ProductsPage() {
       content: productListTab,
       closeable: false
     },
-    ...editingProducts.map(product => ({
-      id: `edit-${product.id}`,
+    ...openProducts.map(({ product, editing }) => ({
+      id: `product-${product.id}`,
       label: product.apcPN,
       content: (
         <ProductEdit
-          key={`product-edit-${product.id}`}
+          key={`product-${product.id}-${editing ? 'edit' : 'view'}`}
           product={product}
           onSave={handleSave}
-          onCancel={() => handleCloseEditTab(product.id)}
+          onCancel={() => handleCloseTab(product.id)}
+          readOnly={!editing}
+          canEdit={canEdit}
+          onEditMode={() => handleSwitchToEdit(product.id)}
         />
       ),
       closeable: true,
-      onClose: () => handleCloseEditTab(product.id)
+      onClose: () => handleCloseTab(product.id)
     }))
   ]
 
@@ -217,13 +231,6 @@ export default function ProductsPage() {
           <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} preserveState={true} />
         </div>
       </div>
-
-      {viewProduct && (
-        <ProductView
-          product={viewProduct}
-          onClose={() => setViewProduct(null)}
-        />
-      )}
     </div>
   )
 }

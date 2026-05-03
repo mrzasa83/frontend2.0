@@ -2,7 +2,7 @@
 
 
 import { useState, useEffect } from 'react'
-import { Eye, Pencil, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
+import { Pencil, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 type Product = {
@@ -36,12 +36,12 @@ type ProductInfo = {
 
 type Props = {
   products: Product[]
-  onView: (product: Product) => void
+  onRowClick: (product: Product) => void
   onEdit: (product: Product) => void
   onSave?: (product: Product) => Promise<void>
   tableState: TableState
   onTableStateChange: (state: TableState) => void
-  isAdmin?: boolean
+  canEdit?: boolean
 }
 
 // Default filter settings
@@ -49,7 +49,7 @@ const DEFAULT_TYPE_FILTER = 'Circuit Card Assembly'
 const DEFAULT_SORT_KEY: keyof Product = 'apcPN'
 const DEFAULT_SORT_ASC = false // false = descending (biggest to smallest)
 
-export default function ProductTable({ products, onView, onEdit, onSave, tableState, onTableStateChange, isAdmin }: Props) {
+export default function ProductTable({ products, onRowClick, onEdit, onSave, tableState, onTableStateChange, canEdit }: Props) {
   const { search, sortKey, sortAsc, pageSize, page, typeFilter } = tableState
   const [productInfo, setProductInfo] = useState<Record<string, ProductInfo>>({})
   const [loadingInfo, setLoadingInfo] = useState(false)
@@ -246,16 +246,20 @@ export default function ProductTable({ products, onView, onEdit, onSave, tableSt
               <th className="text-left px-4 py-3 font-medium text-sm text-slate-700">
                 Status
               </th>
-              <th className="text-left px-4 py-3 font-medium text-sm text-slate-700">
-                Actions
-              </th>
+              {canEdit && (
+                <th className="text-left px-4 py-3 font-medium text-sm text-slate-700 w-16">
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
             {paginated.map((product) => {
               const info = productInfo[product.apcPN]
               return (
-                <tr key={product.id} className="border-t border-slate-200 hover:bg-slate-50 transition-colors">
+                <tr key={product.id} 
+                  className="border-t border-slate-200 hover:bg-blue-50 transition-colors cursor-pointer"
+                  onClick={() => onRowClick(product)}
+                >
                   <td className="px-4 py-3 font-mono text-sm font-semibold">{product.apcPN}</td>
                   <td className="px-4 py-3 text-sm">
                     <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs">
@@ -271,24 +275,17 @@ export default function ProductTable({ products, onView, onEdit, onSave, tableSt
                       <LocationBadge location={info?.buildLocation} />
                     </div>
                   </td>
-                  <td className="px-4 py-3">
-                    <div className="flex gap-2">
+                  {canEdit && (
+                    <td className="px-4 py-3">
                       <button
-                        onClick={() => onView(product)}
-                        className="p-2 text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                        title="View Product"
-                      >
-                        <Eye size={18} />
-                      </button>
-                      <button
-                        onClick={() => onEdit(product)}
+                        onClick={(e) => { e.stopPropagation(); onEdit(product) }}
                         className="p-2 text-green-600 hover:bg-green-50 rounded transition-colors"
                         title="Edit Product"
                       >
                         <Pencil size={18} />
                       </button>
-                    </div>
-                  </td>
+                    </td>
+                  )}
                 </tr>
               )
             })}
