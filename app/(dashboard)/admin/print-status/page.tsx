@@ -279,6 +279,9 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
       if (!res.ok) throw new Error((await res.json()).details || 'Find failed')
       const r = await res.json()
       setFindResults(prev => ({ ...prev, ...r.results }))
+      if (r.diagnostics?.length) {
+        console.log('Find File diagnostics:', r.diagnostics)
+      }
     } catch (e: any) { setError(e.message) } finally { setFinding(false) }
   }
 

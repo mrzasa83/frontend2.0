@@ -2,6 +2,7 @@
 
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { Save, X, CheckCircle, Clock, XCircle, MapPin, Pencil, ExternalLink } from 'lucide-react'
 import Tabs from '@/components/ui/Tabs'
 import DataView, { ColumnMetadata } from '@/components/ui/DataView'
@@ -38,13 +39,13 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
   const [activeTab, setActiveTab] = useState('general')
   const [productStatus, setProductStatus] = useState<string>('Loading...')
   const [buildLocation, setBuildLocation] = useState<string | null>(null)
+  const router = useRouter()
 
   const isPCB = product.item_type_name === 'Printed Circuit Board'
 
   const openInFrontVue = () => {
-    const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
     const pn = product.apcPN.trim()
-    window.open(`${basePath}/apps/frontvue?job=${encodeURIComponent(pn)}&type=pcb`, '_blank')
+    router.push(`/apps/frontvue?job=${encodeURIComponent(pn)}&type=pcb`)
   }
 
   // Fetch status and build location on mount

@@ -274,38 +274,61 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'findFiles') {
-      // items: [{ rkey, documentPath }]
       const { items } = await request.clone().json()
       if (!items?.length) return NextResponse.json({ error: 'items required' }, { status: 400 })
 
-      // Bypass webpack's module stubbing for child_process
-      // __non_webpack_require__ maps to real Node.js require at runtime
-      /* eslint-disable no-undef */
-      // @ts-ignore
-      const _nwpr = typeof __non_webpack_require__ !== 'undefined' ? __non_webpack_require__ : require
-      // @ts-ignore
-      const { execSync } = _nwpr('child_process')
+      // Use the same fs module that works for resolveCaseInsensitive above
+      // Walk directories with fs.readdirSync + fs.statSync (no withFileTypes, no child_process)
+      function findInDir(dir: string, targetLower: string, maxDepth: number, results: string[]): void {
+        if (maxDepth <= 0 || results.length >= 20) return
+        let entries: string[]
+        try {
+          entries = fs.readdirSync(dir)
+        } catch { return }
+
+        for (const entry of entries) {
+          if (results.length >= 20) return
+          if (entry.startsWith('.')) continue
+          const full = dir + '/' + entry
+          try {
+            const stat = fs.statSync(full)
+            if (stat.isFile() && entry.toLowerCase() === targetLower) {
+              results.push(full)
+            } else if (stat.isDirectory()) {
+              findInDir(full, targetLower, maxDepth - 1, results)
+            }
+          } catch { /* permission denied — skip */ }
+        }
+      }
 
       const allResults: Record<number, string[]> = {}
+      const diagnostics: string[] = []
+
+      // Quick sanity check
+      try {
+        const testEntries = fs.readdirSync('/mnt/sdrive')
+        diagnostics.push(`/mnt/sdrive readable: ${testEntries.length} entries`)
+      } catch (e) {
+        diagnostics.push(`/mnt/sdrive NOT readable: ${e}`)
+      }
 
       for (const item of items) {
         const docPath = (item.documentPath || '').trim()
         const fileName = docPath.replace(/^.*[/\\]/, '').replace(/[\x00-\x1f]+$/g, '').trim()
         if (!fileName) {
           allResults[item.rkey] = []
+          diagnostics.push(`RKEY ${item.rkey}: empty filename from "${docPath}"`)
           continue
         }
 
-        try {
-          const cmd = `find /mnt/sdrive -type f -iname ${JSON.stringify(fileName)} 2>/dev/null | head -20`
-          const output = execSync(cmd, { timeout: 30000, encoding: 'utf-8' })
-          allResults[item.rkey] = output.split('\n').filter((l: string) => l.trim())
-        } catch {
-          allResults[item.rkey] = []
-        }
+        diagnostics.push(`RKEY ${item.rkey}: searching for "${fileName}"`)
+        const found: string[] = []
+        findInDir('/mnt/sdrive', fileName.toLowerCase(), 10, found)
+        allResults[item.rkey] = found
+        diagnostics.push(`RKEY ${item.rkey}: found ${found.length} match(es)`)
       }
 
-      return NextResponse.json({ success: true, results: allResults })
+      return NextResponse.json({ success: true, results: allResults, diagnostics })
     }
 
     return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
