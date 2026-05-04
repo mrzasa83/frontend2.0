@@ -271,18 +271,31 @@ function FixPathsTab({ isAdmin }: { isAdmin: boolean }) {
     const items = filtered
       .filter((r: any) => selected.has(r.rkey))
       .map((r: any) => ({ rkey: r.rkey, documentPath: r.documentPath }))
-    try {
-      const res = await fetch(getApiUrl('/api/admin/print-status'), {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'findFiles', items }),
-      })
-      if (!res.ok) throw new Error((await res.json()).details || 'Find failed')
-      const r = await res.json()
-      setFindResults(prev => ({ ...prev, ...r.results }))
-      if (r.diagnostics?.length) {
-        console.log('Find File diagnostics:', r.diagnostics)
+
+    const newResults: Record<number, string[]> = {}
+
+    for (const item of items) {
+      const docPath = (item.documentPath || '').trim()
+      const fileName = docPath.replace(/^.*[/\\]/, '').replace(/[\x00-\x1f]+$/g, '').trim()
+      if (!fileName) {
+        newResults[item.rkey] = []
+        continue
       }
-    } catch (e: any) { setError(e.message) } finally { setFinding(false) }
+      try {
+        const res = await fetch(getApiUrl(`/api/admin/print-status/find-file?filename=${encodeURIComponent(fileName)}`))
+        if (res.ok) {
+          const r = await res.json()
+          newResults[item.rkey] = r.results || []
+        } else {
+          newResults[item.rkey] = []
+        }
+      } catch {
+        newResults[item.rkey] = []
+      }
+    }
+
+    setFindResults(prev => ({ ...prev, ...newResults }))
+    setFinding(false)
   }
 
   const loadPrefixes = async () => {
