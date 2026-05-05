@@ -13,6 +13,7 @@ function FrontVueContent() {
   const iframeRef = useRef<HTMLIFrameElement>(null)
   const [iframeError, setIframeError] = useState(false)
   const [populated, setPopulated] = useState(false)
+  const populatedRef = useRef(false)
 
   const iframeUrl = FRONTVUE_BASE_URL
 
@@ -27,6 +28,7 @@ function FrontVueContent() {
     // Retry a few times — the React app inside may take a moment to render
     let attempts = 0
     const tryPopulate = () => {
+      if (populatedRef.current) return  // Already done — stop retrying
       attempts++
       try {
         const iframeDoc = iframeRef.current?.contentWindow?.document
@@ -45,7 +47,6 @@ function FrontVueContent() {
           if (placeholder.includes('job') || placeholder.includes('part') || 
               name.includes('job') || name.includes('part') ||
               id.includes('job') || id.includes('part')) {
-            // Set value and trigger React's onChange
             const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
               window.HTMLInputElement.prototype, 'value'
             )?.set
@@ -54,7 +55,6 @@ function FrontVueContent() {
               el.dispatchEvent(new Event('input', { bubbles: true }))
               el.dispatchEvent(new Event('change', { bubbles: true }))
               filled = true
-              setPopulated(true)
               break
             }
           }
@@ -70,12 +70,12 @@ function FrontVueContent() {
             nativeInputValueSetter.call(el, jobParam)
             el.dispatchEvent(new Event('input', { bubbles: true }))
             el.dispatchEvent(new Event('change', { bubbles: true }))
-            setPopulated(true)
+            filled = true
           }
         }
 
-        // Also try to select PCB type if there's a select/dropdown
-        if (typeParam === 'pcb') {
+        // Set PCB radio and select — only on first successful populate
+        if (filled && typeParam === 'pcb') {
           const selects = iframeDoc.querySelectorAll('select')
           for (const select of selects) {
             const sel = select as HTMLSelectElement
@@ -88,7 +88,6 @@ function FrontVueContent() {
             }
           }
 
-          // Also check/click PCB radio buttons
           const radios = iframeDoc.querySelectorAll('input[type="radio"]')
           for (const radio of radios) {
             const r = radio as HTMLInputElement
@@ -96,38 +95,25 @@ function FrontVueContent() {
             const val = (r.value || '').toLowerCase()
             const isPcbRadio = label.includes('pcb') || val.includes('pcb')
 
-            // Use native setter to properly trigger React state
-            const nativeCheckedSetter = Object.getOwnPropertyDescriptor(
-              window.HTMLInputElement.prototype, 'checked'
-            )?.set
-
             if (isPcbRadio) {
-              // Check the PCB radio
-              if (nativeCheckedSetter) {
-                nativeCheckedSetter.call(r, true)
-              } else {
-                r.checked = true
-              }
               r.click()
-              r.dispatchEvent(new Event('change', { bubbles: true }))
-            } else {
-              // Uncheck all other radios (CAM, etc.)
-              if (nativeCheckedSetter) {
-                nativeCheckedSetter.call(r, false)
-              } else {
-                r.checked = false
-              }
             }
           }
         }
 
+        if (filled) {
+          // Mark done — stop all retries
+          populatedRef.current = true
+          setPopulated(true)
+          return
+        }
+
       } catch (e) {
-        // Cross-origin or timing issue
         console.log('FrontVue populate attempt', attempts, e)
       }
 
-      // Retry up to 10 times with increasing delay
-      if (!populated && attempts < 10) {
+      // Retry up to 10 times with increasing delay — only if not yet populated
+      if (!populatedRef.current && attempts < 10) {
         setTimeout(tryPopulate, 500 * attempts)
       }
     }
