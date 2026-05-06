@@ -64,11 +64,22 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
   ).sort()
 
   const filtered = products.filter((p) => {
-    const matchesSearch = 
-      p.apcPN.toLowerCase().includes(search.toLowerCase()) ||
-      p.customer?.toLowerCase().includes(search.toLowerCase()) ||
-      p.customerPN?.toLowerCase().includes(search.toLowerCase()) ||
-      p.description?.toLowerCase().includes(search.toLowerCase())
+    const q = search.toLowerCase()
+    if (!q) return !typeFilter || typeFilter === 'all' || p.item_type_name === typeFilter
+
+    const fields = {
+      apcPN: String(p.apcPN || ''),
+      customer: String(p.customer || ''),
+      customerPN: String(p.customerPN || ''),
+      description: String(p.description || ''),
+    }
+    const matchesSearch = Object.values(fields).some(v => v.toLowerCase().includes(q))
+    
+    // Debug: log unexpected matches
+    if (matchesSearch && !fields.apcPN.toLowerCase().includes(q)) {
+      const matched = Object.entries(fields).find(([, v]) => v.toLowerCase().includes(q))
+      console.log(`Search "${q}" matched product ${p.apcPN} on field:`, matched?.[0], '=', matched?.[1])
+    }
     
     const matchesType = !typeFilter || typeFilter === 'all' || p.item_type_name === typeFilter
     
