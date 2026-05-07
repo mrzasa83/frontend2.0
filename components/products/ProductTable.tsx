@@ -67,19 +67,11 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
     const q = search.toLowerCase()
     if (!q) return !typeFilter || typeFilter === 'all' || p.item_type_name === typeFilter
 
-    const fields = {
-      apcPN: String(p.apcPN || ''),
-      customer: String(p.customer || ''),
-      customerPN: String(p.customerPN || ''),
-      description: String(p.description || ''),
-    }
-    const matchesSearch = Object.values(fields).some(v => v.toLowerCase().includes(q))
-    
-    // Debug: log unexpected matches
-    if (matchesSearch && !fields.apcPN.toLowerCase().includes(q)) {
-      const matched = Object.entries(fields).find(([, v]) => v.toLowerCase().includes(q))
-      console.log(`Search "${q}" matched product ${p.apcPN} on field:`, matched?.[0], '=', matched?.[1])
-    }
+    const matchesSearch =
+      String(p.apcPN || '').toLowerCase().includes(q) ||
+      String(p.customer || '').toLowerCase().includes(q) ||
+      String(p.customerPN || '').toLowerCase().includes(q) ||
+      String(p.description || '').toLowerCase().includes(q)
     
     const matchesType = !typeFilter || typeFilter === 'all' || p.item_type_name === typeFilter
     
@@ -312,6 +304,13 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
         </p>
         <div className="flex gap-1">
           <button
+            onClick={() => updateState({ page: 0 })}
+            disabled={page === 0}
+            className="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            First
+          </button>
+          <button
             onClick={() => updateState({ page: Math.max(0, page - 1) })}
             disabled={page === 0}
             className="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
@@ -341,6 +340,13 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
             className="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
           >
             Next
+          </button>
+          <button
+            onClick={() => updateState({ page: totalPages - 1 })}
+            disabled={page >= totalPages - 1}
+            className="px-3 py-1 rounded bg-slate-200 hover:bg-slate-300 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+          >
+            Last
           </button>
         </div>
       </div>

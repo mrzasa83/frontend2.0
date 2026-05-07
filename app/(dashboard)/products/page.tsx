@@ -44,6 +44,12 @@ export default function ProductsPage() {
   const [openProducts, setOpenProducts] = useState<{ product: Product; editing: boolean }[]>([])
   const [activeTab, setActiveTab] = useState('all')
   const [partType, setPartType] = useState<PartTypeFilter>('engineering')
+
+  // Reset table page when switching part types
+  const handlePartTypeChange = (newType: PartTypeFilter) => {
+    setPartType(newType)
+    setTableState(prev => ({ ...prev, page: 0, search: '' }))
+  }
   
   // Read saved default type from settings
   const [tableState, setTableState] = useState<TableState>({
@@ -299,7 +305,7 @@ export default function ProductsPage() {
           <label className="text-sm font-medium text-slate-600">Part Type:</label>
           <select
             value={partType}
-            onChange={e => setPartType(e.target.value as PartTypeFilter)}
+            onChange={e => handlePartTypeChange(e.target.value as PartTypeFilter)}
             className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:ring-1 focus:ring-blue-500 outline-none min-w-[180px]"
           >
             <option value="all">All</option>
