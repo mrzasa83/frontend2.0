@@ -9,6 +9,7 @@ const READ_CONN = '1'
 const CUSTOMER_PARTS_SQL = `
 SELECT
     pp.RKEY AS ProdPartRKEY,
+    sp.RKEY AS SalesPartRKEY,
     CASE
         WHEN pp.CUSTOMER_PART_NUMBER LIKE 'Z%' THEN
             CASE 
@@ -96,7 +97,7 @@ export async function GET(request: NextRequest) {
     if (type === 'customer') {
       const rows = await queryMSSQL<any[]>(READ_CONN, CUSTOMER_PARTS_SQL)
       const data = rows.map(r => ({
-        id: r.ProdPartRKEY,
+        id: r.SalesPartRKEY,
         apcPN: (r.ProdPartNum || '').trim(),
         customerPN: (r.CUSTOMER_PART_NUMBER || '').trim(),
         customer: (r.CUSTOMER_NAME || '').trim(),

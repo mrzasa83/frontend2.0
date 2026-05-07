@@ -1,7 +1,7 @@
 'use client'
 
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { Pencil, CheckCircle, Clock, XCircle, MapPin } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
@@ -63,7 +63,7 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
     new Set(products.map(p => p.item_type_name).filter((t): t is string => t !== null && t !== undefined))
   ).sort()
 
-  const filtered = products.filter((p) => {
+  const filtered = useMemo(() => products.filter((p) => {
     const q = search.toLowerCase()
     if (!q) return !typeFilter || typeFilter === 'all' || p.item_type_name === typeFilter
 
@@ -76,9 +76,9 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
     const matchesType = !typeFilter || typeFilter === 'all' || p.item_type_name === typeFilter
     
     return matchesSearch && matchesType
-  })
+  }), [products, search, typeFilter])
 
-  const sorted = [...filtered].sort((a, b) => {
+  const sorted = useMemo(() => [...filtered].sort((a, b) => {
     const valA = a[sortKey] || ''
     const valB = b[sortKey] || ''
     
@@ -92,7 +92,7 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
     return sortAsc
       ? String(valA).localeCompare(String(valB))
       : String(valB).localeCompare(String(valA))
-  })
+  }), [filtered, sortKey, sortAsc])
 
   const paginated = sorted.slice(page * pageSize, (page + 1) * pageSize)
   const totalPages = Math.ceil(filtered.length / pageSize)
@@ -256,10 +256,10 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
             </tr>
           </thead>
           <tbody>
-            {paginated.map((product) => {
+            {paginated.map((product, idx) => {
               const info = productInfo[product.apcPN]
               return (
-                <tr key={product.id} 
+                <tr key={`${product.id}-${idx}`} 
                   className="border-t border-slate-200 hover:bg-blue-50 transition-colors cursor-pointer"
                   onClick={() => onRowClick(product)}
                 >
