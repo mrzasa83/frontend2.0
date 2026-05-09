@@ -43,6 +43,18 @@ export async function GET(request: NextRequest) {
       record.closed_at = combineDateTime(record.closeddate, record.closedtime)
       record.disposed_at = combineDateTime(record.pe_disposition_date, record.pe_disposition_time)
 
+      // Parse intended_imp_date (format: m/d/yy)
+      if (record.intended_imp_date) {
+        try {
+          const parts = record.intended_imp_date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/)
+          if (parts) {
+            let year = parseInt(parts[3])
+            if (year < 100) year += year > 50 ? 1900 : 2000
+            record.intended_imp_datetime = new Date(year, parseInt(parts[1]) - 1, parseInt(parts[2])).toISOString()
+          }
+        } catch {}
+      }
+
       // Fetch change history log
       const history = await queryPrimary(
         'SELECT * FROM escf_history WHERE escf_id = ? ORDER BY changed_at DESC',
@@ -83,6 +95,7 @@ export async function GET(request: NextRequest) {
         STR_TO_DATE(CONCAT(NULLIF(subdate,''), ' ', NULLIF(subtime,'')), '%d%b%Y %H:%i:%s') AS submitted_at,
         STR_TO_DATE(CONCAT(NULLIF(closeddate,''), ' ', NULLIF(closedtime,'')), '%d%b%Y %H:%i:%s') AS closed_at,
         STR_TO_DATE(CONCAT(NULLIF(pe_disposition_date,''), ' ', NULLIF(pe_disposition_time,'')), '%d%b%Y %H:%i:%s') AS disposed_at,
+        STR_TO_DATE(INTENDED_IMP_DATE, '%c/%e/%y') AS intended_imp_datetime,
         CASE
           WHEN escf_status = 2 THEN 'Rejected'
           WHEN pe_disposition = '' OR pe_disposition IS NULL THEN 'Pending'

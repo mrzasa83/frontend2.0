@@ -30,12 +30,40 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 // ─── Field renderer ──────────────────────────────────────────────
-function FieldRow({ label, field, data, editing, onChange, readOnly, multiline }: {
+function FieldRow({ label, field, data, editing, onChange, readOnly, multiline, checkbox }: {
   label: string; field: string; data: any; editing: boolean
-  onChange: (f: string, v: string) => void; readOnly?: boolean; multiline?: boolean
+  onChange: (f: string, v: string) => void; readOnly?: boolean; multiline?: boolean; checkbox?: boolean
 }) {
   const val = data[field]
   const displayVal = val !== null && val !== undefined && val !== '' ? String(val) : null
+
+  // Checkbox mode
+  if (checkbox) {
+    const isChecked = displayVal?.toLowerCase() === 'yes'
+    if (editing && !readOnly) {
+      return (
+        <div>
+          <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">{label}</p>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={isChecked}
+              onChange={e => onChange(field, e.target.checked ? 'Yes' : 'No')}
+              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+            <span className="text-sm text-slate-700">{isChecked ? 'Yes' : 'No'}</span>
+          </label>
+        </div>
+      )
+    }
+    return (
+      <div>
+        <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">{label}</p>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={isChecked} disabled
+            className="w-4 h-4 rounded border-slate-300 text-blue-600" />
+          <span className="text-sm text-slate-700">{isChecked ? 'Yes' : 'No'}</span>
+        </label>
+      </div>
+    )
+  }
 
   if (editing && !readOnly) {
     return (
@@ -153,18 +181,17 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
   }
   if (!record) return <div className="p-6 text-red-600">Record not found</div>
 
-  const F = (label: string, field: string, opts?: { ro?: boolean; ml?: boolean }) => (
+  const F = (label: string, field: string, opts?: { ro?: boolean; ml?: boolean; cb?: boolean }) => (
     <FieldRow label={label} field={field} data={editing ? formData : record}
-      editing={editing} onChange={updateField} readOnly={opts?.ro} multiline={opts?.ml} />
+      editing={editing} onChange={updateField} readOnly={opts?.ro} multiline={opts?.ml} checkbox={opts?.cb} />
   )
 
   // ─── Tab content ───────────────────────────────────────────────
   const tabContent: Record<string, React.ReactNode> = {
     general: (
       <div className="space-y-6">
-        <p className="text-xs text-slate-400 italic">Data from Paradigm (read-only)</p>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-          {F('ID', 'id', { ro: true })}
+          {F('Request', 'request', { ro: true })}
           {F('Department', 'department')}
           {F('Affected Departments', 'affected_departments')}
           {F('WCM', 'wcm')}
@@ -174,18 +201,16 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
             <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Submitted</p>
             <p className="text-sm text-slate-800">{formatDateTime(record.submitted_at)}</p>
           </div>
-          {F('PE Disposition', 'pe_disposition')}
-          {F('ESCF Status', 'escf_status')}
-          {F('Is New Process', 'is_new_process')}
-          {F('Intended Imp Date', 'intended_imp_date')}
+          {F('Is New Process', 'is_new_process', { cb: true })}
+          <div>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Intended Imp Date</p>
+            <p className="text-sm text-slate-800">{record.intended_imp_datetime ? new Date(record.intended_imp_datetime).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : record.intended_imp_date || '—'}</p>
+          </div>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-4">
           {F('Current Standard', 'current_standard', { ml: true })}
           {F('Requested Change', 'requested_change', { ml: true })}
-        </div>
-        <div className="grid grid-cols-1 gap-4">
           {F('Reason for Change', 'reason_for_change', { ml: true })}
-          {F('Request', 'request', { ro: true })}
         </div>
       </div>
     ),
