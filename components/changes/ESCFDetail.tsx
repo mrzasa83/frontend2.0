@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import {
   RefreshCw, ArrowLeft, X, Save, Pencil,
   Clock, CheckCircle, XCircle
@@ -147,7 +147,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
   )
 
   // ─── Tab content ───────────────────────────────────────────────
-  const tabContent: Record<string, JSX.Element> = {
+  const tabContent: Record<string, React.ReactNode> = {
     general: (
       <div className="space-y-6">
         <p className="text-xs text-slate-400 italic">Data from Paradigm (read-only)</p>
