@@ -64,12 +64,24 @@ function FieldRow({ label, field, data, editing, onChange, readOnly, multiline }
   )
 }
 
+// ─── Date formatter ──────────────────────────────────────────────
+function formatDateTime(val: string | null): string {
+  if (!val) return '—'
+  try {
+    const d = new Date(val)
+    if (isNaN(d.getTime())) return val
+    return d.toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) +
+      ' ' + d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })
+  } catch { return val }
+}
+
 // ─── Tabs ────────────────────────────────────────────────────────
 const TABS = [
   { id: 'general', label: 'General' },
   { id: 'workcenter', label: 'Work Center' },
   { id: 'reviews', label: 'Reviews' },
   { id: 'signoff', label: 'Signoff' },
+  { id: 'attachments', label: 'Attachments' },
   { id: 'related', label: 'Related Parts' },
   { id: 'wchistory', label: 'Work Center History' },
 ]
@@ -158,8 +170,10 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
           {F('WCM', 'wcm')}
           {F('Initiator', 'initiator')}
           {F('PES', 'pes')}
-          {F('Submit Date', 'subdate', { ro: true })}
-          {F('Submit Time', 'subtime', { ro: true })}
+          <div>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Submitted</p>
+            <p className="text-sm text-slate-800">{formatDateTime(record.submitted_at)}</p>
+          </div>
           {F('PE Disposition', 'pe_disposition')}
           {F('ESCF Status', 'escf_status')}
           {F('Is New Process', 'is_new_process')}
@@ -243,15 +257,21 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           {F('Initiator', 'initiator')}
           {F('User', 'user')}
-          {F('Submit Date', 'subdate', { ro: true })}
-          {F('Submit Time', 'subtime', { ro: true })}
+          <div>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Submitted</p>
+            <p className="text-sm text-slate-800">{formatDateTime(record.submitted_at)}</p>
+          </div>
           {F('PE Disposition', 'pe_disposition')}
-          {F('PE Disposition Date', 'pe_disposition_date', { ro: true })}
-          {F('PE Disposition Time', 'pe_disposition_time', { ro: true })}
+          <div>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Disposition Date</p>
+            <p className="text-sm text-slate-800">{formatDateTime(record.disposed_at)}</p>
+          </div>
           {F('PE Cost Impact', 'is_pe_cost_impact')}
           {F('Completed By', 'completedby')}
-          {F('Closed Date', 'closeddate', { ro: true })}
-          {F('Closed Time', 'closedtime', { ro: true })}
+          <div>
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Closed</p>
+            <p className="text-sm text-slate-800">{formatDateTime(record.closed_at)}</p>
+          </div>
           {F('Engenix Affected', 'engenix_affected')}
           {F('Disposition', 'disposition')}
         </div>
@@ -316,6 +336,29 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
       </div>
     ),
 
+    attachments: (
+      <div className="space-y-4">
+        <h4 className="text-sm font-semibold text-slate-700">Attachments</h4>
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Description</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-slate-600">Filename</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td colSpan={2} className="px-4 py-8 text-center text-slate-400 italic">
+                  Attachment management coming soon
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    ),
+
     wchistory: (
       <div className="space-y-4">
         <h4 className="text-sm font-semibold text-slate-700">
@@ -344,7 +387,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
                     <td className="px-3 py-2 text-slate-700">{h.department}</td>
                     <td className="px-3 py-2 text-slate-600">{h.initiator || '—'}</td>
                     <td className="px-3 py-2 text-slate-600">{h.wcm || '—'}</td>
-                    <td className="px-3 py-2 text-slate-600 text-xs">{h.subdate || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs">{formatDateTime(h.submitted_at) || h.subdate || '—'}</td>
                     <td className="px-3 py-2"><StatusBadge status={h.status} /></td>
                   </tr>
                 ))}

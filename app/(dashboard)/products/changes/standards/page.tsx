@@ -57,9 +57,11 @@ export default function StandardsPage() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
-  const [sortKey, setSortKey] = useState<string>('id')
+  const [sortKey, setSortKey] = useState<string>('submitted_at')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [page, setPage] = useState(0)
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const pageSize = 25
 
   // Tab state
@@ -96,22 +98,39 @@ export default function StandardsPage() {
         String(r.affected_departments || '').toLowerCase().includes(q)
       )
     }
+    // Date range filter on submitted_at
+    if (dateFrom) {
+      const from = new Date(dateFrom)
+      rows = rows.filter(r => r.submitted_at && new Date(r.submitted_at) >= from)
+    }
+    if (dateTo) {
+      const to = new Date(dateTo + 'T23:59:59')
+      rows = rows.filter(r => r.submitted_at && new Date(r.submitted_at) <= to)
+    }
     return [...rows].sort((a, b) => {
+      if (sortKey === 'id') {
+        const cmp = a.id - b.id
+        return sortDir === 'desc' ? -cmp : cmp
+      }
+      if (sortKey === 'submitted_at' || sortKey === 'closed_at' || sortKey === 'disposed_at') {
+        const da = a[sortKey] ? new Date(a[sortKey]).getTime() : 0
+        const db = b[sortKey] ? new Date(b[sortKey]).getTime() : 0
+        const cmp = da - db
+        return sortDir === 'desc' ? -cmp : cmp
+      }
       const va = String(a[sortKey] ?? '')
       const vb = String(b[sortKey] ?? '')
-      const cmp = sortKey === 'id'
-        ? (a.id - b.id)
-        : va.localeCompare(vb, undefined, { numeric: true })
+      const cmp = va.localeCompare(vb, undefined, { numeric: true })
       return sortDir === 'desc' ? -cmp : cmp
     })
-  }, [data, search, statusFilter, sortKey, sortDir])
+  }, [data, search, statusFilter, sortKey, sortDir, dateFrom, dateTo])
 
   const totalPages = Math.ceil(filtered.length / pageSize)
   const paginated = filtered.slice(page * pageSize, (page + 1) * pageSize)
 
   const toggleSort = (key: string) => {
     if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortKey(key); setSortDir(key === 'id' ? 'desc' : 'asc') }
+    else { setSortKey(key); setSortDir(key === 'id' || key === 'submitted_at' ? 'desc' : 'asc') }
   }
 
   const SortIcon = ({ col }: { col: string }) => {
@@ -207,13 +226,25 @@ export default function StandardsPage() {
         ))}
       </div>
 
-      {/* Search */}
-      <div className="flex items-center gap-3 mb-3 flex-shrink-0">
+      {/* Search + Date Range */}
+      <div className="flex items-center gap-3 mb-3 flex-shrink-0 flex-wrap">
         <div className="relative flex-1 max-w-md">
           <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
           <input type="text" value={search} onChange={e => { setSearch(e.target.value); setPage(0) }}
             placeholder="Search ID, department, initiator, WCM, PES..."
             className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none" />
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-500">From:</span>
+          <input type="date" value={dateFrom} onChange={e => { setDateFrom(e.target.value); setPage(0) }}
+            className="px-2 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none" />
+          <span className="text-xs text-slate-500">To:</span>
+          <input type="date" value={dateTo} onChange={e => { setDateTo(e.target.value); setPage(0) }}
+            className="px-2 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none" />
+          {(dateFrom || dateTo) && (
+            <button onClick={() => { setDateFrom(''); setDateTo(''); setPage(0) }}
+              className="text-xs text-blue-600 hover:text-blue-800">Clear</button>
+          )}
         </div>
         <button onClick={fetchData} disabled={loading}
           className="px-3 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">
@@ -239,7 +270,7 @@ export default function StandardsPage() {
           </colgroup>
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr className="border-b border-slate-200">
-              {[['id','ID'],['department','Department'],['affected_departments','Affected Depts'],['wcm','WCM'],['initiator','Initiator'],['pes','PES'],['subdate','Date'],['status','Status']].map(([k,l]) => (
+              {[['id','ID'],['department','Department'],['affected_departments','Affected Depts'],['wcm','WCM'],['initiator','Initiator'],['pes','PES'],['submitted_at','Submitted'],['status','Status']].map(([k,l]) => (
                 <th key={k} className="px-3 py-3 text-left font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none" onClick={() => toggleSort(k)}>
                   <div className="flex items-center gap-1">{l} <SortIcon col={k} /></div>
                 </th>
@@ -264,7 +295,7 @@ export default function StandardsPage() {
                 <td className="px-3 py-2.5 text-slate-600 truncate">{row.wcm || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-700 truncate">{row.initiator || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 truncate">{row.pes || '—'}</td>
-                <td className="px-3 py-2.5 text-slate-600 text-xs">{row.subdate || '—'}</td>
+                <td className="px-3 py-2.5 text-slate-600 text-xs">{row.submitted_at ? new Date(row.submitted_at).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '—'}</td>
                 <td className="px-3 py-2.5"><StatusBadge status={row.status} /></td>
                 <td className="px-3 py-2.5">
                   <FileText size={16} className="text-slate-400" />

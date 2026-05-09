@@ -21,6 +21,28 @@ export async function GET(request: NextRequest) {
 
       const record = rows[0]
 
+      // Combine date+time fields for display
+      const combineDateTime = (d: string | null, t: string | null): string | null => {
+        if (!d) return null
+        try {
+          // Parse ddMMMyyyy format
+          const months: Record<string, string> = {
+            Jan:'01',Feb:'02',Mar:'03',Apr:'04',May:'05',Jun:'06',
+            Jul:'07',Aug:'08',Sep:'09',Oct:'10',Nov:'11',Dec:'12'
+          }
+          const m = d.match(/^(\d{1,2})([A-Za-z]{3})(\d{4})$/)
+          if (m) {
+            const iso = `${m[3]}-${months[m[2]] || '01'}-${m[1].padStart(2, '0')}T${t || '00:00:00'}`
+            return new Date(iso).toISOString()
+          }
+        } catch {}
+        return d + (t ? ' ' + t : '')
+      }
+
+      record.submitted_at = combineDateTime(record.subdate, record.subtime)
+      record.closed_at = combineDateTime(record.closeddate, record.closedtime)
+      record.disposed_at = combineDateTime(record.pe_disposition_date, record.pe_disposition_time)
+
       // Fetch change history log
       const history = await queryPrimary(
         'SELECT * FROM escf_history WHERE escf_id = ? ORDER BY changed_at DESC',
@@ -34,6 +56,7 @@ export async function GET(request: NextRequest) {
           SELECT
             e.id, e.department, e.affected_departments, e.wcm, e.initiator, e.pes,
             e.subdate, e.subtime,
+            STR_TO_DATE(CONCAT(NULLIF(e.subdate,''), ' ', NULLIF(e.subtime,'')), '%d%b%Y %H:%i:%s') AS submitted_at,
             CASE
               WHEN e.escf_status = 2 THEN 'Rejected'
               WHEN e.pe_disposition = '' OR e.pe_disposition IS NULL THEN 'Pending'
@@ -45,18 +68,21 @@ export async function GET(request: NextRequest) {
           WHERE e.department = ?
              OR (e.affected_departments IS NOT NULL
                  AND CONCAT(',', e.affected_departments, ',') LIKE CONCAT('%,', ?, ',%'))
-          ORDER BY STR_TO_DATE(e.subdate, '%d%b%Y') ASC, NULLIF(e.subtime, '') ASC
+          ORDER BY submitted_at ASC
         `, [record.department, record.department])
       }
 
       return NextResponse.json({ success: true, record, history, wcHistory })
     }
 
-    // List view with computed status
+    // List view with computed status and combined datetimes
     const rows = await queryPrimary(`
       SELECT
         id, department, affected_departments, wcm, initiator, pes,
         subdate, subtime, escf_status, pe_disposition,
+        STR_TO_DATE(CONCAT(NULLIF(subdate,''), ' ', NULLIF(subtime,'')), '%d%b%Y %H:%i:%s') AS submitted_at,
+        STR_TO_DATE(CONCAT(NULLIF(closeddate,''), ' ', NULLIF(closedtime,'')), '%d%b%Y %H:%i:%s') AS closed_at,
+        STR_TO_DATE(CONCAT(NULLIF(pe_disposition_date,''), ' ', NULLIF(pe_disposition_time,'')), '%d%b%Y %H:%i:%s') AS disposed_at,
         CASE
           WHEN escf_status = 2 THEN 'Rejected'
           WHEN pe_disposition = '' OR pe_disposition IS NULL THEN 'Pending'
@@ -65,7 +91,7 @@ export async function GET(request: NextRequest) {
           ELSE 'Approved'
         END AS status
       FROM escf
-      ORDER BY id DESC
+      ORDER BY submitted_at DESC, id DESC
     `)
 
     return NextResponse.json({
