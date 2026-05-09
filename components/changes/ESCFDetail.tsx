@@ -1,0 +1,438 @@
+'use client'
+
+import { useState, useEffect } from 'react'
+import {
+  RefreshCw, ArrowLeft, X, Save, Pencil,
+  Clock, CheckCircle, XCircle
+} from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
+
+type Props = {
+  escfId: number
+  isAdmin: boolean
+  onClose: () => void
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    Implemented: 'bg-green-100 text-green-700',
+    Approved: 'bg-blue-100 text-blue-700',
+    Pending: 'bg-yellow-100 text-yellow-700',
+    Rejected: 'bg-red-100 text-red-700',
+  }
+  const icons: Record<string, any> = { Implemented: CheckCircle, Approved: CheckCircle, Pending: Clock, Rejected: XCircle }
+  const Icon = icons[status] || Clock
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${styles[status] || 'bg-slate-100 text-slate-600'}`}>
+      <Icon size={12} /> {status}
+    </span>
+  )
+}
+
+// ─── Field renderer ──────────────────────────────────────────────
+function FieldRow({ label, field, data, editing, onChange, readOnly, multiline }: {
+  label: string; field: string; data: any; editing: boolean
+  onChange: (f: string, v: string) => void; readOnly?: boolean; multiline?: boolean
+}) {
+  const val = data[field]
+  const displayVal = val !== null && val !== undefined && val !== '' ? String(val) : null
+
+  if (editing && !readOnly) {
+    return (
+      <div>
+        <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">{label}</p>
+        {multiline ? (
+          <textarea value={data[field] ?? ''} onChange={e => onChange(field, e.target.value)} rows={4}
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none resize-y" />
+        ) : (
+          <input type="text" value={data[field] ?? ''} onChange={e => onChange(field, e.target.value)}
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none" />
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">{label}</p>
+      {multiline && displayVal ? (
+        <p className="text-sm text-slate-800 whitespace-pre-wrap bg-slate-50 border border-slate-100 rounded-lg p-3 min-h-[60px]">{displayVal}</p>
+      ) : (
+        <p className="text-sm text-slate-800">{displayVal || <span className="text-slate-300">—</span>}</p>
+      )}
+    </div>
+  )
+}
+
+// ─── Tabs ────────────────────────────────────────────────────────
+const TABS = [
+  { id: 'general', label: 'General' },
+  { id: 'workcenter', label: 'Work Center' },
+  { id: 'reviews', label: 'Reviews' },
+  { id: 'signoff', label: 'Signoff' },
+  { id: 'related', label: 'Related Parts' },
+  { id: 'wchistory', label: 'Work Center History' },
+]
+const ADMIN_TAB = { id: 'admin', label: 'Admin' }
+
+export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
+  const [record, setRecord] = useState<any>(null)
+  const [history, setHistory] = useState<any[]>([])
+  const [wcHistory, setWcHistory] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [formData, setFormData] = useState<any>({})
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [activeTab, setActiveTab] = useState('general')
+
+  const tabs = isAdmin ? [...TABS, ADMIN_TAB] : TABS
+
+  useEffect(() => { fetchRecord() }, [escfId])
+
+  const fetchRecord = async () => {
+    setLoading(true)
+    try {
+      const res = await fetch(getApiUrl(`/api/products/changes/standards?id=${escfId}`))
+      if (!res.ok) throw new Error('Failed to fetch')
+      const r = await res.json()
+      setRecord(r.record)
+      setFormData(r.record)
+      setHistory(r.history || [])
+      setWcHistory(r.wcHistory || [])
+    } catch (e: any) { setError(e.message) }
+    finally { setLoading(false) }
+  }
+
+  const handleSave = async () => {
+    setSaving(true); setError('')
+    try {
+      const res = await fetch(getApiUrl('/api/products/changes/standards'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      })
+      if (!res.ok) throw new Error((await res.json()).details || 'Save failed')
+      setEditing(false)
+      await fetchRecord()
+    } catch (e: any) { setError(e.message) } finally { setSaving(false) }
+  }
+
+  const updateField = (field: string, value: string) => {
+    setFormData((prev: any) => ({ ...prev, [field]: value }))
+  }
+
+  const computedStatus = (() => {
+    if (!record) return ''
+    const s = record.escf_status
+    const d = record.pe_disposition || ''
+    if (s === 2 || s === '2') return 'Rejected'
+    if (!d) return 'Pending'
+    if (d === 'Approved' && (s === 1 || s === '1')) return 'Implemented'
+    if (d === 'Approved' && (s === 0 || s === '0')) return 'Approved'
+    return 'Approved'
+  })()
+
+  if (loading) {
+    return <div className="flex items-center justify-center py-20">
+      <RefreshCw size={24} className="animate-spin text-blue-600 mr-3" />
+      <span className="text-slate-600">Loading...</span>
+    </div>
+  }
+  if (!record) return <div className="p-6 text-red-600">Record not found</div>
+
+  const F = (label: string, field: string, opts?: { ro?: boolean; ml?: boolean }) => (
+    <FieldRow label={label} field={field} data={editing ? formData : record}
+      editing={editing} onChange={updateField} readOnly={opts?.ro} multiline={opts?.ml} />
+  )
+
+  // ─── Tab content ───────────────────────────────────────────────
+  const tabContent: Record<string, JSX.Element> = {
+    general: (
+      <div className="space-y-6">
+        <p className="text-xs text-slate-400 italic">Data from Paradigm (read-only)</p>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {F('ID', 'id', { ro: true })}
+          {F('Department', 'department')}
+          {F('Affected Departments', 'affected_departments')}
+          {F('WCM', 'wcm')}
+          {F('Initiator', 'initiator')}
+          {F('PES', 'pes')}
+          {F('Submit Date', 'subdate', { ro: true })}
+          {F('Submit Time', 'subtime', { ro: true })}
+          {F('PE Disposition', 'pe_disposition')}
+          {F('ESCF Status', 'escf_status')}
+          {F('Is New Process', 'is_new_process')}
+          {F('Intended Imp Date', 'intended_imp_date')}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {F('Current Standard', 'current_standard', { ml: true })}
+          {F('Requested Change', 'requested_change', { ml: true })}
+        </div>
+        <div className="grid grid-cols-1 gap-4">
+          {F('Reason for Change', 'reason_for_change', { ml: true })}
+          {F('Request', 'request', { ro: true })}
+        </div>
+      </div>
+    ),
+
+    workcenter: (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {F('Department', 'department')}
+          {F('Affected Departments', 'affected_departments')}
+          {F('WCM', 'wcm')}
+          {F('PES', 'pes')}
+        </div>
+      </div>
+    ),
+
+    reviews: (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {F('PE Disposition', 'pe_disposition')}
+          {F('PE Cost Impact', 'is_pe_cost_impact')}
+          {F('PPE Cost Impact', 'is_ppe_cost_impact')}
+          {F('PEM', 'pem')}
+          {F('Prev Tooled Dis', 'prev_tooled_dis')}
+          {F('Quote Hold Required', 'quote_hold_require')}
+          {F('Review Date', 'review_date')}
+          {F('Software', 'software')}
+        </div>
+        <div className="grid grid-cols-1 gap-4">
+          {F('Rejection Reason', 'rejection_reason', { ml: true })}
+        </div>
+
+        {/* Change History Log for this record */}
+        <div className="pt-4 border-t border-slate-100">
+          <h4 className="text-sm font-semibold text-slate-700 mb-3">Change History ({history.length})</h4>
+          {history.length === 0 ? (
+            <p className="text-sm text-slate-400">No changes recorded</p>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Field</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Old Value</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">New Value</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Changed By</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.map((h: any) => (
+                    <tr key={h.id} className="border-t border-slate-100">
+                      <td className="px-3 py-2 font-medium text-slate-700">{h.field_name}</td>
+                      <td className="px-3 py-2 text-red-500 text-xs">{h.old_value || '(empty)'}</td>
+                      <td className="px-3 py-2 text-green-600 text-xs">{h.new_value || '(empty)'}</td>
+                      <td className="px-3 py-2 text-slate-600">{h.changed_by}</td>
+                      <td className="px-3 py-2 text-slate-500 text-xs">{new Date(h.changed_at).toLocaleString()}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    ),
+
+    signoff: (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {F('Initiator', 'initiator')}
+          {F('User', 'user')}
+          {F('Submit Date', 'subdate', { ro: true })}
+          {F('Submit Time', 'subtime', { ro: true })}
+          {F('PE Disposition', 'pe_disposition')}
+          {F('PE Disposition Date', 'pe_disposition_date', { ro: true })}
+          {F('PE Disposition Time', 'pe_disposition_time', { ro: true })}
+          {F('PE Cost Impact', 'is_pe_cost_impact')}
+          {F('Completed By', 'completedby')}
+          {F('Closed Date', 'closeddate', { ro: true })}
+          {F('Closed Time', 'closedtime', { ro: true })}
+          {F('Engenix Affected', 'engenix_affected')}
+          {F('Disposition', 'disposition')}
+        </div>
+        <div className="grid grid-cols-1 gap-4">
+          {F('Rejection Reason', 'rejection_reason', { ml: true })}
+        </div>
+
+        {/* Signoff timeline */}
+        <div className="pt-4 border-t border-slate-100">
+          <h4 className="text-sm font-semibold text-slate-700 mb-3">Signoff Timeline</h4>
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">User</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Action</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Status</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Description</th>
+                </tr>
+              </thead>
+              <tbody>
+                {/* Submitted row */}
+                <tr className="border-t border-slate-100">
+                  <td className="px-3 py-2 text-slate-700">{record.initiator || '—'}</td>
+                  <td className="px-3 py-2 text-slate-600 text-xs">{record.subdate || '—'}</td>
+                  <td className="px-3 py-2 text-slate-600">Submitted</td>
+                  <td className="px-3 py-2"><StatusBadge status="Pending" /></td>
+                  <td className="px-3 py-2 text-slate-600 text-xs max-w-xs truncate">{record.request || '—'}</td>
+                </tr>
+                {/* Disposition row (if exists) */}
+                {record.pe_disposition && (
+                  <tr className="border-t border-slate-100">
+                    <td className="px-3 py-2 text-slate-700">{record.pem || record.user || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs">{record.pe_disposition_date || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600">{record.pe_disposition}</td>
+                    <td className="px-3 py-2"><StatusBadge status={computedStatus} /></td>
+                    <td className="px-3 py-2 text-slate-600 text-xs max-w-xs truncate">{record.is_pe_cost_impact === 'Yes' ? 'Cost impact noted' : '—'}</td>
+                  </tr>
+                )}
+                {/* Implementation row (if implemented) */}
+                {computedStatus === 'Implemented' && record.completedby && (
+                  <tr className="border-t border-slate-100">
+                    <td className="px-3 py-2 text-slate-700">{record.completedby}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs">{record.closeddate || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600">Implement</td>
+                    <td className="px-3 py-2"><StatusBadge status="Implemented" /></td>
+                    <td className="px-3 py-2 text-slate-600 text-xs max-w-xs truncate">{record.rejection_reason || '—'}</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    ),
+
+    related: (
+      <div className="space-y-4">
+        <p className="text-sm text-slate-500">Related parts for this standard change will be shown here.</p>
+        <p className="text-sm text-slate-400 italic">Coming soon — will link to affected product parts.</p>
+      </div>
+    ),
+
+    wchistory: (
+      <div className="space-y-4">
+        <h4 className="text-sm font-semibold text-slate-700">
+          Work Center History — {record.department} ({wcHistory.length} records)
+        </h4>
+        {wcHistory.length === 0 ? (
+          <p className="text-sm text-slate-400">No history found for this department</p>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-y-auto max-h-[500px]">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">ID</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Department</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Initiator</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">WCM</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {wcHistory.map((h: any, i: number) => (
+                  <tr key={`${h.id}-${i}`}
+                    className={`border-t border-slate-100 ${h.id === escfId ? 'bg-blue-50 font-medium' : 'hover:bg-slate-50'}`}>
+                    <td className="px-3 py-2 font-mono text-slate-800">{h.id}{h.id === escfId ? ' ←' : ''}</td>
+                    <td className="px-3 py-2 text-slate-700">{h.department}</td>
+                    <td className="px-3 py-2 text-slate-600">{h.initiator || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600">{h.wcm || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs">{h.subdate || '—'}</td>
+                    <td className="px-3 py-2"><StatusBadge status={h.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    ),
+
+    admin: (
+      <div className="space-y-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          {F('Submission Type', 'submission_type', { ro: true })}
+          {F('ESCF Status', 'escf_status')}
+          {F('Change Status', 'change_status')}
+          {F('Engenix Updated', 'engenix_updated')}
+        </div>
+      </div>
+    ),
+  }
+
+  return (
+    <div className="h-full flex flex-col">
+      {/* Header */}
+      <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <button onClick={onClose} className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded">
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+              ESCF #{record.id} <StatusBadge status={computedStatus} />
+            </h3>
+            <p className="text-sm text-slate-500">{record.initiator} · {record.subdate}</p>
+          </div>
+        </div>
+        <div className="flex gap-2">
+          {editing ? (
+            <>
+              <button onClick={() => { setEditing(false); setFormData(record) }}
+                className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg flex items-center gap-2">
+                <X size={18} /> Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+                <Save size={18} /> {saving ? 'Saving...' : 'Save'}
+              </button>
+            </>
+          ) : (
+            <>
+              {isAdmin && (
+                <button onClick={() => setEditing(true)}
+                  className="px-4 py-2 text-green-700 hover:bg-green-50 rounded-lg border border-green-200 flex items-center gap-2">
+                  <Pencil size={18} /> Edit
+                </button>
+              )}
+              <button onClick={onClose} className="px-4 py-2 text-slate-700 hover:bg-slate-100 rounded-lg flex items-center gap-2">
+                <X size={18} /> Close
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {error && <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
+
+      {/* Body: left tabs + content */}
+      <div className="flex-1 flex min-h-0">
+        {/* Left tab nav */}
+        <div className="w-48 border-r border-slate-200 bg-slate-50 flex-shrink-0 overflow-y-auto">
+          {tabs.map(tab => (
+            <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+              className={`w-full text-left px-4 py-3 text-sm transition-colors ${
+                activeTab === tab.id
+                  ? 'bg-blue-600 text-white font-medium'
+                  : 'text-slate-600 hover:bg-slate-100'
+              }`}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Content area */}
+        <div className="flex-1 overflow-y-auto p-6">
+          {tabContent[activeTab] || <p className="text-slate-400">Tab not found</p>}
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -19,13 +19,37 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ error: 'Not found' }, { status: 404 })
       }
 
-      // Also fetch change history
+      const record = rows[0]
+
+      // Fetch change history log
       const history = await queryPrimary(
         'SELECT * FROM escf_history WHERE escf_id = ? ORDER BY changed_at DESC',
         [id]
       )
 
-      return NextResponse.json({ success: true, record: rows[0], history })
+      // Fetch work center history — all ESCFs for the same department
+      let wcHistory: any[] = []
+      if (record.department) {
+        wcHistory = await queryPrimary(`
+          SELECT
+            e.id, e.department, e.affected_departments, e.wcm, e.initiator, e.pes,
+            e.subdate, e.subtime,
+            CASE
+              WHEN e.escf_status = 2 THEN 'Rejected'
+              WHEN e.pe_disposition = '' OR e.pe_disposition IS NULL THEN 'Pending'
+              WHEN e.pe_disposition = 'Approved' AND e.escf_status = 1 THEN 'Implemented'
+              WHEN e.pe_disposition = 'Approved' AND e.escf_status = 0 THEN 'Approved'
+              ELSE 'Approved'
+            END AS status
+          FROM escf e
+          WHERE e.department = ?
+             OR (e.affected_departments IS NOT NULL
+                 AND CONCAT(',', e.affected_departments, ',') LIKE CONCAT('%,', ?, ',%'))
+          ORDER BY STR_TO_DATE(e.subdate, '%d%b%Y') ASC, NULLIF(e.subtime, '') ASC
+        `, [record.department, record.department])
+      }
+
+      return NextResponse.json({ success: true, record, history, wcHistory })
     }
 
     // List view with computed status
@@ -90,7 +114,15 @@ export async function PUT(request: NextRequest) {
       // Build dynamic UPDATE
       const allowedFields = [
         'department', 'affected_departments', 'wcm', 'initiator', 'pes',
-        'pe_disposition', 'escf_status', 'subdate', 'subtime'
+        'pe_disposition', 'escf_status', 'change_status', 'subdate', 'subtime',
+        'is_new_process', 'current_standard', 'requested_change',
+        'intended_imp_date', 'reason_for_change', 'request',
+        'is_pe_cost_impact', 'prev_tooled_dis', 'pem',
+        'is_ppe_cost_impact', 'rejection_reason', 'quote_hold_require',
+        'review_date', 'software', 'submission_type',
+        'user', 'completedby', 'engenix_affected', 'engenix_updated',
+        'disposition', 'closeddate', 'closedtime',
+        'pe_disposition_date', 'pe_disposition_time',
       ]
       const setClauses: string[] = []
       const params: any[] = []
