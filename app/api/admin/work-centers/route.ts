@@ -16,10 +16,24 @@ export async function GET(request: NextRequest) {
       `SELECT DISTINCT department FROM escf WHERE department IS NOT NULL AND department != '' ORDER BY department ASC`
     )
 
-    // 2. Paradigm departments from MSSQL
-    const paradigmDepts = await queryMSSQL<any[]>(READ_CONN,
-      `SELECT DEPT_CODE, DEPT_NAME FROM data0034 WHERE ttype = 1 ORDER BY DEPT_NAME ASC`
-    )
+    // 2. Paradigm departments from MSSQL (with location and active flag)
+    const paradigmDepts = await queryMSSQL<any[]>(READ_CONN, `
+      SELECT
+        RKEY,
+        DEPT_CODE,
+        DEPT_NAME,
+        CASE
+          WHEN WAREHOUSE_PTR = 1 AND DEPT_CODE LIKE 'J%' THEN 'Nashua Assembly'
+          WHEN WAREHOUSE_PTR = 1 AND DEPT_CODE NOT LIKE 'J%' THEN 'Nashua PCB'
+          WHEN WAREHOUSE_PTR = 3 THEN 'Nogales'
+          WHEN WAREHOUSE_PTR = 6 THEN 'Mesa'
+          ELSE 'NEED MORE INFO'
+        END AS Location,
+        ACTIVE_FLAG
+      FROM data0034
+      WHERE ttype = 1
+      ORDER BY DEPT_NAME ASC
+    `)
 
     // 3. Current mappings from MySQL
     const mappings = await queryPrimary(
@@ -31,8 +45,11 @@ export async function GET(request: NextRequest) {
       success: true,
       escfDepartments: escfDepts.map((r: any) => r.department),
       paradigmDepartments: paradigmDepts.map((r: any) => ({
+        rkey: r.RKEY,
         code: (r.DEPT_CODE || '').trim(),
         name: (r.DEPT_NAME || '').trim(),
+        location: (r.Location || '').trim(),
+        active: r.ACTIVE_FLAG === 0,  // 0 = active, 1 = inactive
       })),
       mappings,
     })
@@ -57,7 +74,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const { escfDepartment, paradigmDepts } = await request.json()
-    // paradigmDepts: [{ code, name }]
+    // paradigmDepts: [{ rkey, code, name }]
 
     if (!escfDepartment || !paradigmDepts?.length) {
       return NextResponse.json({ error: 'escfDepartment and paradigmDepts required' }, { status: 400 })
@@ -69,9 +86,9 @@ export async function POST(request: NextRequest) {
     for (const dept of paradigmDepts) {
       try {
         await queryPrimary(
-          `INSERT IGNORE INTO wc_dept_mapping (escf_department, paradigm_dept_code, paradigm_dept_name, created_by)
-           VALUES (?, ?, ?, ?)`,
-          [escfDepartment, dept.code, dept.name, username]
+          `INSERT IGNORE INTO wc_dept_mapping (escf_department, paradigm_rkey, paradigm_dept_code, paradigm_dept_name, created_by)
+           VALUES (?, ?, ?, ?, ?)`,
+          [escfDepartment, dept.rkey || null, dept.code, dept.name, username]
         )
         added++
       } catch {

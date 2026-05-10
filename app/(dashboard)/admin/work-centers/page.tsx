@@ -2,15 +2,17 @@
 
 import { useState, useEffect, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
-import { RefreshCw, Search, Plus, Trash2, CheckSquare, Square, ArrowRight } from 'lucide-react'
+import { RefreshCw, Search, Plus, Trash2, CheckSquare, Square, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
-type ParadigmDept = { code: string; name: string }
+type ParadigmDept = { rkey: number; code: string; name: string; location: string; active: boolean }
 type Mapping = {
-  id: number; escf_department: string
+  id: number; escf_department: string; paradigm_rkey: number | null
   paradigm_dept_code: string; paradigm_dept_name: string
   created_by: string; created_at: string
 }
+type SortKey = 'code' | 'name' | 'location'
+type SortDir = 'asc' | 'desc'
 
 export default function WorkCentersPage() {
   const { data: session } = useSession()
@@ -19,12 +21,15 @@ export default function WorkCentersPage() {
   const [mappings, setMappings] = useState<Mapping[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-
   const [selectedDept, setSelectedDept] = useState<string | null>(null)
   const [deptSearch, setDeptSearch] = useState('')
   const [paradigmSearch, setParadigmSearch] = useState('')
   const [selectedParadigm, setSelectedParadigm] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
+  const [showActiveOnly, setShowActiveOnly] = useState(true)
+  const [locationFilter, setLocationFilter] = useState('')
+  const [sortKey, setSortKey] = useState<SortKey>('name')
+  const [sortDir, setSortDir] = useState<SortDir>('asc')
 
   const isAdmin = session?.user?.roles?.some((r: string) => r === 'Admin') || false
 
@@ -42,7 +47,6 @@ export default function WorkCentersPage() {
 
   useEffect(() => { fetchData() }, [])
 
-  // Mappings for the selected department
   const currentMappings = useMemo(() => {
     if (!selectedDept) return []
     return mappings.filter(m => m.escf_department === selectedDept)
@@ -50,35 +54,50 @@ export default function WorkCentersPage() {
 
   const mappedCodes = useMemo(() => new Set(currentMappings.map(m => m.paradigm_dept_code)), [currentMappings])
 
-  // Filtered lists
   const filteredEscf = useMemo(() => {
     if (!deptSearch.trim()) return escfDepts
     const q = deptSearch.toLowerCase()
     return escfDepts.filter(d => d.toLowerCase().includes(q))
   }, [escfDepts, deptSearch])
 
+  // Unique locations for filter dropdown
+  const locations = useMemo(() => {
+    return [...new Set(paradigmDepts.map(d => d.location))].sort()
+  }, [paradigmDepts])
+
   const filteredParadigm = useMemo(() => {
     let list = paradigmDepts
+    if (showActiveOnly) list = list.filter(d => d.active)
+    if (locationFilter) list = list.filter(d => d.location === locationFilter)
     if (paradigmSearch.trim()) {
       const q = paradigmSearch.toLowerCase()
       list = list.filter(d => d.name.toLowerCase().includes(q) || d.code.toLowerCase().includes(q))
     }
-    return list
-  }, [paradigmDepts, paradigmSearch])
+    return [...list].sort((a, b) => {
+      const va = a[sortKey] || ''
+      const vb = b[sortKey] || ''
+      const cmp = va.localeCompare(vb, undefined, { numeric: true })
+      return sortDir === 'desc' ? -cmp : cmp
+    })
+  }, [paradigmDepts, paradigmSearch, showActiveOnly, locationFilter, sortKey, sortDir])
 
-  // Count mappings per ESCF department
   const mappingCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     mappings.forEach(m => { counts[m.escf_department] = (counts[m.escf_department] || 0) + 1 })
     return counts
   }, [mappings])
 
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
+  }
+  const SortIcon = ({ col }: { col: SortKey }) => {
+    if (sortKey !== col) return <ArrowUpDown size={12} className="text-slate-300" />
+    return sortDir === 'asc' ? <ArrowUp size={12} className="text-blue-600" /> : <ArrowDown size={12} className="text-blue-600" />
+  }
+
   const toggleParadigm = (code: string) => {
-    setSelectedParadigm(prev => {
-      const n = new Set(prev)
-      n.has(code) ? n.delete(code) : n.add(code)
-      return n
-    })
+    setSelectedParadigm(prev => { const n = new Set(prev); n.has(code) ? n.delete(code) : n.add(code); return n })
   }
 
   const handleAddMappings = async () => {
@@ -86,12 +105,11 @@ export default function WorkCentersPage() {
     setSaving(true)
     const depts = [...selectedParadigm].map(code => {
       const p = paradigmDepts.find(d => d.code === code)
-      return { code, name: p?.name || '' }
+      return { rkey: p?.rkey, code, name: p?.name || '' }
     })
     try {
       const res = await fetch(getApiUrl('/api/admin/work-centers'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ escfDepartment: selectedDept, paradigmDepts: depts }),
       })
       if (!res.ok) throw new Error((await res.json()).details || 'Failed')
@@ -154,7 +172,7 @@ export default function WorkCentersPage() {
           </div>
         </div>
 
-        {/* Right: Paradigm departments + current mappings */}
+        {/* Right panel */}
         <div className="flex-1 flex flex-col gap-4">
           {!selectedDept ? (
             <div className="flex-1 flex items-center justify-center bg-white rounded-lg border border-slate-200">
@@ -167,7 +185,7 @@ export default function WorkCentersPage() {
                 <div className="p-3 border-b border-slate-200">
                   <h3 className="text-sm font-semibold text-slate-700">
                     Mapped to: <span className="text-blue-600">{selectedDept}</span>
-                    <span className="font-normal text-slate-400 ml-2">({currentMappings.length} departments)</span>
+                    <span className="font-normal text-slate-400 ml-2">({currentMappings.length})</span>
                   </h3>
                 </div>
                 <div className="max-h-48 overflow-y-auto">
@@ -207,9 +225,9 @@ export default function WorkCentersPage() {
 
               {/* Available Paradigm departments */}
               <div className="flex-1 min-h-0 bg-white rounded-lg border border-slate-200 flex flex-col">
-                <div className="p-3 border-b border-slate-200 flex items-center gap-3">
+                <div className="p-3 border-b border-slate-200 flex items-center gap-3 flex-wrap">
                   <h3 className="text-sm font-semibold text-slate-700 flex-shrink-0">
-                    Paradigm Departments ({paradigmDepts.length})
+                    Paradigm Departments ({filteredParadigm.length})
                   </h3>
                   <div className="relative flex-1 max-w-xs">
                     <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
@@ -217,6 +235,17 @@ export default function WorkCentersPage() {
                       placeholder="Search code or name..."
                       className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none" />
                   </div>
+                  <select value={locationFilter} onChange={e => setLocationFilter(e.target.value)}
+                    className="px-3 py-2 border border-slate-200 rounded text-sm bg-white min-w-[140px]">
+                    <option value="">All Locations</option>
+                    {locations.map(l => <option key={l} value={l}>{l}</option>)}
+                  </select>
+                  <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer flex-shrink-0">
+                    <input type="checkbox" checked={showActiveOnly}
+                      onChange={e => setShowActiveOnly(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    Active only
+                  </label>
                   {isAdmin && selectedParadigm.size > 0 && (
                     <button onClick={handleAddMappings} disabled={saving}
                       className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 text-sm font-medium flex items-center gap-2 flex-shrink-0">
@@ -230,8 +259,15 @@ export default function WorkCentersPage() {
                     <thead className="bg-slate-50 sticky top-0">
                       <tr>
                         {isAdmin && <th className="px-2 py-2 w-8" />}
-                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Code</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Department Name</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none" onClick={() => toggleSort('code')}>
+                          <div className="flex items-center gap-1">Code <SortIcon col="code" /></div>
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none" onClick={() => toggleSort('name')}>
+                          <div className="flex items-center gap-1">Department Name <SortIcon col="name" /></div>
+                        </th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none" onClick={() => toggleSort('location')}>
+                          <div className="flex items-center gap-1">Location <SortIcon col="location" /></div>
+                        </th>
                         <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-20">Status</th>
                       </tr>
                     </thead>
@@ -241,7 +277,7 @@ export default function WorkCentersPage() {
                         const isSelected = selectedParadigm.has(dept.code)
                         return (
                           <tr key={dept.code}
-                            className={`border-t border-slate-100 ${isMapped ? 'bg-green-50' : isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'} ${isAdmin && !isMapped ? 'cursor-pointer' : ''}`}
+                            className={`border-t border-slate-100 ${isMapped ? 'bg-green-50' : isSelected ? 'bg-blue-50' : !dept.active ? 'bg-slate-50 opacity-60' : 'hover:bg-slate-50'} ${isAdmin && !isMapped ? 'cursor-pointer' : ''}`}
                             onClick={() => { if (isAdmin && !isMapped) toggleParadigm(dept.code) }}>
                             {isAdmin && (
                               <td className="px-2 py-2 text-center">
@@ -256,10 +292,13 @@ export default function WorkCentersPage() {
                             )}
                             <td className="px-3 py-2 font-mono text-slate-800">{dept.code}</td>
                             <td className="px-3 py-2 text-slate-700">{dept.name}</td>
+                            <td className="px-3 py-2 text-slate-600 text-xs">{dept.location}</td>
                             <td className="px-3 py-2">
-                              {isMapped && (
+                              {isMapped ? (
                                 <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded">Mapped</span>
-                              )}
+                              ) : !dept.active ? (
+                                <span className="text-xs bg-slate-200 text-slate-500 px-2 py-0.5 rounded">Inactive</span>
+                              ) : null}
                             </td>
                           </tr>
                         )
