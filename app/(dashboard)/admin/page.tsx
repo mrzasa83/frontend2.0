@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { FileInput, Database, GitCompare, Terminal, ClipboardList, FolderSearch, Printer } from 'lucide-react'
+import { FileInput, Database, GitCompare, Terminal, ClipboardList, FolderSearch, Printer, Building2 } from 'lucide-react'
 
 export default function AdminPage() {
   const adminTools = [
@@ -44,6 +44,13 @@ export default function AdminPage() {
       icon: Printer,
       href: '/admin/print-status',
       color: 'red'
+    },
+    {
+      title: 'Work Centers',
+      description: 'Map ESCF work centers to Paradigm departments',
+      icon: Building2,
+      href: '/admin/work-centers',
+      color: 'indigo'
     },
     {
       title: 'Database Management',
