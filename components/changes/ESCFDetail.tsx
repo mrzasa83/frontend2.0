@@ -19,8 +19,9 @@ function StatusBadge({ status }: { status: string }) {
     Approved: 'bg-blue-100 text-blue-700',
     Pending: 'bg-yellow-100 text-yellow-700',
     Rejected: 'bg-red-100 text-red-700',
+    Legacy: 'bg-slate-100 text-slate-600',
   }
-  const icons: Record<string, any> = { Implemented: CheckCircle, Approved: CheckCircle, Pending: Clock, Rejected: XCircle }
+  const icons: Record<string, any> = { Implemented: CheckCircle, Approved: CheckCircle, Pending: Clock, Rejected: XCircle, Legacy: Clock }
   const Icon = icons[status] || Clock
   return (
     <span className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-medium ${styles[status] || 'bg-slate-100 text-slate-600'}`}>
@@ -164,13 +165,13 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
 
   const computedStatus = (() => {
     if (!record) return ''
-    const s = record.escf_status
-    const d = record.pe_disposition || ''
-    if (s === 2 || s === '2') return 'Rejected'
-    if (!d) return 'Pending'
-    if (d === 'Approved' && (s === 1 || s === '1')) return 'Implemented'
-    if (d === 'Approved' && (s === 0 || s === '0')) return 'Approved'
-    return 'Approved'
+    const s = Number(record.escf_status)
+    const d = (record.pe_disposition || '').trim()
+    if (s === 2) return 'Rejected'
+    if ((!d) && s === 0) return 'Pending'
+    if (d === 'Approved' && s === 1) return 'Implemented'
+    if (d === 'Approved' && s === 0) return 'Approved'
+    return 'Legacy'
   })()
 
   if (loading) {

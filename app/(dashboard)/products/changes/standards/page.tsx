@@ -26,7 +26,7 @@ type ESCF = {
 }
 
 type SortDir = 'asc' | 'desc'
-type StatusFilter = 'all' | 'Pending' | 'Approved' | 'Implemented' | 'Rejected'
+type StatusFilter = 'all' | 'Pending' | 'Approved' | 'Implemented' | 'Rejected' | 'Legacy'
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
@@ -34,12 +34,14 @@ function StatusBadge({ status }: { status: string }) {
     Approved: 'bg-blue-100 text-blue-700',
     Pending: 'bg-yellow-100 text-yellow-700',
     Rejected: 'bg-red-100 text-red-700',
+    Legacy: 'bg-slate-100 text-slate-600',
   }
   const icons: Record<string, any> = {
     Implemented: CheckCircle,
     Approved: CheckCircle,
     Pending: Clock,
     Rejected: XCircle,
+    Legacy: Clock,
   }
   const Icon = icons[status] || Clock
   return (
@@ -152,7 +154,7 @@ export default function StandardsPage() {
 
   // Status counts for filter buttons
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: data.length, Pending: 0, Approved: 0, Implemented: 0, Rejected: 0 }
+    const counts: Record<string, number> = { all: data.length, Pending: 0, Approved: 0, Implemented: 0, Rejected: 0, Legacy: 0 }
     data.forEach(r => { if (counts[r.status] !== undefined) counts[r.status]++ })
     return counts
   }, [data])
@@ -214,7 +216,7 @@ export default function StandardsPage() {
 
       {/* Status filter buttons */}
       <div className="flex items-center gap-2 mb-3 flex-shrink-0">
-        {(['all', 'Pending', 'Approved', 'Implemented', 'Rejected'] as StatusFilter[]).map(s => (
+        {(['all', 'Pending', 'Approved', 'Implemented', 'Rejected', 'Legacy'] as StatusFilter[]).map(s => (
           <button key={s} onClick={() => { setStatusFilter(s); setPage(0) }}
             className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
               statusFilter === s
