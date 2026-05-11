@@ -11,6 +11,7 @@ type Props = {
   escfId: number
   isAdmin: boolean
   onClose: () => void
+  onOpenEscf?: (id: number) => void
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -116,7 +117,7 @@ const TABS = [
 ]
 const ADMIN_TAB = { id: 'admin', label: 'Admin' }
 
-export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
+export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Props) {
   const [record, setRecord] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [wcHistory, setWcHistory] = useState<any[]>([])
@@ -126,6 +127,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('general')
+  const [showLegacy, setShowLegacy] = useState(false)
 
   const tabs = isAdmin ? [...TABS, ADMIN_TAB] : TABS
 
@@ -187,6 +189,62 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
       editing={editing} onChange={updateField} readOnly={opts?.ro} multiline={opts?.ml} checkbox={opts?.cb} />
   )
 
+    // Filtered + sorted WC history (newest first, Legacy toggle)
+    const filteredWcHistory = wcHistory
+      .filter(h => showLegacy || h.status !== 'Legacy')
+      .sort((a, b) => {
+        const da = a.submitted_at ? new Date(a.submitted_at).getTime() : 0
+        const db = b.submitted_at ? new Date(b.submitted_at).getTime() : 0
+        return db - da // newest first
+      })
+
+    const wcHistoryTable = (
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h4 className="text-sm font-semibold text-slate-700">
+            Work Center History — {record.department} ({filteredWcHistory.length} records)
+          </h4>
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={showLegacy}
+              onChange={e => setShowLegacy(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+            Show Legacy
+          </label>
+        </div>
+        {filteredWcHistory.length === 0 ? (
+          <p className="text-sm text-slate-400">No history found for this department</p>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-y-auto max-h-[400px]">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">ID</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Department</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Initiator</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">WCM</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Submitted</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredWcHistory.map((h: any, i: number) => (
+                  <tr key={`${h.id}-${i}`}
+                    className={`border-t border-slate-100 ${h.id === escfId ? 'bg-blue-50 font-medium' : 'hover:bg-slate-50 cursor-pointer'}`}
+                    onClick={() => { if (h.id !== escfId && onOpenEscf) onOpenEscf(h.id) }}>
+                    <td className="px-3 py-2 font-mono text-slate-800">{h.id}{h.id === escfId ? ' ←' : ''}</td>
+                    <td className="px-3 py-2 text-slate-700">{h.department}</td>
+                    <td className="px-3 py-2 text-slate-600">{h.initiator || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600">{h.wcm || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs">{formatDateTime(h.submitted_at) || h.subdate || '—'}</td>
+                    <td className="px-3 py-2"><StatusBadge status={h.status} /></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    )
   // ─── Tab content ───────────────────────────────────────────────
   const tabContent: Record<string, React.ReactNode> = {
     general: (
@@ -223,6 +281,9 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
           {F('Affected Departments', 'affected_departments')}
           {F('WCM', 'wcm')}
           {F('PES', 'pes')}
+        </div>
+        <div className="pt-4 border-t border-slate-100">
+          {wcHistoryTable}
         </div>
       </div>
     ),
@@ -387,40 +448,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose }: Props) {
 
     wchistory: (
       <div className="space-y-4">
-        <h4 className="text-sm font-semibold text-slate-700">
-          Work Center History — {record.department} ({wcHistory.length} records)
-        </h4>
-        {wcHistory.length === 0 ? (
-          <p className="text-sm text-slate-400">No history found for this department</p>
-        ) : (
-          <div className="bg-white border border-slate-200 rounded-lg overflow-y-auto max-h-[500px]">
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 sticky top-0">
-                <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">ID</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Department</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Initiator</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">WCM</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Date</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {wcHistory.map((h: any, i: number) => (
-                  <tr key={`${h.id}-${i}`}
-                    className={`border-t border-slate-100 ${h.id === escfId ? 'bg-blue-50 font-medium' : 'hover:bg-slate-50'}`}>
-                    <td className="px-3 py-2 font-mono text-slate-800">{h.id}{h.id === escfId ? ' ←' : ''}</td>
-                    <td className="px-3 py-2 text-slate-700">{h.department}</td>
-                    <td className="px-3 py-2 text-slate-600">{h.initiator || '—'}</td>
-                    <td className="px-3 py-2 text-slate-600">{h.wcm || '—'}</td>
-                    <td className="px-3 py-2 text-slate-600 text-xs">{formatDateTime(h.submitted_at) || h.subdate || '—'}</td>
-                    <td className="px-3 py-2"><StatusBadge status={h.status} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        {wcHistoryTable}
       </div>
     ),
 
