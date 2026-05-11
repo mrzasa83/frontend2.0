@@ -127,7 +127,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('general')
   const [showLegacy, setShowLegacy] = useState(false)
-  const [attachmentMeta, setAttachmentMeta] = useState<Record<string, { description: string | null; {}>>({})
+  const [attachmentMeta, setAttachmentMeta] = useState<Record<string, { description: string | null }>>({})
   const [filesOnDisk, setFilesOnDisk] = useState<Record<string, { size: number; modified: string }>>({})
   const [editingDesc, setEditingDesc] = useState<string | null>(null)
   const [descDraft, setDescDraft] = useState('')
@@ -153,7 +153,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
           const attData = await attRes.json()
           const metaMap: Record<string, { description: string | null }> = {}
           for (const m of (attData.metadata || [])) {
-            metaMap[m.filename] = { description: m.description, }
+            metaMap[m.filename] = { description: m.description }
           }
           setAttachmentMeta(metaMap)
           setFilesOnDisk(attData.filesOnDisk || {})
