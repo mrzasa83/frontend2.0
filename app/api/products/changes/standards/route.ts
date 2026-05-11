@@ -66,21 +66,22 @@ export async function GET(request: NextRequest) {
       if (record.department) {
         wcHistory = await queryPrimary(`
           SELECT
-            e.id, e.department, e.affected_departments, e.wcm, e.initiator, e.pes,
-            e.subdate, e.subtime,
-            STR_TO_DATE(CONCAT(NULLIF(e.subdate,''), ' ', NULLIF(e.subtime,'')), '%d%b%Y %H:%i:%s') AS submitted_at,
+            id,
+            department,
+            affected_departments,
+            wcm,
+            initiator,
+            pes,
+            STR_TO_DATE(CONCAT(subdate, ' ', subtime), '%d%b%Y %H:%i:%s') AS submitted_at,
+            STR_TO_DATE(INTENDED_IMP_DATE, '%c/%e/%y') AS intended_imp_datetime,
             CASE
-              WHEN e.escf_status = 2 THEN 'Rejected'
-              WHEN e.pe_disposition = '' OR e.pe_disposition IS NULL THEN 'Pending'
-              WHEN e.pe_disposition = 'Approved' AND e.escf_status = 1 THEN 'Implemented'
-              WHEN e.pe_disposition = 'Approved' AND e.escf_status = 0 THEN 'Approved'
-              ELSE 'Approved'
-            END AS status
-          FROM escf e
-          WHERE e.department = ?
-             OR (e.affected_departments IS NOT NULL
-                 AND CONCAT(',', e.affected_departments, ',') LIKE CONCAT('%,', ?, ',%'))
-          ORDER BY submitted_at ASC
+                WHEN escf_status = 2 THEN 'Rejected'
+                WHEN (pe_disposition IS NULL OR pe_disposition = '') THEN 'Pending'
+                WHEN pe_disposition = 'Approved' AND escf_status = 1 THEN 'Implemented'
+                WHEN pe_disposition = 'Approved' AND escf_status = 0 THEN 'Approved'
+                ELSE 'TBD'
+            END AS Status
+          FROM escf;
         `, [record.department, record.department])
       }
 
