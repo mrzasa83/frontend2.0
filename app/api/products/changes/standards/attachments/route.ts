@@ -10,9 +10,9 @@ const ESCF_BASE_PATH = '/mnt/jdrive/APC EngJobs/00 DocControl/escf'
 // Actual filename pattern: {ref_base}.{date}.{time}_{desc}.{ext}
 // e.g. "74939.pptx" matches "74939.27Dec2023.11'39'06_74939layout.pptx"
 function findMatchingFiles(
-  allFiles: { name: string; size: number; modified: string }[],
+  allFiles: { name: string; size: number; modified: string; dir: string }[],
   attachmentRef: string
-): { name: string; size: number; modified: string }[] {
+): { name: string; size: number; modified: string; dir: string }[] {
   const dotIdx = attachmentRef.lastIndexOf('.')
   if (dotIdx < 0) {
     // No extension — match prefix only
