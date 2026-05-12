@@ -7,27 +7,49 @@ import * as fs from 'fs'
 const ESCF_BASE_PATH = '/mnt/jdrive/APC EngJobs/00 DocControl/escf'
 
 // Build actual filename from request field + attachment ref
-// Pattern: {request_with_colons_as_quotes}_{attachment_value}
-// Example: request="AOI-Puch.01Dec2020.11:12:55", attachment="74939.pptx"
-//        → "AOI-Puch.01Dec2020.11"12"55_74939.pptx"
-function buildActualFilename(request: string, attachmentRef: string): string {
-  const sanitizedRequest = (request || '').replace(/:/g, '"')
-  return `${sanitizedRequest}_${attachmentRef}`
+// The time colons get replaced with an unknown filesystem-safe char
+// So we try multiple variants and fall back to fuzzy matching
+function buildFilenameVariants(request: string, attachmentRef: string): string[] {
+  const base = request || ''
+  const variants = [
+    `${base.replace(/:/g, '"')}_${attachmentRef}`,   // double quote
+    `${base.replace(/:/g, "'")}_${attachmentRef}`,   // single quote
+    `${base.replace(/:/g, '')}_${attachmentRef}`,    // removed entirely
+    `${base.replace(/:/g, '-')}_${attachmentRef}`,   // dash
+    `${base.replace(/:/g, '_')}_${attachmentRef}`,   // underscore
+  ]
+  return variants
 }
 
-function findFile(filename: string): { path: string; size: number; modified: string } | null {
-  // Check flat directory first, then subdirectories
-  const candidates = [
-    `${ESCF_BASE_PATH}/${filename}`,
-  ]
-  for (const fullPath of candidates) {
-    try {
-      if (fs.existsSync(fullPath)) {
-        const stat = fs.statSync(fullPath)
-        return { path: fullPath, size: stat.size, modified: stat.mtime.toISOString() }
-      }
-    } catch {}
+// Normalize a filename for fuzzy comparison: strip non-alphanumeric except dots and underscores
+function normalizeForMatch(name: string): string {
+  return name.replace(/[^a-zA-Z0-9._]/g, '').toLowerCase()
+}
+
+function findFile(request: string, attachmentRef: string, allFiles: string[]): string | null {
+  // Try exact variants first
+  const variants = buildFilenameVariants(request, attachmentRef)
+  for (const v of variants) {
+    if (allFiles.includes(v)) return v
   }
+
+  // Fuzzy match: normalize both sides and compare
+  // Expected skeleton: remove all non-alphanumeric except dots/underscores
+  const expectedNorm = normalizeForMatch(`${request}_${attachmentRef}`)
+
+  for (const f of allFiles) {
+    if (normalizeForMatch(f) === expectedNorm) return f
+  }
+
+  // Partial match: check if file contains the attachment ref and starts with dept prefix
+  const dept = request.split('.')[0] || ''
+  for (const f of allFiles) {
+    if (f.toLowerCase().startsWith(dept.toLowerCase() + '.') &&
+        f.toLowerCase().endsWith(attachmentRef.toLowerCase())) {
+      return f
+    }
+  }
+
   return null
 }
 
@@ -43,8 +65,18 @@ export async function GET(request: NextRequest) {
 
   // Download mode — stream the file
   if (download === 'true' && downloadFile) {
-    const fullPath = `${ESCF_BASE_PATH}/${downloadFile}`
+    // Try exact path first, then fuzzy match in directory
+    let fullPath = `${ESCF_BASE_PATH}/${downloadFile}`
     try {
+      if (!fs.existsSync(fullPath)) {
+        // Fuzzy: find file by normalized name match
+        const norm = normalizeForMatch(downloadFile)
+        const dirFiles = fs.readdirSync(ESCF_BASE_PATH)
+        const match = dirFiles.find(f => normalizeForMatch(f) === norm)
+        if (match) {
+          fullPath = `${ESCF_BASE_PATH}/${match}`
+        }
+      }
       if (!fs.existsSync(fullPath)) {
         return NextResponse.json({ error: 'File not found' }, { status: 404 })
       }
@@ -88,18 +120,33 @@ export async function GET(request: NextRequest) {
       [escfId]
     )
 
-    // Parse attachment refs and build actual filenames
+    // Scan the ESCF attachment directory
+    let allDirFiles: string[] = []
+    try {
+      if (fs.existsSync(ESCF_BASE_PATH)) {
+        allDirFiles = fs.readdirSync(ESCF_BASE_PATH)
+      }
+    } catch {}
+
+    // Parse attachment refs and find matching files on disk
     const refs = attachmentsRaw.split(',').map(s => s.trim()).filter(s => s)
 
     const files = refs.map(ref => {
-      const actualName = buildActualFilename(requestField, ref)
-      const diskInfo = findFile(actualName)
+      const matchedName = findFile(requestField, ref, allDirFiles)
+      let size = 0, modified = ''
+      if (matchedName) {
+        try {
+          const stat = fs.statSync(`${ESCF_BASE_PATH}/${matchedName}`)
+          size = stat.size
+          modified = stat.mtime.toISOString()
+        } catch {}
+      }
       return {
         ref,
-        actualName,
-        found: !!diskInfo,
-        size: diskInfo?.size || 0,
-        modified: diskInfo?.modified || '',
+        actualName: matchedName || `${requestField.replace(/:/g, '')}_${ref}`,
+        found: !!matchedName,
+        size,
+        modified,
       }
     })
 
