@@ -4,50 +4,94 @@ import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import * as fs from 'fs'
 
-const ESCF_ATTACHMENTS_PATH = '/mnt/jdrive/APC EngJobs/00 DocControl/escf'
+const ESCF_BASE_PATH = '/mnt/jdrive/APC EngJobs/00 DocControl/escf'
 
-// GET: fetch attachment metadata for an ESCF
+// Match attachment ref (e.g. "74939.pptx") to actual files on disk
+// Actual filename pattern: {ref_base}.{date}.{time}_{desc}.{ext}
+// e.g. "74939.pptx" matches "74939.27Dec2023.11'39'06_74939layout.pptx"
+function findMatchingFiles(
+  allFiles: { name: string; size: number; modified: string }[],
+  attachmentRef: string
+): { name: string; size: number; modified: string }[] {
+  const dotIdx = attachmentRef.lastIndexOf('.')
+  if (dotIdx < 0) {
+    // No extension — match prefix only
+    return allFiles.filter(f => f.name.startsWith(attachmentRef))
+  }
+  const base = attachmentRef.substring(0, dotIdx)  // "74939"
+  const ext = attachmentRef.substring(dotIdx)       // ".pptx"
+
+  return allFiles.filter(f => {
+    // Exact match
+    if (f.name === attachmentRef) return true
+    // Prefix match: starts with "74939." (or "74939_") and ends with ".pptx"
+    if ((f.name.startsWith(base + '.') || f.name.startsWith(base + '_')) &&
+        f.name.toLowerCase().endsWith(ext.toLowerCase())) return true
+    return false
+  })
+}
+
+// GET: fetch attachments for an ESCF, with fuzzy file matching
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
   const escfId = searchParams.get('escfId')
+  const attachmentsRaw = searchParams.get('attachments') || ''
+
   if (!escfId) return NextResponse.json({ error: 'escfId required' }, { status: 400 })
 
   try {
-    // Get local metadata
+    // Get local metadata (descriptions)
     const meta = await queryPrimary(
       'SELECT * FROM escf_attachments WHERE escf_id = ? ORDER BY filename ASC',
       [escfId]
     )
 
-    // Check which files exist on disk
-    const escfDir = `${ESCF_ATTACHMENTS_PATH}/${escfId}`
-    const filesOnDisk: Record<string, { size: number; modified: string }> = {}
-    try {
-      if (fs.existsSync(escfDir)) {
-        const entries = fs.readdirSync(escfDir)
-        for (const entry of entries) {
-          try {
-            const stat = fs.statSync(`${escfDir}/${entry}`)
-            if (stat.isFile()) {
-              filesOnDisk[entry] = {
-                size: stat.size,
-                modified: stat.mtime.toISOString(),
+    // Scan disk — check both flat dir and per-id subdir
+    const allFiles: { name: string; size: number; modified: string; dir: string }[] = []
+    const dirsToScan = [
+      ESCF_BASE_PATH,
+      `${ESCF_BASE_PATH}/${escfId}`,
+    ]
+    for (const dir of dirsToScan) {
+      try {
+        if (fs.existsSync(dir)) {
+          for (const entry of fs.readdirSync(dir)) {
+            try {
+              const full = `${dir}/${entry}`
+              const stat = fs.statSync(full)
+              if (stat.isFile()) {
+                allFiles.push({
+                  name: entry,
+                  size: stat.size,
+                  modified: stat.mtime.toISOString(),
+                  dir,
+                })
               }
-            }
-          } catch {}
+            } catch {}
+          }
         }
-      }
-    } catch {}
+      } catch {}
+    }
+
+    // Parse attachment refs and match to files
+    const refs = attachmentsRaw.split(',').map(s => s.trim()).filter(s => s)
+    const matched: {
+      ref: string
+      files: { name: string; size: number; modified: string; dir: string }[]
+    }[] = refs.map(ref => ({
+      ref,
+      files: findMatchingFiles(allFiles, ref),
+    }))
 
     return NextResponse.json({
       success: true,
       escfId: Number(escfId),
       metadata: meta,
-      filesOnDisk,
-      basePath: escfDir,
+      matched,
+      basePath: ESCF_BASE_PATH,
     })
   } catch (error) {
     console.error('Error fetching attachments:', error)
@@ -57,7 +101,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// POST: upsert attachment metadata (description, sync flag)
+// POST: upsert attachment metadata (description)
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

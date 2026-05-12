@@ -128,7 +128,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
   const [activeTab, setActiveTab] = useState('general')
   const [showLegacy, setShowLegacy] = useState(false)
   const [attachmentMeta, setAttachmentMeta] = useState<Record<string, { description: string | null }>>({})
-  const [filesOnDisk, setFilesOnDisk] = useState<Record<string, { size: number; modified: string }>>({})
+  const [matchedFiles, setMatchedFiles] = useState<{ ref: string; files: { name: string; size: number; modified: string; dir: string }[] }[]>([])
   const [editingDesc, setEditingDesc] = useState<string | null>(null)
   const [descDraft, setDescDraft] = useState('')
 
@@ -146,9 +146,10 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
       setFormData(r.record)
       setHistory(r.history || [])
       setWcHistory(r.wcHistory || [])
-      // Fetch attachment metadata
+      // Fetch attachment metadata with fuzzy file matching
       try {
-        const attRes = await fetch(getApiUrl(`/api/products/changes/standards/attachments?escfId=${escfId}`))
+        const attRaw = encodeURIComponent(r.record.attachments || '')
+        const attRes = await fetch(getApiUrl(`/api/products/changes/standards/attachments?escfId=${escfId}&attachments=${attRaw}`))
         if (attRes.ok) {
           const attData = await attRes.json()
           const metaMap: Record<string, { description: string | null }> = {}
@@ -156,7 +157,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
             metaMap[m.filename] = { description: m.description }
           }
           setAttachmentMeta(metaMap)
-          setFilesOnDisk(attData.filesOnDisk || {})
+          setMatchedFiles(attData.matched || [])
         }
       } catch {}
     } catch (e: any) { setError(e.message) }
@@ -454,12 +455,6 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
     ),
 
     attachments: (() => {
-      // Parse attachment filenames from ESCF record
-      // Try common column names for the attachment field
-      const attField = record.attachments || ''
-      const filenames = String(attField).split(',').map((f: string) => f.trim()).filter((f: string) => f.length > 0)
-      const escfDir = `/mnt/jdrive/APC EngJobs/00 DocControl/escf/${escfId}`
-
       const formatSize = (bytes: number) => {
         if (bytes < 1024) return `${bytes} B`
         if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`
@@ -471,97 +466,109 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
         if (['pdf'].includes(ext)) return '📕'
         if (['xlsx', 'xls', 'csv'].includes(ext)) return '📗'
         if (['doc', 'docx'].includes(ext)) return '📘'
+        if (['pptx', 'ppt'].includes(ext)) return '📙'
         if (['msg'].includes(ext)) return '📧'
         if (['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(ext)) return '🖼️'
         return '📄'
       }
 
+      const totalFiles = matchedFiles.reduce((n, m) => n + m.files.length, 0)
+      const attValue = record.attachments || ''
+
       return (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-semibold text-slate-700">
-              Attachments ({filenames.length})
+              Attachments ({totalFiles} file{totalFiles !== 1 ? 's' : ''})
             </h4>
-            <p className="text-xs text-slate-400">Path: {escfDir}</p>
+            <p className="text-xs text-slate-400 font-mono">Path: /mnt/jdrive/APC EngJobs/00 DocControl/escf</p>
           </div>
 
-          {filenames.length === 0 ? (
-            <p className="text-sm text-slate-400 italic py-4">No attachments found in ESCF record</p>
+          {!attValue ? (
+            <p className="text-sm text-slate-400 italic py-4">No attachments in ESCF record</p>
+          ) : matchedFiles.length === 0 ? (
+            <p className="text-sm text-slate-400 italic py-4">Loading attachments...</p>
           ) : (
-            <div className="space-y-1">
-              {filenames.map((fname: string) => {
-                const disk = filesOnDisk[fname]
-                const meta = attachmentMeta[fname]
-                const isEditingThis = editingDesc === fname
-
-                return (
-                  <div key={fname} className="group bg-white border border-slate-200 rounded-lg px-4 py-3 hover:border-blue-200 transition-colors">
-                    <div className="flex items-start gap-3">
-                      {/* File icon */}
-                      <span className="text-2xl flex-shrink-0 mt-0.5">{getFileIcon(fname)}</span>
-
-                      {/* File info */}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-slate-800 truncate">{fname}</p>
-                        <div className="flex items-center gap-3 mt-0.5">
-                          {disk ? (
-                            <>
-                              <span className="text-xs text-green-600">{formatSize(disk.size)}</span>
-                              <span className="text-xs text-slate-400">•</span>
-                              <span className="text-xs text-slate-500">{new Date(disk.modified).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
-                            </>
-                          ) : (
-                            <span className="text-xs text-slate-400">File not found</span>
-                          )}
+            <div className="space-y-3">
+              {matchedFiles.map((match) => (
+                <div key={match.ref}>
+                  {/* Show the DB reference if no files found */}
+                  {match.files.length === 0 ? (
+                    <div className="bg-white border border-orange-200 rounded-lg px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="text-2xl">📄</span>
+                        <div>
+                          <p className="text-sm font-medium text-slate-800">{match.ref}</p>
+                          <p className="text-xs text-orange-500">File not found on disk — reference from database</p>
                         </div>
-
-                        {/* Description */}
-                        {isEditingThis ? (
-                          <div className="mt-2 flex items-center gap-2">
-                            <input type="text" value={descDraft}
-                              onChange={e => setDescDraft(e.target.value)}
-                              placeholder="Add a description..."
-                              className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                              autoFocus
-                              onKeyDown={e => {
-                                if (e.key === 'Enter') saveDescription(fname, descDraft)
-                                if (e.key === 'Escape') setEditingDesc(null)
-                              }}
-                            />
-                            <button onClick={() => saveDescription(fname, descDraft)}
-                              className="text-xs text-blue-600 hover:text-blue-800 font-medium">Save</button>
-                            <button onClick={() => setEditingDesc(null)}
-                              className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
-                          </div>
-                        ) : (
-                          <div className="mt-1 flex items-center gap-2">
-                            {meta?.description ? (
-                              <p className="text-xs text-slate-600 italic">{meta.description}</p>
-                            ) : (
-                              <p className="text-xs text-slate-300 italic">No description</p>
-                            )}
-                            <button onClick={() => { setEditingDesc(fname); setDescDraft(meta?.description || '') }}
-                              className="text-xs text-blue-500 hover:text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity">
-                              {meta?.description ? 'edit' : 'add description'}
-                            </button>
-                          </div>
-                        )}
                       </div>
-
-                      {/* Actions — only show if file exists on disk */}
-                      {disk && (
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                          <a href={`/api/products/changes/standards/attachments/download?escfId=${escfId}&filename=${encodeURIComponent(fname)}`}
-                            className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                            title="Download">
-                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
-                          </a>
-                        </div>
-                      )}
                     </div>
-                  </div>
-                )
-              })}
+                  ) : (
+                    /* Show each matched file */
+                    match.files.map((file) => {
+                      const meta = attachmentMeta[file.name]
+                      const isEditingThis = editingDesc === file.name
+
+                      return (
+                        <div key={file.name} className="group bg-white border border-slate-200 rounded-lg px-4 py-3 hover:border-blue-200 transition-colors">
+                          <div className="flex items-start gap-3">
+                            <span className="text-2xl flex-shrink-0 mt-0.5">{getFileIcon(file.name)}</span>
+
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-slate-800 break-all">{file.name}</p>
+                              <div className="flex items-center gap-3 mt-0.5">
+                                <span className="text-xs text-green-600">{formatSize(file.size)}</span>
+                                <span className="text-xs text-slate-400">•</span>
+                                <span className="text-xs text-slate-500">
+                                  {new Date(file.modified).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                                </span>
+                                {match.ref !== file.name && (
+                                  <>
+                                    <span className="text-xs text-slate-400">•</span>
+                                    <span className="text-xs text-slate-400">ref: {match.ref}</span>
+                                  </>
+                                )}
+                              </div>
+
+                              {/* Description */}
+                              {isEditingThis ? (
+                                <div className="mt-2 flex items-center gap-2">
+                                  <input type="text" value={descDraft}
+                                    onChange={e => setDescDraft(e.target.value)}
+                                    placeholder="Add a description..."
+                                    className="flex-1 px-2 py-1 border border-slate-200 rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+                                    autoFocus
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') saveDescription(file.name, descDraft)
+                                      if (e.key === 'Escape') setEditingDesc(null)
+                                    }}
+                                  />
+                                  <button onClick={() => saveDescription(file.name, descDraft)}
+                                    className="text-xs text-blue-600 hover:text-blue-800 font-medium">Save</button>
+                                  <button onClick={() => setEditingDesc(null)}
+                                    className="text-xs text-slate-400 hover:text-slate-600">Cancel</button>
+                                </div>
+                              ) : (
+                                <div className="mt-1 flex items-center gap-2">
+                                  {meta?.description ? (
+                                    <p className="text-xs text-slate-600 italic">{meta.description}</p>
+                                  ) : (
+                                    <p className="text-xs text-slate-300 italic">No description</p>
+                                  )}
+                                  <button onClick={() => { setEditingDesc(file.name); setDescDraft(meta?.description || '') }}
+                                    className="text-xs text-blue-500 hover:text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    {meta?.description ? 'edit' : 'add description'}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </div>
