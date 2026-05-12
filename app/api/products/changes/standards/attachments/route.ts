@@ -6,41 +6,80 @@ import * as fs from 'fs'
 
 const ESCF_BASE_PATH = '/mnt/jdrive/APC EngJobs/00 DocControl/escf'
 
-// Match attachment ref (e.g. "74939.pptx") to actual files on disk
-// Actual filename pattern: {ref_base}.{date}.{time}_{desc}.{ext}
-// e.g. "74939.pptx" matches "74939.27Dec2023.11'39'06_74939layout.pptx"
-function findMatchingFiles(
-  allFiles: { name: string; size: number; modified: string; dir: string }[],
-  attachmentRef: string
-): { name: string; size: number; modified: string; dir: string }[] {
-  const dotIdx = attachmentRef.lastIndexOf('.')
-  if (dotIdx < 0) {
-    // No extension — match prefix only
-    return allFiles.filter(f => f.name.startsWith(attachmentRef))
-  }
-  const base = attachmentRef.substring(0, dotIdx)  // "74939"
-  const ext = attachmentRef.substring(dotIdx)       // ".pptx"
-
-  return allFiles.filter(f => {
-    // Exact match
-    if (f.name === attachmentRef) return true
-    // Prefix match: starts with "74939." (or "74939_") and ends with ".pptx"
-    if ((f.name.startsWith(base + '.') || f.name.startsWith(base + '_')) &&
-        f.name.toLowerCase().endsWith(ext.toLowerCase())) return true
-    return false
-  })
+// Build actual filename from request field + attachment ref
+// Pattern: {request_with_colons_as_quotes}_{attachment_value}
+// Example: request="AOI-Puch.01Dec2020.11:12:55", attachment="74939.pptx"
+//        → "AOI-Puch.01Dec2020.11"12"55_74939.pptx"
+function buildActualFilename(request: string, attachmentRef: string): string {
+  const sanitizedRequest = (request || '').replace(/:/g, '"')
+  return `${sanitizedRequest}_${attachmentRef}`
 }
 
-// GET: fetch attachments for an ESCF, with fuzzy file matching
+function findFile(filename: string): { path: string; size: number; modified: string } | null {
+  // Check flat directory first, then subdirectories
+  const candidates = [
+    `${ESCF_BASE_PATH}/${filename}`,
+  ]
+  for (const fullPath of candidates) {
+    try {
+      if (fs.existsSync(fullPath)) {
+        const stat = fs.statSync(fullPath)
+        return { path: fullPath, size: stat.size, modified: stat.mtime.toISOString() }
+      }
+    } catch {}
+  }
+  return null
+}
+
+// GET: fetch attachment info or download a file
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
   const escfId = searchParams.get('escfId')
-  const attachmentsRaw = searchParams.get('attachments') || ''
+  const download = searchParams.get('download')
+  const downloadFile = searchParams.get('filename')
 
+  // Download mode — stream the file
+  if (download === 'true' && downloadFile) {
+    const fullPath = `${ESCF_BASE_PATH}/${downloadFile}`
+    try {
+      if (!fs.existsSync(fullPath)) {
+        return NextResponse.json({ error: 'File not found' }, { status: 404 })
+      }
+      const buffer = fs.readFileSync(fullPath)
+      const ext = downloadFile.split('.').pop()?.toLowerCase() || ''
+      const mimeTypes: Record<string, string> = {
+        pdf: 'application/pdf',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        xls: 'application/vnd.ms-excel',
+        pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+        ppt: 'application/vnd.ms-powerpoint',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        doc: 'application/msword',
+        msg: 'application/vnd.ms-outlook',
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', bmp: 'image/bmp',
+        txt: 'text/plain', csv: 'text/csv',
+      }
+      return new NextResponse(buffer, {
+        headers: {
+          'Content-Type': mimeTypes[ext] || 'application/octet-stream',
+          'Content-Disposition': `inline; filename="${encodeURIComponent(downloadFile)}"`,
+          'Content-Length': String(buffer.length),
+        },
+      })
+    } catch (error) {
+      return NextResponse.json({ error: 'Failed to read file' }, { status: 500 })
+    }
+  }
+
+  // List mode
   if (!escfId) return NextResponse.json({ error: 'escfId required' }, { status: 400 })
+
+  const attachmentsRaw = searchParams.get('attachments') || ''
+  const requestField = searchParams.get('request') || ''
 
   try {
     // Get local metadata (descriptions)
@@ -49,48 +88,26 @@ export async function GET(request: NextRequest) {
       [escfId]
     )
 
-    // Scan disk — check both flat dir and per-id subdir
-    const allFiles: { name: string; size: number; modified: string; dir: string }[] = []
-    const dirsToScan = [
-      ESCF_BASE_PATH,
-      `${ESCF_BASE_PATH}/${escfId}`,
-    ]
-    for (const dir of dirsToScan) {
-      try {
-        if (fs.existsSync(dir)) {
-          for (const entry of fs.readdirSync(dir)) {
-            try {
-              const full = `${dir}/${entry}`
-              const stat = fs.statSync(full)
-              if (stat.isFile()) {
-                allFiles.push({
-                  name: entry,
-                  size: stat.size,
-                  modified: stat.mtime.toISOString(),
-                  dir,
-                })
-              }
-            } catch {}
-          }
-        }
-      } catch {}
-    }
-
-    // Parse attachment refs and match to files
+    // Parse attachment refs and build actual filenames
     const refs = attachmentsRaw.split(',').map(s => s.trim()).filter(s => s)
-    const matched: {
-      ref: string
-      files: { name: string; size: number; modified: string; dir: string }[]
-    }[] = refs.map(ref => ({
-      ref,
-      files: findMatchingFiles(allFiles, ref),
-    }))
+
+    const files = refs.map(ref => {
+      const actualName = buildActualFilename(requestField, ref)
+      const diskInfo = findFile(actualName)
+      return {
+        ref,
+        actualName,
+        found: !!diskInfo,
+        size: diskInfo?.size || 0,
+        modified: diskInfo?.modified || '',
+      }
+    })
 
     return NextResponse.json({
       success: true,
       escfId: Number(escfId),
       metadata: meta,
-      matched,
+      files,
       basePath: ESCF_BASE_PATH,
     })
   } catch (error) {
