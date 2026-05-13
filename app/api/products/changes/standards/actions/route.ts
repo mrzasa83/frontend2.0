@@ -30,7 +30,10 @@ export async function GET(request: NextRequest) {
     const comments = await queryPrimary(
       'SELECT * FROM escf_action_comments WHERE escf_id = ? ORDER BY created_at ASC', [escfId]
     )
-    return NextResponse.json({ success: true, actions, comments })
+    const users = await queryPrimary(
+      'SELECT username, name FROM Users WHERE active = 1 ORDER BY name ASC'
+    )
+    return NextResponse.json({ success: true, actions, comments, users })
   } catch (error) {
     console.error('Error fetching actions:', error)
     return NextResponse.json({ error: 'Failed', details: error instanceof Error ? error.message : String(error) }, { status: 500 })

@@ -77,6 +77,7 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
   const [comments, setComments] = useState<Comment[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedActions, setExpandedActions] = useState<Set<number>>(new Set())
+  const [users, setUsers] = useState<{ username: string; name: string }[]>([])
 
   // New action form
   const [showAddAction, setShowAddAction] = useState(false)
@@ -116,6 +117,12 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
         const r = await res.json()
         setActions(r.actions || [])
         setComments(r.comments || [])
+        if (r.users) {
+          setUsers(r.users.map((u: any) => ({
+            username: u.username,
+            name: u.name || u.username,
+          })))
+        }
       }
     } catch {}
     setLoading(false)
@@ -270,10 +277,16 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
             <input type="text" value={newAction.text} onChange={e => setNewAction(p => ({ ...p, text: e.target.value }))}
               placeholder="Action description..." className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
             <div className="grid grid-cols-3 gap-3">
-              <input type="text" value={newAction.owner} onChange={e => setNewAction(p => ({ ...p, owner: e.target.value }))}
-                placeholder="Owner" className="px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-              <input type="text" value={newAction.assigned} onChange={e => setNewAction(p => ({ ...p, assigned: e.target.value }))}
-                placeholder="Assigned to" className="px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+              <select value={newAction.owner} onChange={e => setNewAction(p => ({ ...p, owner: e.target.value }))}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                <option value="">Owner...</option>
+                {users.map(u => <option key={u.username} value={u.name}>{u.name}</option>)}
+              </select>
+              <select value={newAction.assigned} onChange={e => setNewAction(p => ({ ...p, assigned: e.target.value }))}
+                className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                <option value="">Assigned to...</option>
+                {users.map(u => <option key={u.username} value={u.name}>{u.name}</option>)}
+              </select>
               <input type="date" value={newAction.dueDate} onChange={e => setNewAction(p => ({ ...p, dueDate: e.target.value }))}
                 className="px-3 py-2 border border-slate-200 rounded-lg text-sm" />
             </div>
