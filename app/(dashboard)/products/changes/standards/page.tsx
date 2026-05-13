@@ -98,7 +98,7 @@ export default function StandardsPage() {
         String(r.wcm || '').toLowerCase().includes(q) ||
         String(r.pes || '').toLowerCase().includes(q) ||
         String(r.affected_departments || '').toLowerCase().includes(q) ||
-        String(r.current_standard || '').toLowerCase().includes(q) ||
+        String(r.current_standards || '').toLowerCase().includes(q) ||
         String(r.requested_change || '').toLowerCase().includes(q) ||
         String(r.reason_for_change || '').toLowerCase().includes(q)
       )

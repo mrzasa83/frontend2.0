@@ -93,7 +93,7 @@ export async function GET(request: NextRequest) {
       SELECT
         id, department, affected_departments, wcm, initiator, pes,
         subdate, subtime, escf_status, change_status, pe_disposition,
-        current_standard, requested_change, reason_for_change,
+        current_standards, requested_change, reason_for_change,
         STR_TO_DATE(CONCAT(NULLIF(subdate,''), ' ', NULLIF(subtime,'')), '%d%b%Y %H:%i:%s') AS submitted_at,
         STR_TO_DATE(CONCAT(NULLIF(closeddate,''), ' ', NULLIF(closedtime,'')), '%d%b%Y %H:%i:%s') AS closed_at,
         STR_TO_DATE(CONCAT(NULLIF(pe_disposition_date,''), ' ', NULLIF(pe_disposition_time,'')), '%d%b%Y %H:%i:%s') AS disposed_at,
