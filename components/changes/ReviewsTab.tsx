@@ -81,7 +81,7 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
 
   // New action form
   const [showAddAction, setShowAddAction] = useState(false)
-  const [newAction, setNewAction] = useState({ text: '', owner: '', assigned: '', dueDate: '' })
+  const [newAction, setNewAction] = useState({ text: '', owner: '', dueDate: '' })
   const [newComment, setNewComment] = useState<Record<number, string>>({})
 
   // Modals
@@ -138,10 +138,10 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
         body: JSON.stringify({
           action: 'createAction', escfId,
           actionText: newAction.text, owner: newAction.owner,
-          assignedTo: newAction.assigned, dueDate: newAction.dueDate || null
+          dueDate: newAction.dueDate || null
         }),
       })
-      setNewAction({ text: '', owner: '', assigned: '', dueDate: '' })
+      setNewAction({ text: '', owner: '', dueDate: '' })
       setShowAddAction(false)
       fetchActions()
     } catch {}
@@ -276,15 +276,10 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
           <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-3 space-y-3">
             <input type="text" value={newAction.text} onChange={e => setNewAction(p => ({ ...p, text: e.target.value }))}
               placeholder="Action description..." className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 gap-3">
               <select value={newAction.owner} onChange={e => setNewAction(p => ({ ...p, owner: e.target.value }))}
                 className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
                 <option value="">Owner...</option>
-                {users.map(u => <option key={u.username} value={u.name}>{u.name}</option>)}
-              </select>
-              <select value={newAction.assigned} onChange={e => setNewAction(p => ({ ...p, assigned: e.target.value }))}
-                className="px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
-                <option value="">Assigned to...</option>
                 {users.map(u => <option key={u.username} value={u.name}>{u.name}</option>)}
               </select>
               <input type="date" value={newAction.dueDate} onChange={e => setNewAction(p => ({ ...p, dueDate: e.target.value }))}
@@ -314,7 +309,6 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
                     <p className="text-sm text-slate-800">{a.action_text}</p>
                     <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
                       {a.owner && <span>Owner: {a.owner}</span>}
-                      {a.assigned_to && <span>→ {a.assigned_to}</span>}
                       {a.due_date && <span>Due: {new Date(a.due_date).toLocaleDateString()}</span>}
                       <span>{a.created_by} · {new Date(a.created_at).toLocaleDateString()}</span>
                       {ac.length > 0 && (

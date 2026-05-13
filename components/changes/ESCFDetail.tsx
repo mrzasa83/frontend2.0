@@ -117,6 +117,89 @@ const TABS = [
 ]
 const ADMIN_TAB = { id: 'admin', label: 'Admin' }
 
+// ─── Related Parts Tab ───────────────────────────────────────────
+function RelatedPartsTab({ escfId, department }: { escfId: number; department: string }) {
+  const [data, setData] = React.useState<any[]>([])
+  const [deptCodes, setDeptCodes] = React.useState<string[]>([])
+  const [loading, setLoading] = React.useState(true)
+  const [error, setError] = React.useState('')
+  const [search, setSearch] = React.useState('')
+
+  React.useEffect(() => {
+    const fetchParts = async () => {
+      setLoading(true); setError('')
+      try {
+        const res = await fetch(getApiUrl(`/api/products/changes/standards/related-parts?escfId=${escfId}&department=${encodeURIComponent(department)}`))
+        if (!res.ok) throw new Error((await res.json()).details || 'Failed')
+        const r = await res.json()
+        setData(r.data || [])
+        setDeptCodes(r.deptCodes || [])
+        if (r.message) setError(r.message)
+      } catch (e: any) { setError(e.message) }
+      setLoading(false)
+    }
+    fetchParts()
+  }, [escfId, department])
+
+  const filtered = React.useMemo(() => {
+    if (!search.trim()) return data
+    const q = search.toLowerCase()
+    return data.filter((r: any) =>
+      (r.customerPartNumber || '').toLowerCase().includes(q) ||
+      (r.inventoryPartNumber || '').toLowerCase().includes(q) ||
+      (r.routeSteps || '').toLowerCase().includes(q)
+    )
+  }, [data, search])
+
+  if (loading) return <div className="flex items-center gap-2 py-8 justify-center text-slate-500"><RefreshCw size={16} className="animate-spin" /> Loading related parts...</div>
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-slate-700">
+            Related Parts — {department} ({filtered.length} parts)
+          </h4>
+          {deptCodes.length > 0 && (
+            <p className="text-xs text-slate-400 mt-0.5">
+              Paradigm depts: {deptCodes.join(', ')}
+            </p>
+          )}
+        </div>
+        <div className="relative">
+          <input type="text" value={search} onChange={e => setSearch(e.target.value)}
+            placeholder="Filter parts..." className="pl-3 pr-8 py-1.5 border border-slate-200 rounded text-sm w-48" />
+        </div>
+      </div>
+
+      {error && !data.length && <p className="text-sm text-orange-500 italic">{error}</p>}
+
+      {data.length > 0 && (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-y-auto max-h-[500px]">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 sticky top-0">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Customer Part#</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Inventory Part#</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Route Steps</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r: any, i: number) => (
+                <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-3 py-2 font-mono text-slate-800">{r.customerPartNumber}</td>
+                  <td className="px-3 py-2 font-mono text-slate-600">{r.inventoryPartNumber || '—'}</td>
+                  <td className="px-3 py-2 text-slate-500 text-xs">{r.routeSteps}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Props) {
   const [record, setRecord] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
@@ -437,12 +520,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
       </div>
     ),
 
-    related: (
-      <div className="space-y-4">
-        <p className="text-sm text-slate-500">Related parts for this standard change will be shown here.</p>
-        <p className="text-sm text-slate-400 italic">Coming soon — will link to affected product parts.</p>
-      </div>
-    ),
+    related: <RelatedPartsTab escfId={escfId} department={record.department} />,
 
     attachments: (() => {
       const formatSize = (bytes: number) => {
