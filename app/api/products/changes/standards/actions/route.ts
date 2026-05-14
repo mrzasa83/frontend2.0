@@ -24,6 +24,12 @@ export async function GET(request: NextRequest) {
   if (!escfId) return NextResponse.json({ error: 'escfId required' }, { status: 400 })
 
   try {
+    if (escfId === 'all') {
+      // Fetch all actions across all ESCFs (for dashboard)
+      const actions = await queryPrimary('SELECT * FROM escf_actions ORDER BY created_at DESC')
+      return NextResponse.json({ success: true, actions, comments: [], notes: [] })
+    }
+
     const actions = await queryPrimary(
       'SELECT * FROM escf_actions WHERE escf_id = ? ORDER BY created_at DESC', [escfId]
     )
