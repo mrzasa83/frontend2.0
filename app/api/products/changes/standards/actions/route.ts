@@ -28,12 +28,15 @@ export async function GET(request: NextRequest) {
       'SELECT * FROM escf_actions WHERE escf_id = ? ORDER BY created_at DESC', [escfId]
     )
     const comments = await queryPrimary(
-      'SELECT * FROM escf_action_comments WHERE escf_id = ? ORDER BY created_at ASC', [escfId]
+      'SELECT * FROM escf_action_comments WHERE escf_id = ? AND action_id > 0 ORDER BY created_at ASC', [escfId]
+    )
+    const notes = await queryPrimary(
+      'SELECT * FROM escf_action_comments WHERE escf_id = ? AND action_id = 0 ORDER BY created_at DESC', [escfId]
     )
     const users = await queryPrimary(
       'SELECT username, name FROM Users WHERE active = 1 ORDER BY name ASC'
     )
-    return NextResponse.json({ success: true, actions, comments, users })
+    return NextResponse.json({ success: true, actions, comments, notes, users })
   } catch (error) {
     console.error('Error fetching actions:', error)
     return NextResponse.json({ error: 'Failed', details: error instanceof Error ? error.message : String(error) }, { status: 500 })
@@ -83,6 +86,20 @@ export async function POST(request: NextRequest) {
         await conn.execute(
           'INSERT INTO escf_history (escf_id, field_name, old_value, new_value, changed_by) VALUES (?,?,?,?,?)',
           [escfId, 'Comment Added', `Action #${actionId}`, commentText, username]
+        )
+        await conn.commit()
+        return NextResponse.json({ success: true })
+      }
+
+      if (actionType === 'addNote') {
+        const { noteText } = body
+        await conn.execute(
+          'INSERT INTO escf_action_comments (action_id, escf_id, comment_text, created_by) VALUES (0,?,?,?)',
+          [escfId, noteText, username]
+        )
+        await conn.execute(
+          'INSERT INTO escf_history (escf_id, field_name, old_value, new_value, changed_by) VALUES (?,?,?,?,?)',
+          [escfId, 'Note Added', '', noteText, username]
         )
         await conn.commit()
         return NextResponse.json({ success: true })

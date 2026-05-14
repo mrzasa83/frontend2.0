@@ -75,6 +75,7 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
 }) {
   const [actions, setActions] = useState<Action[]>([])
   const [comments, setComments] = useState<Comment[]>([])
+  const [notes, setNotes] = useState<Comment[]>([])
   const [loading, setLoading] = useState(true)
   const [expandedActions, setExpandedActions] = useState<Set<number>>(new Set())
   const [users, setUsers] = useState<{ username: string; name: string }[]>([])
@@ -83,6 +84,7 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
   const [showAddAction, setShowAddAction] = useState(false)
   const [newAction, setNewAction] = useState({ text: '', owner: '', dueDate: '' })
   const [newComment, setNewComment] = useState<Record<number, string>>({})
+  const [newNote, setNewNote] = useState('')
 
   // Modals
   const [approveModal, setApproveModal] = useState<'approve' | 'disapprove' | null>(null)
@@ -117,6 +119,7 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
         const r = await res.json()
         setActions(r.actions || [])
         setComments(r.comments || [])
+        setNotes(r.notes || [])
         if (r.users) {
           setUsers(r.users.map((u: any) => ({
             username: u.username,
@@ -156,6 +159,18 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
         body: JSON.stringify({ action: 'addComment', escfId, actionId, commentText: text }),
       })
       setNewComment(prev => ({ ...prev, [actionId]: '' }))
+      fetchActions()
+    } catch {}
+  }
+
+  const handleAddNote = async () => {
+    if (!newNote.trim()) return
+    try {
+      await fetch(getApiUrl('/api/products/changes/standards/actions'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'addNote', escfId, noteText: newNote }),
+      })
+      setNewNote('')
       fetchActions()
     } catch {}
   }
@@ -355,6 +370,37 @@ export default function ReviewsTab({ escfId, record, isAdmin, onRefresh }: {
               </div>
             )
           })}
+        </div>
+      </div>
+
+      {/* ─── Notes ────────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-semibold text-slate-700">Notes ({notes.length})</h4>
+        </div>
+
+        {/* Add note */}
+        <div className="flex gap-2 mb-3">
+          <input type="text" value={newNote} onChange={e => setNewNote(e.target.value)}
+            placeholder="Add a note..."
+            className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:ring-1 focus:ring-blue-500 outline-none"
+            onKeyDown={e => { if (e.key === 'Enter') handleAddNote() }} />
+          <button onClick={handleAddNote} disabled={!newNote.trim()}
+            className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50">
+            Post
+          </button>
+        </div>
+
+        {/* Notes list */}
+        <div className="bg-white border border-slate-200 rounded-lg divide-y divide-slate-100">
+          {notes.length === 0 ? (
+            <p className="p-4 text-sm text-slate-400 italic">No notes yet</p>
+          ) : notes.map((n: Comment) => (
+            <div key={n.id} className="px-4 py-3">
+              <p className="text-sm text-slate-800">{n.comment_text}</p>
+              <p className="text-xs text-slate-400 mt-1">{n.created_by} · {new Date(n.created_at).toLocaleString()}</p>
+            </div>
+          ))}
         </div>
       </div>
 

@@ -114,6 +114,7 @@ const TABS = [
   { id: 'signoff', label: 'Signoff' },
   { id: 'attachments', label: 'Attachments' },
   { id: 'related', label: 'Related Parts' },
+  { id: 'history', label: 'History' },
 ]
 const ADMIN_TAB = { id: 'admin', label: 'Admin' }
 
@@ -485,38 +486,41 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
           </div>
         </div>
 
-        {/* Change History */}
-        <div className="pt-4 border-t border-slate-100">
-          <h4 className="text-sm font-semibold text-slate-700 mb-3">Change History ({history.length})</h4>
-          {history.length === 0 ? (
-            <p className="text-sm text-slate-400">No changes recorded</p>
-          ) : (
-            <div className="bg-white border border-slate-200 rounded-lg overflow-hidden max-h-[400px] overflow-y-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 sticky top-0">
-                  <tr>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Field</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Old Value</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">New Value</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Changed By</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Date</th>
+        {/* Change History moved to History tab */}
+      </div>
+    ),
+
+    history: (
+      <div className="space-y-4">
+        <h4 className="text-sm font-semibold text-slate-700">Change History ({history.length})</h4>
+        {history.length === 0 ? (
+          <p className="text-sm text-slate-400">No changes recorded</p>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden max-h-[600px] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Field</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Old Value</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">New Value</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Changed By</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map((h: any) => (
+                  <tr key={h.id} className="border-t border-slate-100">
+                    <td className="px-3 py-2 font-medium text-slate-700">{h.field_name}</td>
+                    <td className="px-3 py-2 text-red-500 text-xs">{h.old_value || '(empty)'}</td>
+                    <td className="px-3 py-2 text-green-600 text-xs">{h.new_value || '(empty)'}</td>
+                    <td className="px-3 py-2 text-slate-600">{h.changed_by}</td>
+                    <td className="px-3 py-2 text-slate-500 text-xs">{new Date(h.changed_at).toLocaleString()}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {history.map((h: any) => (
-                    <tr key={h.id} className="border-t border-slate-100">
-                      <td className="px-3 py-2 font-medium text-slate-700">{h.field_name}</td>
-                      <td className="px-3 py-2 text-red-500 text-xs">{h.old_value || '(empty)'}</td>
-                      <td className="px-3 py-2 text-green-600 text-xs">{h.new_value || '(empty)'}</td>
-                      <td className="px-3 py-2 text-slate-600">{h.changed_by}</td>
-                      <td className="px-3 py-2 text-slate-500 text-xs">{new Date(h.changed_at).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     ),
 
