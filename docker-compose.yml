@@ -2,6 +2,7 @@
 # Place this alongside the Dockerfile (or reference the build context).
 #
 # IMPORTANT:  NEXTAUTH_URL *must* include the basePath (/frontend2.0)
+# Set NEXTAUTH_URL in .env.local (e.g. http://nh2934rh/frontend2.0)
 #             so that NextAuth constructs callback URLs correctly.
 
 version: '3.8'
@@ -27,10 +28,12 @@ services:
       - /mnt/sdrive:/mnt/sdrive:ro      # S: drive  (APCFS04\SHARED2)
       - /mnt/tdrive:/mnt/tdrive:ro      # T: drive  (Packaging)
 
+    env_file: .env.local
+
     environment:
       # ── NextAuth ────────────────────────────────────────────────────
       # MUST include the basePath so login/logout redirects work!
-      NEXTAUTH_URL: "http://your-server-hostname/frontend2.0"
+      # NEXTAUTH_URL comes from .env.local
       NEXTAUTH_SECRET: "change-me-to-a-random-secret"
 
       # ── MySQL primary (app database) ───────────────────────────────
