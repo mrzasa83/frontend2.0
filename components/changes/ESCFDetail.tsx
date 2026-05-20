@@ -13,6 +13,7 @@ type Props = {
   isAdmin: boolean
   onClose: () => void
   onOpenEscf?: (id: number) => void
+  onDataChange?: () => void
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -201,7 +202,7 @@ function RelatedPartsTab({ escfId, department }: { escfId: number; department: s
   )
 }
 
-export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Props) {
+export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDataChange }: Props) {
   const [record, setRecord] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [wcHistory, setWcHistory] = useState<any[]>([])
@@ -406,7 +407,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf }: Pro
     ),
 
     reviews: (
-      <ReviewsTab escfId={escfId} record={record} isAdmin={isAdmin} onRefresh={fetchRecord} />
+      <ReviewsTab escfId={escfId} record={record} isAdmin={isAdmin} onRefresh={() => { fetchRecord(); onDataChange?.() }} />
     ),
 
     signoff: (

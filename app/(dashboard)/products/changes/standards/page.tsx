@@ -233,7 +233,8 @@ export default function StandardsPage() {
         </div>
         <div className="h-[calc(100%-3rem)]">
           <ESCFDetail escfId={id} isAdmin={isAdmin} onClose={() => closeTab(id)}
-            onOpenEscf={(newId) => { if (!openTabs.includes(newId)) setOpenTabs(prev => [...prev, newId]); setActiveTab(`escf-${newId}`) }} />
+            onOpenEscf={(newId) => { if (!openTabs.includes(newId)) setOpenTabs(prev => [...prev, newId]); setActiveTab(`escf-${newId}`) }}
+            onDataChange={fetchData} />
         </div>
       </div>
     )
