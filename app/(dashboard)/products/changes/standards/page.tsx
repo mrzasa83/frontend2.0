@@ -234,7 +234,13 @@ export default function StandardsPage() {
         <div className="h-[calc(100%-3rem)]">
           <ESCFDetail escfId={id} isAdmin={isAdmin} onClose={() => closeTab(id)}
             onOpenEscf={(newId) => { if (!openTabs.includes(newId)) setOpenTabs(prev => [...prev, newId]); setActiveTab(`escf-${newId}`) }}
-            onDataChange={fetchData} />
+            onDataChange={fetchData}
+            navList={filtered.map(r => r.id)}
+            onNavigate={(newId) => {
+              // Replace the current tab with the new ESCF (tab name changes)
+              setOpenTabs(prev => prev.map(t => t === id ? newId : t))
+              setActiveTab(`escf-${newId}`)
+            }} />
         </div>
       </div>
     )

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import {
   RefreshCw, ArrowLeft, X, Save, Pencil,
-  Clock, CheckCircle, XCircle
+  Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import ReviewsTab from '@/components/changes/ReviewsTab'
@@ -14,6 +14,8 @@ type Props = {
   onClose: () => void
   onOpenEscf?: (id: number) => void
   onDataChange?: () => void
+  navList?: number[]
+  onNavigate?: (id: number) => void
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -202,7 +204,7 @@ function RelatedPartsTab({ escfId, department }: { escfId: number; department: s
   )
 }
 
-export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDataChange }: Props) {
+export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDataChange, navList, onNavigate }: Props) {
   const [record, setRecord] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [wcHistory, setWcHistory] = useState<any[]>([])
@@ -672,6 +674,28 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
           <button onClick={onClose} className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded">
             <ArrowLeft size={20} />
           </button>
+          {navList && navList.length > 1 && onNavigate && (() => {
+            const idx = navList.indexOf(escfId)
+            const prevId = idx > 0 ? navList[idx - 1] : null
+            const nextId = idx >= 0 && idx < navList.length - 1 ? navList[idx + 1] : null
+            return (
+              <div className="flex items-center gap-1">
+                <button onClick={() => prevId && onNavigate(prevId)} disabled={!prevId}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={prevId ? `Previous (#${prevId})` : 'No previous'}>
+                  <ChevronLeft size={18} />
+                </button>
+                <span className="text-xs text-slate-400 min-w-[3rem] text-center">
+                  {idx >= 0 ? `${idx + 1} / ${navList.length}` : ''}
+                </span>
+                <button onClick={() => nextId && onNavigate(nextId)} disabled={!nextId}
+                  className="p-1.5 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded disabled:opacity-30 disabled:cursor-not-allowed"
+                  title={nextId ? `Next (#${nextId})` : 'No next'}>
+                  <ChevronRight size={18} />
+                </button>
+              </div>
+            )
+          })()}
           <div>
             <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
               ESCF #{record.id} <StatusBadge status={computedStatus} />
