@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { FileText, Package } from 'lucide-react'
+import { FileText, Package, GitBranch } from 'lucide-react'
 
 export default function ChangesPage() {
   const cards = [
@@ -11,6 +11,13 @@ export default function ChangesPage() {
       icon: FileText,
       href: '/products/changes/standards',
       color: 'blue',
+    },
+    {
+      title: 'ECO',
+      description: 'Engineering Change Orders — track MCN/ECO requests, CAM work, and dispositions',
+      icon: GitBranch,
+      href: '/products/changes/eco',
+      color: 'purple',
     },
     {
       title: 'Products',
@@ -25,6 +32,7 @@ export default function ChangesPage() {
   const colorMap: Record<string, string> = {
     blue: 'bg-blue-100 text-blue-600',
     emerald: 'bg-emerald-100 text-emerald-600',
+    purple: 'bg-purple-100 text-purple-600',
   }
 
   return (
