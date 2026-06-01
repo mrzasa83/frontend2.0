@@ -6,7 +6,13 @@ import {
   RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown,
   ArrowLeft, GitBranch, FileText, AlertCircle, X
 } from 'lucide-react'
+import {
+  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown,
+  ArrowLeft, GitBranch, FileText, AlertCircle, X,
+  ChevronDown, ChevronRight, BarChart3
+} from 'lucide-react'
 import Link from 'next/link'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { getApiUrl } from '@/lib/api'
 import ECODetail from '@/components/changes/ECODetail'
 
@@ -20,11 +26,45 @@ type SortDir = 'asc' | 'desc'
 
 function StatusBadge({ status }: { status: string }) {
   const styles: Record<string, string> = {
-    Open: 'bg-yellow-100 text-yellow-700',
-    Closed: 'bg-green-100 text-green-700',
-    Rejected: 'bg-red-100 text-red-700',
+    Requested: 'bg-yellow-100 text-yellow-700',
+    Completed: 'bg-green-100 text-green-700',
+    Canceled: 'bg-red-100 text-red-700',
+    Removed: 'bg-slate-100 text-slate-500',
+    Other: 'bg-blue-100 text-blue-700',
   }
   return <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${styles[status] || 'bg-slate-100 text-slate-600'}`}>{status}</span>
+}
+
+// Collapsible panel
+function Panel({ title, icon, defaultOpen, children, count }: {
+  title: string; icon: React.ReactNode; defaultOpen?: boolean; children: React.ReactNode; count?: number
+}) {
+  const [open, setOpen] = useState(defaultOpen ?? true)
+  return (
+    <div className="bg-white rounded-lg border border-slate-200 overflow-hidden flex-shrink-0">
+      <button onClick={() => setOpen(!open)}
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
+        {open ? <ChevronDown size={16} className="text-slate-400" /> : <ChevronRight size={16} className="text-slate-400" />}
+        {icon}
+        <span className="text-sm font-semibold text-slate-700">{title}</span>
+        {count !== undefined && <span className="text-xs text-slate-400 ml-1">({count})</span>}
+      </button>
+      {open && <div className="border-t border-slate-100">{children}</div>}
+    </div>
+  )
+}
+
+function daysSince(dateStr: string | null): number | null {
+  if (!dateStr) return null
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return null
+  return Math.floor((Date.now() - d.getTime()) / 86400000)
+}
+function formatDays(n: number | null): string {
+  if (n === null) return '—'
+  if (n === 0) return 'Today'
+  if (n === 1) return '1 day'
+  return `${n} days`
 }
 
 export default function ECOPage() {
@@ -57,22 +97,42 @@ export default function ECOPage() {
 
   useEffect(() => { fetchData() }, [])
 
-  // Distinct statuses present in the data (since eco_status meaning is TBD)
+  // Status filter options in a sensible order (only show those present)
   const statusOptions = useMemo(() => {
-    const set = new Set<string>()
-    data.forEach(r => set.add(r.status))
-    return ['all', ...Array.from(set).sort()]
+    const present = new Set(data.map(r => r.status))
+    const order = ['all', 'Requested', 'Completed', 'Canceled', 'Other', 'Removed']
+    return order.filter(s => s === 'all' || present.has(s))
   }, [data])
 
   const statusCounts = useMemo(() => {
-    const counts: Record<string, number> = { all: data.length }
-    data.forEach(r => { counts[r.status] = (counts[r.status] || 0) + 1 })
+    const counts: Record<string, number> = { all: 0 }
+    data.forEach(r => {
+      counts[r.status] = (counts[r.status] || 0) + 1
+      if (r.status !== 'Removed') counts.all++  // 'all' excludes Removed
+    })
     return counts
   }, [data])
 
+  const chartData = useMemo(() => [
+    { name: 'Requested', value: statusCounts.Requested || 0, color: '#eab308' },
+    { name: 'Completed', value: statusCounts.Completed || 0, color: '#22c55e' },
+    { name: 'Canceled', value: statusCounts.Canceled || 0, color: '#ef4444' },
+    { name: 'Other', value: statusCounts.Other || 0, color: '#3b82f6' },
+  ], [statusCounts])
+
+  const requestedItems = useMemo(() =>
+    data.filter(r => r.status === 'Requested')
+      .map(r => ({ ...r, daysSince: daysSince(r.submitted_at) }))
+      .sort((a, b) => (b.daysSince || 0) - (a.daysSince || 0)),
+  [data])
+
   const filtered = useMemo(() => {
     let rows = data
-    if (statusFilter !== 'all') rows = rows.filter(r => r.status === statusFilter)
+    if (statusFilter === 'all') {
+      rows = rows.filter(r => r.status !== 'Removed')  // hide Removed by default
+    } else {
+      rows = rows.filter(r => r.status === statusFilter)
+    }
     if (search.trim()) {
       const q = search.toLowerCase()
       rows = rows.filter(r =>
@@ -164,13 +224,57 @@ export default function ECOPage() {
         </button>
       </div>
 
-      {/* Workflow note */}
-      <div className="flex items-center gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
-        <AlertCircle size={16} />
-        Status filter is based on raw <code className="px-1 bg-amber-100 rounded">eco_status</code> values. Workflow definitions to be refined.
-      </div>
-
       {error && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
+
+      {/* ─── Dashboard Panel ──────────────────────────────────── */}
+      <Panel title="Dashboard" icon={<BarChart3 size={16} className="text-purple-600" />} defaultOpen={true}>
+        <div className="p-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Bar Chart */}
+            <div>
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">Status Distribution</p>
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart data={chartData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+                    {chartData.map((entry, i) => <Cell key={i} fill={entry.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
+            {/* Requested — days in queue */}
+            <div>
+              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
+                Requested — Days in Queue ({requestedItems.length})
+              </p>
+              <div className="max-h-52 overflow-y-auto border border-slate-100 rounded">
+                {requestedItems.length === 0 ? <p className="p-3 text-xs text-slate-400 italic">None in queue</p> : (
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr><th className="px-2 py-1 text-left">ID</th><th className="px-2 py-1 text-left">Part #</th><th className="px-2 py-1 text-left">Customer</th><th className="px-2 py-1 text-right">In Queue</th></tr>
+                    </thead>
+                    <tbody>
+                      {requestedItems.map(r => (
+                        <tr key={r.id} className="border-t border-slate-100 hover:bg-yellow-50 cursor-pointer" onClick={() => handleRowClick(r.id)}>
+                          <td className="px-2 py-1 font-mono">{r.id}</td>
+                          <td className="px-2 py-1 text-slate-600 truncate">{r.partnum || '—'}</td>
+                          <td className="px-2 py-1 text-slate-600 truncate">{r.customer || '—'}</td>
+                          <td className="px-2 py-1 text-right text-yellow-600 font-medium">{formatDays(r.daysSince)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </Panel>
+
 
       {/* Status filter buttons */}
       <div className="flex items-center gap-2 flex-wrap flex-shrink-0">

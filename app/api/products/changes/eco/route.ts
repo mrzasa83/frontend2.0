@@ -4,13 +4,13 @@ import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 
 // eco_status meanings TBD — placeholder mapping until workflow is understood
-function statusLabel(s: number): string {
-  switch (s) {
-    case 0: return 'Open'
-    case 1: return 'Closed'
-    case 2: return 'Rejected'
-    default: return `Status ${s}`
-  }
+function statusLabel(s: number, submissionType: string | null): string {
+  const st = (submissionType || '').trim()
+  if (s === 3) return 'Removed'
+  if (s === 0) return 'Requested'
+  if ((s === 1 || s === 2) && st === 'Cancel') return 'Canceled'
+  if (s === 1 && ['Close', 'Close ECO', 'Edit Archive'].includes(st)) return 'Completed'
+  return 'Other'
 }
 
 export async function GET(request: NextRequest) {
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 
       record.submitted_at = combineDateTime(record.subdate, record.subtime)
       record.closed_at = combineDateTime(record.closeddate, record.closedtime)
-      record.status = statusLabel(Number(record.eco_status))
+      record.status = statusLabel(Number(record.eco_status), record.submission_type)
 
       return NextResponse.json({ success: true, record })
     }
@@ -56,11 +56,12 @@ export async function GET(request: NextRequest) {
         subdate, subtime, closeddate, closedtime,
         STR_TO_DATE(CONCAT(NULLIF(subdate,''), ' ', NULLIF(subtime,'')), '%d%b%Y %H:%i:%s') AS submitted_at,
         STR_TO_DATE(CONCAT(NULLIF(closeddate,''), ' ', NULLIF(closedtime,'')), '%d%b%Y %H:%i:%s') AS closed_at,
-        CASE eco_status
-          WHEN 0 THEN 'Open'
-          WHEN 1 THEN 'Closed'
-          WHEN 2 THEN 'Rejected'
-          ELSE CONCAT('Status ', eco_status)
+        CASE
+          WHEN eco_status = 3 THEN 'Removed'
+          WHEN eco_status = 0 THEN 'Requested'
+          WHEN eco_status IN (1,2) AND submission_type = 'Cancel' THEN 'Canceled'
+          WHEN eco_status = 1 AND submission_type IN ('Close','Close ECO','Edit Archive') THEN 'Completed'
+          ELSE 'Other'
         END AS status
       FROM eco
       ORDER BY submitted_at DESC, id DESC
