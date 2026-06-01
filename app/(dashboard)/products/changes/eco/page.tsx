@@ -4,10 +4,11 @@ import { useState, useEffect, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import {
   RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown,
-  ArrowLeft, GitBranch, FileText, AlertCircle
+  ArrowLeft, GitBranch, FileText, AlertCircle, X
 } from 'lucide-react'
 import Link from 'next/link'
 import { getApiUrl } from '@/lib/api'
+import ECODetail from '@/components/changes/ECODetail'
 
 type ECO = {
   id: number; request: string; eco_status: number; partnum: string | null
@@ -39,6 +40,10 @@ export default function ECOPage() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const pageSize = 25
+  const [openTabs, setOpenTabs] = useState<number[]>([])
+  const [activeTab, setActiveTab] = useState<string>('list')
+
+  const isAdmin = session?.user?.roles?.some((r: string) => r === 'Admin') || false
 
   const fetchData = async () => {
     setLoading(true); setError('')
@@ -108,6 +113,41 @@ export default function ECOPage() {
   const SortIcon = ({ col }: { col: string }) => {
     if (sortKey !== col) return <ArrowUpDown size={14} className="text-slate-300" />
     return sortDir === 'asc' ? <ArrowUp size={14} className="text-blue-600" /> : <ArrowDown size={14} className="text-blue-600" />
+  }
+
+  const handleRowClick = (id: number) => {
+    if (!openTabs.includes(id)) setOpenTabs(prev => [...prev, id])
+    setActiveTab(`eco-${id}`)
+  }
+  const closeTab = (id: number) => { setOpenTabs(prev => prev.filter(t => t !== id)); setActiveTab('list') }
+
+  // ─── Detail view ───────────────────────────────────────────
+  if (activeTab.startsWith('eco-')) {
+    const id = parseInt(activeTab.replace('eco-', ''))
+    return (
+      <div className="p-6 h-[calc(100vh-4rem)]">
+        <div className="border-b border-slate-200 mb-4 flex gap-1 overflow-x-auto">
+          <button onClick={() => setActiveTab('list')}
+            className="px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap">
+            All ECOs
+          </button>
+          {openTabs.map(tabId => (
+            <button key={tabId} onClick={() => setActiveTab(`eco-${tabId}`)}
+              className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap flex items-center gap-2 ${
+                activeTab === `eco-${tabId}` ? 'border-purple-600 text-purple-600' : 'border-transparent text-slate-500'
+              }`}>
+              ECO #{tabId}
+              <span onClick={e => { e.stopPropagation(); closeTab(tabId) }} className="p-0.5 hover:bg-slate-200 rounded"><X size={14} /></span>
+            </button>
+          ))}
+        </div>
+        <div className="h-[calc(100%-3rem)] bg-white rounded-lg border border-slate-200">
+          <ECODetail ecoId={id} isAdmin={isAdmin} onClose={() => closeTab(id)} onDataChange={fetchData}
+            navList={filtered.map(r => r.id)}
+            onNavigate={(newId) => { setOpenTabs(prev => prev.map(t => t === id ? newId : t)); setActiveTab(`eco-${newId}`) }} />
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -184,7 +224,7 @@ export default function ECOPage() {
             ) : paginated.length === 0 ? (
               <tr><td colSpan={8} className="px-4 py-12 text-center text-slate-500">No records found</td></tr>
             ) : paginated.map((row, idx) => (
-              <tr key={`${row.id}-${idx}`} className="border-b border-slate-100 hover:bg-purple-50">
+              <tr key={`${row.id}-${idx}`} className="border-b border-slate-100 hover:bg-purple-50 cursor-pointer" onClick={() => handleRowClick(row.id)}>
                 <td className="px-3 py-2.5 font-mono font-medium text-slate-800">{row.id}</td>
                 <td className="px-3 py-2.5 text-slate-700 truncate" title={row.request}>{row.request || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 truncate font-mono text-xs" title={row.partnum || ''}>{row.partnum || '—'}</td>
