@@ -4,10 +4,6 @@ import { useState, useEffect, useMemo } from 'react'
 import { useSession } from 'next-auth/react'
 import {
   RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown,
-  ArrowLeft, GitBranch, FileText, AlertCircle, X
-} from 'lucide-react'
-import {
-  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown,
   ArrowLeft, GitBranch, FileText, AlertCircle, X,
   ChevronDown, ChevronRight, BarChart3
 } from 'lucide-react'
