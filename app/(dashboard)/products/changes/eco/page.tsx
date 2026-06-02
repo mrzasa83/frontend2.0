@@ -63,6 +63,17 @@ function formatDays(n: number | null): string {
   return `${n} days`
 }
 
+// Time in queue (open) or completion time (closed)
+function queueOrCompletionTime(r: ECO): { label: string; days: number | null; closed: boolean } {
+  const closed = ['Completed', 'Canceled', 'Removed'].includes(r.status)
+  if (!r.submitted_at) return { label: '—', days: null, closed }
+  const start = new Date(r.submitted_at).getTime()
+  if (isNaN(start)) return { label: '—', days: null, closed }
+  const end = closed && r.closed_at ? new Date(r.closed_at).getTime() : Date.now()
+  const days = Math.floor((end - start) / 86400000)
+  return { label: formatDays(days), days, closed }
+}
+
 export default function ECOPage() {
   const { data: session } = useSession()
   const [data, setData] = useState<ECO[]>([])
@@ -251,12 +262,13 @@ export default function ECOPage() {
                 {requestedItems.length === 0 ? <p className="p-3 text-xs text-slate-400 italic">None in queue</p> : (
                   <table className="w-full text-xs">
                     <thead className="bg-slate-50 sticky top-0">
-                      <tr><th className="px-2 py-1 text-left">ID</th><th className="px-2 py-1 text-left">Part #</th><th className="px-2 py-1 text-left">Customer</th><th className="px-2 py-1 text-right">In Queue</th></tr>
+                      <tr><th className="px-2 py-1 text-left">ID</th><th className="px-2 py-1 text-left">PCB#</th><th className="px-2 py-1 text-left">Part #</th><th className="px-2 py-1 text-left">Customer</th><th className="px-2 py-1 text-right">In Queue</th></tr>
                     </thead>
                     <tbody>
                       {requestedItems.map(r => (
                         <tr key={r.id} className="border-t border-slate-100 hover:bg-yellow-50 cursor-pointer" onClick={() => handleRowClick(r.id)}>
                           <td className="px-2 py-1 font-mono">{r.id}</td>
+                          <td className="px-2 py-1 text-slate-600 truncate font-mono">{r.toolnum || '—'}</td>
                           <td className="px-2 py-1 text-slate-600 truncate">{r.partnum || '—'}</td>
                           <td className="px-2 py-1 text-slate-600 truncate">{r.customer || '—'}</td>
                           <td className="px-2 py-1 text-right text-yellow-600 font-medium">{formatDays(r.daysSince)}</td>
@@ -305,17 +317,18 @@ export default function ECOPage() {
       <div className="bg-white border border-slate-200 rounded-lg overflow-y-auto flex-1">
         <table className="w-full text-sm" style={{ tableLayout: 'fixed' }}>
           <colgroup>
-            <col style={{width:'7%'}}/><col style={{width:'20%'}}/><col style={{width:'14%'}}/>
-            <col style={{width:'15%'}}/><col style={{width:'12%'}}/><col style={{width:'12%'}}/>
-            <col style={{width:'12%'}}/><col style={{width:'8%'}}/>
+            <col style={{width:'7%'}}/><col style={{width:'22%'}}/><col style={{width:'15%'}}/>
+            <col style={{width:'16%'}}/><col style={{width:'12%'}}/><col style={{width:'11%'}}/>
+            <col style={{width:'10%'}}/><col style={{width:'7%'}}/>
           </colgroup>
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr className="border-b border-slate-200">
-              {[['id','ID'],['request','Request'],['partnum','Part #'],['customer','Customer'],['submission_type','Type'],['cam_operator','CAM Op'],['submitted_at','Submitted'],['status','Status']].map(([k,l]) => (
+              {[['id','ID'],['request','Request'],['partnum','Part #'],['customer','Customer'],['cam_operator','CAM Op'],['submitted_at','Submitted'],['status','Status']].map(([k,l]) => (
                 <th key={k} className="px-3 py-3 text-left font-medium text-slate-600 cursor-pointer hover:bg-slate-100 select-none text-xs" onClick={() => toggleSort(k)}>
                   <div className="flex items-center gap-1">{l} <SortIcon col={k} /></div>
                 </th>
               ))}
+              <th className="px-3 py-3 text-left font-medium text-slate-600 text-xs">Time</th>
             </tr>
           </thead>
           <tbody>
@@ -329,10 +342,15 @@ export default function ECOPage() {
                 <td className="px-3 py-2.5 text-slate-700 truncate" title={row.request}>{row.request || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 truncate font-mono text-xs" title={row.partnum || ''}>{row.partnum || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 truncate" title={row.customer || ''}>{row.customer || '—'}</td>
-                <td className="px-3 py-2.5 text-slate-600 truncate text-xs">{row.submission_type || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 truncate text-xs">{row.cam_operator || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 text-xs">{row.submitted_at ? new Date(row.submitted_at).toLocaleDateString('en-US', { year: 'numeric', month: '2-digit', day: '2-digit' }) : '—'}</td>
                 <td className="px-3 py-2.5"><StatusBadge status={row.status} /></td>
+                <td className="px-3 py-2.5 text-xs">
+                  {(() => {
+                    const t = queueOrCompletionTime(row)
+                    return <span className={t.closed ? 'text-slate-500' : 'text-yellow-600 font-medium'}>{t.label}</span>
+                  })()}
+                </td>
               </tr>
             ))}
           </tbody>
