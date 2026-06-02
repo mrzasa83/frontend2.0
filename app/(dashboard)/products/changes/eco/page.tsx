@@ -15,7 +15,7 @@ import ECODetail from '@/components/changes/ECODetail'
 type ECO = {
   id: number; request: string; eco_status: number; partnum: string | null
   customer: string | null; submission_type: string | null; disposition: string | null
-  cam_operator: string | null; urgent: string | null; status: string
+  cam_operator: string | null; urgent: string | null; status: string; toolnum: string | null
   submitted_at: string | null; closed_at: string | null; [key: string]: any
 }
 type SortDir = 'asc' | 'desc'
