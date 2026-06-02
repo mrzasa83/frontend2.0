@@ -75,3 +75,81 @@ export async function GET(request: NextRequest) {
     }, { status: 500 })
   }
 }
+
+// Format current date/time as ddMMMyyyy / HH:MM:SS for DB storage
+function formatDateForDB(): string {
+  const d = new Date()
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  return `${String(d.getDate()).padStart(2,'0')}${months[d.getMonth()]}${d.getFullYear()}`
+}
+function formatTimeForDB(): string {
+  const d = new Date()
+  return `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`
+}
+
+// POST: complete, cancel, or revise an ECO
+export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const username = (session.user as any)?.username || session.user?.name || 'unknown'
+
+  try {
+    const body = await request.json()
+    const { action, ecoId } = body
+    if (!ecoId) return NextResponse.json({ error: 'ecoId required' }, { status: 400 })
+
+    const dateStr = formatDateForDB()
+    const timeStr = formatTimeForDB()
+
+    if (action === 'complete') {
+      const { timeSpent } = body
+      await queryPrimary(`
+        UPDATE eco SET
+          eco_status = 1,
+          submission_type = 'Close ECO',
+          disposition = '',
+          closeddate = ?, closedtime = ?,
+          actual_time_spent = ?,
+          cam_operator = ?
+        WHERE id = ?
+      `, [dateStr, timeStr, timeSpent || null, username, ecoId])
+      return NextResponse.json({ success: true })
+    }
+
+    if (action === 'cancel') {
+      const { timeSpent } = body
+      await queryPrimary(`
+        UPDATE eco SET
+          eco_status = 1,
+          submission_type = 'Cancel',
+          disposition = 'Cancel',
+          closeddate = ?, closedtime = ?,
+          actual_time_spent = ?,
+          cam_operator = ?
+        WHERE id = ?
+      `, [dateStr, timeStr, timeSpent || null, username, ecoId])
+      return NextResponse.json({ success: true })
+    }
+
+    if (action === 'revise') {
+      const { revisionNote } = body
+      // Append revision note to comments, stamp revised_on
+      const rows = await queryPrimary('SELECT comments FROM eco WHERE id = ?', [ecoId])
+      const existing = rows?.[0]?.comments || ''
+      const stamp = `[Revised ${dateStr} by ${username}] ${revisionNote || ''}`
+      const newComments = existing ? `${existing}\n${stamp}` : stamp
+      await queryPrimary(`
+        UPDATE eco SET revised_on = ?, comments = ? WHERE id = ?
+      `, [dateStr, newComments, ecoId])
+      return NextResponse.json({ success: true })
+    }
+
+    return NextResponse.json({ error: 'Unknown action' }, { status: 400 })
+  } catch (error) {
+    console.error('Error updating ECO:', error)
+    return NextResponse.json({
+      error: 'Failed to update', details: error instanceof Error ? error.message : String(error),
+    }, { status: 500 })
+  }
+}
