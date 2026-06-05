@@ -34,7 +34,10 @@ export async function GET(request: NextRequest) {
         const dep = await queryPrimary('SELECT id, inspection_number, inspection_type, phase FROM inspections WHERE id = ?', [record.dependency_id])
         record.dependency = dep?.[0] || null
       }
-      return NextResponse.json({ success: true, record })
+      const history = await queryPrimary(
+        'SELECT * FROM inspection_history WHERE inspection_id = ? ORDER BY changed_at DESC', [id]
+      )
+      return NextResponse.json({ success: true, record, history })
     }
 
     let sql = 'SELECT * FROM inspections'
@@ -93,13 +96,26 @@ export async function POST(request: NextRequest) {
       dependencyId || null, notes || null, username
     ])
 
-    return NextResponse.json({ success: true, inspectionNumber, id: result?.insertId })
+    const newId = result?.insertId
+    if (newId) {
+      await logHistory(newId, 'Created', '', `${inspectionNumber} (${inspectionType || 'First Article'} / ${productType || 'PCB'})`, username)
+    }
+
+    return NextResponse.json({ success: true, inspectionNumber, id: newId })
   } catch (error) {
     console.error('Error creating inspection:', error)
     return NextResponse.json({
       error: 'Failed to create', details: error instanceof Error ? error.message : String(error),
     }, { status: 500 })
   }
+}
+
+// Log a change to inspection history
+async function logHistory(inspectionId: number, field: string, oldVal: any, newVal: any, user: string) {
+  await queryPrimary(
+    'INSERT INTO inspection_history (inspection_id, field_name, old_value, new_value, changed_by) VALUES (?,?,?,?,?)',
+    [inspectionId, field, oldVal != null ? String(oldVal) : '', newVal != null ? String(newVal) : '', user]
+  )
 }
 
 // PUT: update an inspection
@@ -114,11 +130,12 @@ export async function PUT(request: NextRequest) {
     const { id, ...fields } = body
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
-    // Check current phase for permission
-    const current = await queryPrimary('SELECT phase FROM inspections WHERE id = ?', [id])
-    if (!current?.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    // Fetch current record for permission check + history comparison
+    const currentRows = await queryPrimary('SELECT * FROM inspections WHERE id = ?', [id])
+    if (!currentRows?.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const current = currentRows[0]
 
-    if (!canEdit(roles, current[0].phase)) {
+    if (!canEdit(roles, current.phase)) {
       return NextResponse.json({ error: 'Insufficient permissions to edit at this phase' }, { status: 403 })
     }
 
@@ -126,13 +143,24 @@ export async function PUT(request: NextRequest) {
                      'start_date', 'owner', 'phase', 'site', 'dependency_id', 'notes']
     const updates: string[] = []
     const params: any[] = []
+    const changes: { field: string; old: any; new: any }[] = []
     for (const key of allowed) {
-      if (key in fields) { updates.push(`${key} = ?`); params.push(fields[key] || null) }
+      if (key in fields) {
+        updates.push(`${key} = ?`); params.push(fields[key] || null)
+        if (String(current[key] ?? '') !== String(fields[key] ?? '')) {
+          changes.push({ field: key, old: current[key], new: fields[key] })
+        }
+      }
     }
     if (!updates.length) return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
 
     params.push(id)
     await queryPrimary(`UPDATE inspections SET ${updates.join(', ')} WHERE id = ?`, params)
+
+    const username = (session.user as any)?.username || session.user?.name || 'unknown'
+    for (const c of changes) {
+      await logHistory(Number(id), c.field, c.old, c.new, username)
+    }
 
     return NextResponse.json({ success: true })
   } catch (error) {

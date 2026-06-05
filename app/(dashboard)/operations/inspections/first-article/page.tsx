@@ -9,6 +9,7 @@ import {
 import Link from 'next/link'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { getApiUrl } from '@/lib/api'
+import InspectionDetail from '@/components/inspections/InspectionDetail'
 
 type Inspection = {
   id: number; inspection_number: string; inspection_type: string; product_type: string
@@ -59,17 +60,32 @@ export default function FirstArticlePage() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [phaseFilter, setPhaseFilter] = useState('all')
-  const [selected, setSelected] = useState<Inspection | null>(null)
+  const [openTabs, setOpenTabs] = useState<number[]>([])
+  const [activeTab, setActiveTab] = useState<string>('list')
   const [showCreate, setShowCreate] = useState(false)
+
+  // Lookup workflow
+  const [lookupPart, setLookupPart] = useState('')
+  const [lookingUp, setLookingUp] = useState(false)
+  const [lookupWorkOrders, setLookupWorkOrders] = useState<any[]>([])
+  const [selectedWO, setSelectedWO] = useState<any>(null)
   const [createForm, setCreateForm] = useState({
-    productType: 'PCB', partNumber: '', workOrder: '', startDate: '',
-    owner: '', site: '', dependencyId: '', notes: ''
+    owner: '', startDate: new Date().toISOString().split('T')[0], dependencyId: '', notes: ''
   })
   const [createError, setCreateError] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
   const roles: string[] = session?.user?.roles || []
+  const username = (session?.user as any)?.username || session?.user?.name || ''
   const canCreate = roles.some(r => ['Admin', 'Quality Control', 'Operations', 'Production Control'].includes(r))
+
+  // Determine PCB vs ASM from part number prefix (7 = PCB, 1 = ASM)
+  const productTypeFromPart = (part: string): string => {
+    const p = (part || '').trim()
+    if (p.startsWith('7')) return 'PCB'
+    if (p.startsWith('1')) return 'ASM'
+    return 'PCB'
+  }
 
   const fetchData = async () => {
     setLoading(true); setError('')
@@ -116,81 +132,84 @@ export default function FirstArticlePage() {
     return m
   }, [data])
 
+  const openCreate = () => {
+    setLookupPart(''); setLookupWorkOrders([]); setSelectedWO(null)
+    setCreateForm({ owner: username, startDate: new Date().toISOString().split('T')[0], dependencyId: '', notes: '' })
+    setCreateError(''); setShowCreate(true)
+  }
+
+  const handleLookup = async () => {
+    if (!lookupPart.trim()) return
+    setLookingUp(true); setCreateError(''); setLookupWorkOrders([]); setSelectedWO(null)
+    try {
+      const res = await fetch(getApiUrl(`/api/operations/inspections/lookup?partNumber=${encodeURIComponent(lookupPart.trim())}`))
+      if (!res.ok) throw new Error((await res.json()).details || 'Lookup failed')
+      const r = await res.json()
+      if (!r.workOrders?.length) {
+        setCreateError('No open work orders found for parts using this part number')
+      }
+      setLookupWorkOrders(r.workOrders || [])
+    } catch (e: any) { setCreateError(e.message) }
+    setLookingUp(false)
+  }
+
   const handleCreate = async () => {
     setCreateError('')
-    if (!createForm.partNumber && !createForm.workOrder) {
-      setCreateError('Provide a Part Number or Work Order'); return
-    }
+    if (!selectedWO) { setCreateError('Select a work order'); return }
     setSubmitting(true)
     try {
       const res = await fetch(getApiUrl('/api/operations/inspections'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inspectionType: 'First Article',
-          productType: createForm.productType,
-          partNumber: createForm.partNumber || null,
-          workOrder: createForm.workOrder || null,
+          productType: productTypeFromPart(selectedWO.customerPart),
+          partNumber: selectedWO.customerPart,
+          workOrder: selectedWO.workOrder,
           startDate: createForm.startDate || null,
-          owner: createForm.owner || null,
-          site: createForm.site || null,
+          owner: createForm.owner || username,
+          site: selectedWO.site || null,
           dependencyId: createForm.dependencyId || null,
           notes: createForm.notes || null,
         }),
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Failed')
       setShowCreate(false)
-      setCreateForm({ productType: 'PCB', partNumber: '', workOrder: '', startDate: '', owner: '', site: '', dependencyId: '', notes: '' })
       fetchData()
     } catch (e: any) { setCreateError(e.message) }
     setSubmitting(false)
   }
 
-  // ─── Detail view (Phase B placeholder) ─────────────────────
-  if (selected) {
-    return (
-      <div className="p-6 h-[calc(100vh-4rem)] overflow-y-auto">
-        <div className="flex items-center gap-3 mb-4">
-          <button onClick={() => setSelected(null)} className="p-1 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded"><ArrowLeft size={20} /></button>
-          <div>
-            <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
-              {selected.inspection_number} <PhaseBadge phase={selected.phase} />
-            </h2>
-            <p className="text-sm text-slate-500">{selected.inspection_type} · {selected.product_type}</p>
-          </div>
-        </div>
+  const handleRowClick = (id: number) => {
+    if (!openTabs.includes(id)) setOpenTabs(prev => [...prev, id])
+    setActiveTab(`insp-${id}`)
+  }
+  const closeTab = (id: number) => { setOpenTabs(prev => prev.filter(t => t !== id)); setActiveTab('list') }
 
-        <div className="bg-white rounded-lg border border-slate-200 p-6 max-w-3xl">
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {[
-              ['Inspection #', selected.inspection_number],
-              ['Type', selected.inspection_type],
-              ['Product Type', selected.product_type],
-              ['Part Number', selected.part_number],
-              ['Work Order', selected.work_order],
-              ['Owner', selected.owner],
-              ['Phase', selected.phase],
-              ['Site', selected.site],
-              ['Start Date', selected.start_date ? new Date(selected.start_date).toLocaleDateString() : null],
-              ['Dependency', selected.dependency_id ? (depMap[selected.dependency_id] || `#${selected.dependency_id}`) : null],
-            ].map(([label, val]) => (
-              <div key={label as string}>
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">{label}</p>
-                <p className="text-sm text-slate-800">{val || '—'}</p>
-              </div>
-            ))}
-          </div>
-          {selected.notes && (
-            <div className="mt-4">
-              <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Notes</p>
-              <p className="text-sm text-slate-800 bg-slate-50 rounded-lg px-3 py-2 whitespace-pre-wrap">{selected.notes}</p>
-            </div>
-          )}
-          <div className="mt-6 pt-6 border-t border-slate-100">
-            <p className="text-sm text-slate-400 italic">
-              Detailed measurement entry and verification workflow coming in Phase B —
-              this will include dimensional data capture, part/work-order lookups, and signoff.
-            </p>
-          </div>
+  // ─── Detail view (tabbed, like Changes apps) ───────────────
+  if (activeTab.startsWith('insp-')) {
+    const id = parseInt(activeTab.replace('insp-', ''))
+    return (
+      <div className="p-6 h-[calc(100vh-4rem)]">
+        <div className="border-b border-slate-200 mb-4 flex gap-1 overflow-x-auto">
+          <button onClick={() => setActiveTab('list')}
+            className="px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700 whitespace-nowrap">
+            All First Articles
+          </button>
+          {openTabs.map(tabId => {
+            const insp = data.find(d => d.id === tabId)
+            return (
+              <button key={tabId} onClick={() => setActiveTab(`insp-${tabId}`)}
+                className={`px-4 py-2.5 text-sm font-medium border-b-2 whitespace-nowrap flex items-center gap-2 ${
+                  activeTab === `insp-${tabId}` ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500'
+                }`}>
+                {insp?.inspection_number || `#${tabId}`}
+                <span onClick={e => { e.stopPropagation(); closeTab(tabId) }} className="p-0.5 hover:bg-slate-200 rounded"><X size={14} /></span>
+              </button>
+            )
+          })}
+        </div>
+        <div className="h-[calc(100%-3rem)] bg-white rounded-lg border border-slate-200">
+          <InspectionDetail inspectionId={id} onClose={() => closeTab(id)} onDataChange={fetchData} />
         </div>
       </div>
     )
@@ -206,7 +225,7 @@ export default function FirstArticlePage() {
         <span className="text-sm text-slate-500">({data.length})</span>
         <div className="flex-1" />
         {canCreate && (
-          <button onClick={() => { setCreateError(''); setShowCreate(true) }}
+          <button onClick={openCreate}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 flex items-center gap-2">
             <Plus size={16} /> New FAI
           </button>
@@ -273,7 +292,7 @@ export default function FirstArticlePage() {
             ) : filtered.length === 0 ? (
               <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">No inspections found</td></tr>
             ) : filtered.map(r => (
-              <tr key={r.id} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer" onClick={() => setSelected(r)}>
+              <tr key={r.id} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer" onClick={() => handleRowClick(r.id)}>
                 <td className="px-3 py-2.5 font-mono font-medium text-slate-800">{r.inspection_number}</td>
                 <td className="px-3 py-2.5"><span className={`text-xs px-2 py-0.5 rounded ${r.product_type === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>{r.product_type}</span></td>
                 <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">{r.part_number || '—'}</td>
@@ -293,72 +312,118 @@ export default function FirstArticlePage() {
         </table>
       </div>
 
-      {/* Create Modal */}
+      {/* Create Modal — lookup workflow */}
       {showCreate && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-4 border-b border-slate-200">
               <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2"><Plus size={20} className="text-blue-600" /> New First Article</h3>
               <button onClick={() => setShowCreate(false)} className="p-1 hover:bg-slate-100 rounded"><X size={20} /></button>
             </div>
             <div className="p-4 space-y-4">
               {createError && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm flex items-center gap-2"><AlertTriangle size={16} /> {createError}</div>}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
-                  <select value={createForm.productType} onChange={e => setCreateForm(p => ({ ...p, productType: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
-                    <option value="PCB">PCB</option>
-                    <option value="ASM">ASM</option>
-                  </select>
+
+              {/* Step 1: Part lookup */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Part Number (Where-Used Search)</label>
+                <div className="flex gap-2">
+                  <input type="text" value={lookupPart} onChange={e => setLookupPart(e.target.value)}
+                    className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono"
+                    placeholder="e.g. 75686" onKeyDown={e => { if (e.key === 'Enter') handleLookup() }} />
+                  <button onClick={handleLookup} disabled={lookingUp || !lookupPart.trim()}
+                    className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 flex items-center gap-2">
+                    {lookingUp ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />} Look Up
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Site</label>
-                  <input type="text" value={createForm.site} onChange={e => setCreateForm(p => ({ ...p, site: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" placeholder="e.g. Nashua" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Part Number</label>
-                  <input type="text" value={createForm.partNumber} onChange={e => setCreateForm(p => ({ ...p, partNumber: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Work Order</label>
-                  <input type="text" value={createForm.workOrder} onChange={e => setCreateForm(p => ({ ...p, workOrder: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Owner</label>
-                  <input type="text" value={createForm.owner} onChange={e => setCreateForm(p => ({ ...p, owner: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
-                  <input type="date" value={createForm.startDate} onChange={e => setCreateForm(p => ({ ...p, startDate: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                </div>
+                <p className="text-xs text-slate-400 mt-1">Finds customer parts using this part, then their open work orders.</p>
               </div>
-              {/* Dependency — show for ASM */}
-              {createForm.productType === 'ASM' && (
+
+              {/* Step 2: Select work order */}
+              {lookupWorkOrders.length > 0 && (
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Dependency (PCB Inspection)</label>
-                  <select value={createForm.dependencyId} onChange={e => setCreateForm(p => ({ ...p, dependencyId: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
-                    <option value="">None</option>
-                    {data.filter(d => d.product_type === 'PCB').map(d => (
-                      <option key={d.id} value={d.id}>{d.inspection_number} — {d.part_number || d.work_order || ''}</option>
-                    ))}
-                  </select>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Select Work Order ({lookupWorkOrders.length})</label>
+                  <div className="border border-slate-200 rounded-lg max-h-52 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50 sticky top-0">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-8"></th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Work Order</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Customer Part</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Inv Part</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Site</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {lookupWorkOrders.map((wo, i) => (
+                          <tr key={`${wo.workOrder}-${i}`}
+                            className={`border-t border-slate-100 cursor-pointer ${selectedWO?.workOrder === wo.workOrder ? 'bg-blue-50' : 'hover:bg-slate-50'}`}
+                            onClick={() => setSelectedWO(wo)}>
+                            <td className="px-3 py-2">
+                              <input type="radio" checked={selectedWO?.workOrder === wo.workOrder} readOnly className="text-blue-600" />
+                            </td>
+                            <td className="px-3 py-2 font-mono text-slate-800">{wo.workOrder}</td>
+                            <td className="px-3 py-2 font-mono text-slate-600">{wo.customerPart}
+                              <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${productTypeFromPart(wo.customerPart) === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>
+                                {productTypeFromPart(wo.customerPart)}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-slate-600 text-xs">{wo.invPartNumber}</td>
+                            <td className="px-3 py-2 text-slate-600 text-xs">{wo.site || '—'}</td>
+                            <td className="px-3 py-2 text-slate-500 text-xs">{wo.status}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
-                <textarea value={createForm.notes} onChange={e => setCreateForm(p => ({ ...p, notes: e.target.value }))} rows={2}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-              </div>
+
+              {/* Step 3: Finalize (after WO selected) */}
+              {selectedWO && (
+                <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
+                    <p className="px-3 py-2 bg-slate-50 rounded-lg text-sm">{productTypeFromPart(selectedWO.customerPart)} <span className="text-xs text-slate-400">(auto)</span></p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Site</label>
+                    <p className="px-3 py-2 bg-slate-50 rounded-lg text-sm">{selectedWO.site || '—'} <span className="text-xs text-slate-400">(from WO)</span></p>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Owner</label>
+                    <input type="text" value={createForm.owner} onChange={e => setCreateForm(p => ({ ...p, owner: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
+                    <input type="date" value={createForm.startDate} onChange={e => setCreateForm(p => ({ ...p, startDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  {/* Dependency for ASM */}
+                  {productTypeFromPart(selectedWO.customerPart) === 'ASM' && (
+                    <div className="col-span-2">
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Dependency (PCB Inspection)</label>
+                      <select value={createForm.dependencyId} onChange={e => setCreateForm(p => ({ ...p, dependencyId: e.target.value }))}
+                        className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                        <option value="">None</option>
+                        {data.filter(d => d.product_type === 'PCB').map(d => (
+                          <option key={d.id} value={d.id}>{d.inspection_number} — {d.part_number || ''}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div className="col-span-2">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
+                    <textarea value={createForm.notes} onChange={e => setCreateForm(p => ({ ...p, notes: e.target.value }))} rows={2}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                </div>
+              )}
+
               <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
                 <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm">Cancel</button>
-                <button onClick={handleCreate} disabled={submitting}
+                <button onClick={handleCreate} disabled={submitting || !selectedWO}
                   className="px-6 py-2 bg-blue-600 text-white rounded-lg font-medium text-sm hover:bg-blue-700 disabled:opacity-50">
                   {submitting ? 'Creating...' : 'Create FAI'}
                 </button>

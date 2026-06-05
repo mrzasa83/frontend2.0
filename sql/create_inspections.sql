@@ -28,3 +28,15 @@ CREATE TABLE IF NOT EXISTS inspections (
 
 -- Roles to add (via Role Management or directly):
 -- INSERT IGNORE INTO Roles (name) VALUES ('Production Control'), ('Operations'), ('Quality Control');
+
+-- Inspection change history
+CREATE TABLE IF NOT EXISTS inspection_history (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  inspection_id INT NOT NULL,
+  field_name VARCHAR(60) NOT NULL,
+  old_value TEXT DEFAULT NULL,
+  new_value TEXT DEFAULT NULL,
+  changed_by VARCHAR(50) NOT NULL,
+  changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_inspection_id (inspection_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
