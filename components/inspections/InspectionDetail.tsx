@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { RefreshCw, ArrowLeft, Link2 } from 'lucide-react'
+import { RefreshCw, ArrowLeft, Link2, FileText } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 type Props = {
@@ -26,6 +26,7 @@ function PhaseBadge({ phase }: { phase: string }) {
 
 const TABS = [
   { id: 'general', label: 'General' },
+  { id: 'material-certs', label: 'Material Certs' },
   { id: 'history', label: 'History' },
 ]
 
@@ -35,6 +36,29 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('general')
+
+  // Material certs
+  const [certs, setCerts] = useState<any[]>([])
+  const [certsLoading, setCertsLoading] = useState(false)
+  const [certsError, setCertsError] = useState('')
+  const [certsFetched, setCertsFetched] = useState(false)
+
+  const fetchCerts = async () => {
+    if (!record?.work_order) { setCertsError('No work order on this inspection'); return }
+    setCertsLoading(true); setCertsError(''); setCertsFetched(true)
+    try {
+      const res = await fetch(getApiUrl(`/api/operations/inspections/material-certs?workOrder=${encodeURIComponent(record.work_order)}`))
+      if (!res.ok) throw new Error((await res.json()).details || 'Failed')
+      const r = await res.json()
+      setCerts(r.certs || [])
+    } catch (e: any) { setCertsError(e.message) }
+    setCertsLoading(false)
+  }
+
+  // Lazy-load certs when the tab is first opened
+  useEffect(() => {
+    if (activeTab === 'material-certs' && !certsFetched && record?.work_order) fetchCerts()
+  }, [activeTab, record])
 
   const fetchRecord = async () => {
     setLoading(true); setError('')
@@ -60,7 +84,8 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
         ['Inspection #', record.inspection_number],
         ['Type', record.inspection_type],
         ['Product Type', record.product_type],
-        ['Part Number', record.part_number],
+        ['Customer Part Number', record.part_number],
+        ['PCB Number', record.pcb_number],
         ['Work Order', record.work_order],
         ['Owner', record.owner],
         ['Phase', record.phase],
@@ -84,6 +109,60 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
             <div>
               <p className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Notes</p>
               <p className="text-sm text-slate-800 bg-slate-50 rounded-lg px-3 py-2 whitespace-pre-wrap">{record.notes}</p>
+            </div>
+          )}
+        </div>
+      )
+    }
+    if (tabId === 'material-certs') {
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h4 className="text-sm font-semibold text-slate-700">Material Certs ({certs.length})</h4>
+            <button onClick={fetchCerts} disabled={certsLoading || !record.work_order}
+              className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50">
+              <RefreshCw size={14} className={certsLoading ? 'animate-spin' : ''} /> Refresh
+            </button>
+          </div>
+          <p className="text-xs text-slate-400">Purchased materials in the work order BOM (by lot / PO / supplier). Document links for review to follow.</p>
+
+          {!record.work_order ? (
+            <p className="text-sm text-amber-600">No work order is associated with this inspection.</p>
+          ) : certsError ? (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{certsError}</div>
+          ) : certsLoading ? (
+            <div className="flex items-center gap-2 py-8 justify-center text-slate-500"><RefreshCw size={18} className="animate-spin" /> Loading material certs...</div>
+          ) : certs.length === 0 ? (
+            <p className="text-sm text-slate-400">{certsFetched ? 'No purchased materials found for this work order' : 'Loading...'}</p>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    {['Purchased Part', 'Description', 'Batch/Serial', 'Exp Date', 'PO #', 'PO Date', 'Supplier', 'Doc'].map(h => (
+                      <th key={h} className="px-3 py-2 text-left text-xs font-medium text-slate-600 whitespace-nowrap">{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {certs.map((c, i) => (
+                    <tr key={`${c.purchasedPart}-${c.batchSerial}-${i}`} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-3 py-2 font-mono text-slate-800 whitespace-nowrap">{c.purchasedPart || '—'}</td>
+                      <td className="px-3 py-2 text-slate-600 text-xs">{c.description || '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.batchSerial || '—'}</td>
+                      <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{c.expDate ? new Date(c.expDate).toLocaleDateString() : '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.poNumber || '—'}</td>
+                      <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{c.poDate ? new Date(c.poDate).toLocaleDateString() : '—'}</td>
+                      <td className="px-3 py-2 text-slate-600 text-xs">{c.supplierName || '—'}{c.supplierCode ? ` (${c.supplierCode})` : ''}</td>
+                      <td className="px-3 py-2 text-xs">
+                        <button className="text-slate-300 cursor-not-allowed" title="Document linking — coming next">
+                          <FileText size={14} />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

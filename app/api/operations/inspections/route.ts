@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const {
-      inspectionType, productType, partNumber, workOrder,
+      inspectionType, productType, partNumber, pcbNumber, workOrder,
       startDate, owner, phase, site, dependencyId, notes
     } = body
 
@@ -86,12 +86,12 @@ export async function POST(request: NextRequest) {
 
     const result: any = await queryPrimary(`
       INSERT INTO inspections
-        (inspection_number, inspection_type, product_type, part_number, work_order,
+        (inspection_number, inspection_type, product_type, part_number, pcb_number, work_order,
          start_date, owner, phase, site, dependency_id, notes, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     `, [
       inspectionNumber, inspectionType || 'First Article', productType || 'PCB',
-      partNumber || null, workOrder || null, startDate || null,
+      partNumber || null, pcbNumber || null, workOrder || null, startDate || null,
       owner || username, phase || 'Setup', site || null,
       dependencyId || null, notes || null, username
     ])
@@ -139,7 +139,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Insufficient permissions to edit at this phase' }, { status: 403 })
     }
 
-    const allowed = ['inspection_type', 'product_type', 'part_number', 'work_order',
+    const allowed = ['inspection_type', 'product_type', 'part_number', 'pcb_number', 'work_order',
                      'start_date', 'owner', 'phase', 'site', 'dependency_id', 'notes']
     const updates: string[] = []
     const params: any[] = []

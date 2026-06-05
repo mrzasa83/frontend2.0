@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS inspections (
   inspection_type ENUM('First Article','X-Section','AOI') NOT NULL DEFAULT 'First Article',
   product_type ENUM('PCB','ASM') NOT NULL DEFAULT 'PCB',
   part_number VARCHAR(100) DEFAULT NULL,
+  pcb_number VARCHAR(100) DEFAULT NULL,
   work_order VARCHAR(50) DEFAULT NULL,
   start_date DATE DEFAULT NULL,
   owner VARCHAR(100) DEFAULT NULL,
@@ -40,3 +41,6 @@ CREATE TABLE IF NOT EXISTS inspection_history (
   changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_inspection_id (inspection_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- If inspections table already exists:
+-- ALTER TABLE inspections ADD COLUMN pcb_number VARCHAR(100) DEFAULT NULL AFTER part_number;

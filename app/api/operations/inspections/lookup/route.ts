@@ -33,71 +33,80 @@ async function whereUsed(partNumber: string): Promise<{ customerPart: string; de
   }))
 }
 
-// Work orders for a customer part (open, last 12 months)
+// Work orders for a customer part (uses prod-status / -000 BOM logic)
 async function workOrders(customerPart: string): Promise<any[]> {
-  const rows = await queryMSSQL<any[]>(READ_CONN, `
-    SELECT
-      RTRIM(d6.WORK_ORDER_NUMBER) AS WORK_ORDER_NUMBER,
-      d50.CUSTOMER_PART_NUMBER,
-      d17.INV_PART_NUMBER,
-      d146.STEP_NO AS CURRENT_STEP,
-      RTRIM(d146.WORK_CENTER) AS CURRENT_DEPT,
-      d6.QUAN_SCH AS QTY_ORDERED,
-      d6.QUAN_PROD AS QTY_COMPLETE,
-      CASE WHEN d6.ACT_COMPL_DATE IS NOT NULL THEN 'Complete'
-           WHEN d6.PROD_STATUS = 0 THEN 'Open' ELSE 'In Progress' END AS STATUS,
-      SUBSTRING(wh.WAREHOUSE_NAME,1,6) AS SITE
-    FROM DATA0006 d6 WITH (NOLOCK)
-    INNER JOIN DATA0050 d50 WITH (NOLOCK) ON d50.RKEY = d6.CUST_PART_PTR
-    LEFT JOIN DATA0146 d146 WITH (NOLOCK) ON d146.WORK_ORDER_NO = d6.WORK_ORDER_NUMBER
-    INNER JOIN DATA0017 d17 WITH (NOLOCK) ON d6.INVENTORY_PTR = d17.RKEY
-    LEFT JOIN DATA0015 wh WITH (NOLOCK) ON d6.WHOUSE_PTR = wh.RKEY
-    WHERE d50.CUSTOMER_PART_NUMBER = @cp
-      AND d6.ACT_COMPL_DATE IS NULL
-      AND d6.RELEASE_DATE >= DATEADD(MONTH, -12, GETDATE())
-    ORDER BY d6.WORK_ORDER_NUMBER
-  `, { cp: customerPart })
+  const rows = await queryMSSQL<any[]>(READ_CONN, woSql('CUSTOMER_PART_NUMBER LIKE @cp'), { cp: `${customerPart}%` })
+  return mapWorkOrders(rows)
+}
+
+// Work orders for a customer part (uses prod-status / -000 BOM logic)
+async function workOrders(customerPart: string): Promise<any[]> {
+  const rows = await queryMSSQL<any[]>(READ_CONN, woSql('CUSTOMER_PART_NUMBER LIKE @cp'), { cp: `${customerPart}%` })
   return mapWorkOrders(rows)
 }
 
 // Work orders by work-order number LIKE search
 async function workOrdersByNumber(woNumber: string): Promise<any[]> {
-  const rows = await queryMSSQL<any[]>(READ_CONN, `
-    SELECT
-      RTRIM(d6.WORK_ORDER_NUMBER) AS WORK_ORDER_NUMBER,
-      d50.CUSTOMER_PART_NUMBER,
-      d17.INV_PART_NUMBER,
-      d146.STEP_NO AS CURRENT_STEP,
-      RTRIM(d146.WORK_CENTER) AS CURRENT_DEPT,
-      d6.QUAN_SCH AS QTY_ORDERED,
-      d6.QUAN_PROD AS QTY_COMPLETE,
-      CASE WHEN d6.ACT_COMPL_DATE IS NOT NULL THEN 'Complete'
-           WHEN d6.PROD_STATUS = 0 THEN 'Open' ELSE 'In Progress' END AS STATUS,
-      SUBSTRING(wh.WAREHOUSE_NAME,1,6) AS SITE
-    FROM DATA0006 d6 WITH (NOLOCK)
-    INNER JOIN DATA0050 d50 WITH (NOLOCK) ON d50.RKEY = d6.CUST_PART_PTR
-    LEFT JOIN DATA0146 d146 WITH (NOLOCK) ON d146.WORK_ORDER_NO = d6.WORK_ORDER_NUMBER
-    INNER JOIN DATA0017 d17 WITH (NOLOCK) ON d6.INVENTORY_PTR = d17.RKEY
-    LEFT JOIN DATA0015 wh WITH (NOLOCK) ON d6.WHOUSE_PTR = wh.RKEY
-    WHERE d6.WORK_ORDER_NUMBER LIKE @wo
-      AND d6.ACT_COMPL_DATE IS NULL
-      AND d6.RELEASE_DATE >= DATEADD(MONTH, -12, GETDATE())
-    ORDER BY d6.WORK_ORDER_NUMBER
-  `, { wo: `%${woNumber}%` })
+  const rows = await queryMSSQL<any[]>(READ_CONN, woSql('WORK_ORDER LIKE @wo'), { wo: `%${woNumber}%` })
   return mapWorkOrders(rows)
+}
+
+// Shared work-order SQL; caller supplies the WHERE predicate
+function woSql(whereClause: string): string {
+  return `
+    WITH WO_BASE AS (
+        SELECT
+            D6.RKEY AS D6_RKEY, D6.WORK_ORDER_NUMBER, D6.QUAN_PROD,
+            D6.INVENTORY_PTR, D6.BOM_PTR, D6.WHOUSE_PTR, D6.PROD_STATUS,
+            D50.RKEY AS D50_RKEY, D50.CUSTOMER_PART_NUMBER, D50.BOM_PTR AS D50_BOM_PTR,
+            WH.WAREHOUSE_NAME
+        FROM DATA0006 D6 WITH (NOLOCK)
+        LEFT JOIN DATA0050 D50 WITH (NOLOCK) ON D6.CUST_PART_PTR = D50.RKEY
+        LEFT JOIN DATA0015 WH WITH (NOLOCK) ON D6.WHOUSE_PTR = WH.RKEY
+        WHERE D6.PROD_STATUS IN (2,3,206,306)
+    ),
+    INV_STD AS (SELECT RKEY, INV_PART_NUMBER FROM DATA0017 WITH (NOLOCK)),
+    BOM_STD AS (SELECT RKEY, INVENTORY_PTR FROM DATA0025 WITH (NOLOCK)),
+    INV_BOM AS (
+        SELECT B.RKEY, I.INV_PART_NUMBER FROM BOM_STD B
+        JOIN DATA0017 I WITH (NOLOCK) ON B.INVENTORY_PTR = I.RKEY
+    ),
+    MAIN AS (
+        SELECT
+            B.WORK_ORDER_NUMBER AS WORK_ORDER,
+            B.CUSTOMER_PART_NUMBER,
+            CASE
+                WHEN B.WORK_ORDER_NUMBER NOT LIKE '%-000' THEN IS1.INV_PART_NUMBER
+                WHEN B.WORK_ORDER_NUMBER LIKE '%-000'     THEN IB.INV_PART_NUMBER
+            END AS INV_PART_NUMBER,
+            SUBSTRING(B.WAREHOUSE_NAME,1,6) AS Site,
+            CASE
+                WHEN B.PROD_STATUS = 2   THEN 'Unreleased'
+                WHEN B.PROD_STATUS = 206 THEN 'On Hold (Unreleased)'
+                WHEN B.PROD_STATUS = 306 THEN 'On Hold (Released)'
+                WHEN B.PROD_STATUS = 3   THEN 'In Progress'
+                ELSE 'Open'
+            END AS Status
+        FROM WO_BASE B
+        LEFT JOIN INV_STD IS1 ON B.INVENTORY_PTR = IS1.RKEY
+        LEFT JOIN BOM_STD BS ON B.BOM_PTR = BS.RKEY
+        LEFT JOIN INV_BOM IB ON BS.RKEY = IB.RKEY
+    )
+    SELECT WORK_ORDER, CUSTOMER_PART_NUMBER, INV_PART_NUMBER, Site, Status
+    FROM MAIN
+    WHERE ${whereClause}
+    ORDER BY WORK_ORDER
+  `
 }
 
 function mapWorkOrders(rows: any[]): any[] {
   return rows.map((r: any) => ({
-    workOrder: (r.WORK_ORDER_NUMBER || '').trim(),
+    workOrder: (r.WORK_ORDER || '').trim(),
     customerPart: (r.CUSTOMER_PART_NUMBER || '').trim(),
+    pcbNumber: (r.INV_PART_NUMBER || '').trim(),
     invPartNumber: (r.INV_PART_NUMBER || '').trim(),
-    currentStep: r.CURRENT_STEP,
-    currentDept: (r.CURRENT_DEPT || '').trim(),
-    qtyOrdered: r.QTY_ORDERED,
-    qtyComplete: r.QTY_COMPLETE,
-    status: r.STATUS,
-    site: (r.SITE || '').trim(),
+    status: (r.Status || '').trim(),
+    site: (r.Site || '').trim(),
   }))
 }
 

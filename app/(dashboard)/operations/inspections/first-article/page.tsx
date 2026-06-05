@@ -13,7 +13,7 @@ import InspectionDetail from '@/components/inspections/InspectionDetail'
 
 type Inspection = {
   id: number; inspection_number: string; inspection_type: string; product_type: string
-  part_number: string | null; work_order: string | null; start_date: string | null
+  part_number: string | null; pcb_number: string | null; work_order: string | null; start_date: string | null
   owner: string | null; phase: string; site: string | null; dependency_id: number | null
   notes: string | null; created_by: string; created_at: string
 }
@@ -168,8 +168,9 @@ export default function FirstArticlePage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inspectionType: 'First Article',
-          productType: productTypeFromPart(selectedWO.customerPart),
+          productType: productTypeFromPart(selectedWO.pcbNumber || selectedWO.customerPart),
           partNumber: selectedWO.customerPart,
+          pcbNumber: selectedWO.pcbNumber || null,
           workOrder: selectedWO.workOrder,
           startDate: createForm.startDate || null,
           owner: createForm.owner || username,
@@ -287,21 +288,22 @@ export default function FirstArticlePage() {
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-slate-50">
             <tr className="border-b border-slate-200">
-              {['Inspection #', 'Prod', 'Part #', 'Work Order', 'Owner', 'Phase', 'Site', 'Dependency', 'Start'].map(h => (
+              {['Inspection #', 'Prod', 'Customer Part', 'PCB Number', 'Work Order', 'Owner', 'Phase', 'Site', 'Dependency', 'Start'].map(h => (
                 <th key={h} className="px-3 py-3 text-left font-medium text-slate-600 text-xs">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500"><RefreshCw size={20} className="animate-spin mx-auto mb-2" /> Loading...</td></tr>
+              <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-500"><RefreshCw size={20} className="animate-spin mx-auto mb-2" /> Loading...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={9} className="px-4 py-12 text-center text-slate-500">No inspections found</td></tr>
+              <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-500">No inspections found</td></tr>
             ) : filtered.map(r => (
               <tr key={r.id} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer" onClick={() => handleRowClick(r.id)}>
                 <td className="px-3 py-2.5 font-mono font-medium text-slate-800">{r.inspection_number}</td>
                 <td className="px-3 py-2.5"><span className={`text-xs px-2 py-0.5 rounded ${r.product_type === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>{r.product_type}</span></td>
                 <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">{r.part_number || '—'}</td>
+                <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">{r.pcb_number || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">{r.work_order || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 text-xs">{r.owner || '—'}</td>
                 <td className="px-3 py-2.5"><PhaseBadge phase={r.phase} /></td>
@@ -372,7 +374,7 @@ export default function FirstArticlePage() {
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-8"></th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Work Order</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Customer Part</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Inv Part</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">PCB Number</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Site</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Status</th>
                         </tr>
@@ -386,12 +388,12 @@ export default function FirstArticlePage() {
                               <input type="radio" checked={selectedWO?.workOrder === wo.workOrder} readOnly className="text-blue-600" />
                             </td>
                             <td className="px-3 py-2 font-mono text-slate-800">{wo.workOrder}</td>
-                            <td className="px-3 py-2 font-mono text-slate-600">{wo.customerPart}
-                              <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${productTypeFromPart(wo.customerPart) === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>
-                                {productTypeFromPart(wo.customerPart)}
+                            <td className="px-3 py-2 font-mono text-slate-600">{wo.customerPart}</td>
+                            <td className="px-3 py-2 font-mono text-slate-600">{wo.pcbNumber || '—'}
+                              <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${productTypeFromPart(wo.pcbNumber || wo.customerPart) === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>
+                                {productTypeFromPart(wo.pcbNumber || wo.customerPart)}
                               </span>
                             </td>
-                            <td className="px-3 py-2 font-mono text-slate-600 text-xs">{wo.invPartNumber}</td>
                             <td className="px-3 py-2 text-slate-600 text-xs">{wo.site || '—'}</td>
                             <td className="px-3 py-2 text-slate-500 text-xs">{wo.status}</td>
                           </tr>
@@ -407,7 +409,7 @@ export default function FirstArticlePage() {
                 <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
-                    <p className="px-3 py-2 bg-slate-50 rounded-lg text-sm">{productTypeFromPart(selectedWO.customerPart)} <span className="text-xs text-slate-400">(auto)</span></p>
+                    <p className="px-3 py-2 bg-slate-50 rounded-lg text-sm">{productTypeFromPart(selectedWO.pcbNumber || selectedWO.customerPart)} <span className="text-xs text-slate-400">(auto)</span></p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Site</label>
@@ -424,7 +426,7 @@ export default function FirstArticlePage() {
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
                   {/* Dependency for ASM */}
-                  {productTypeFromPart(selectedWO.customerPart) === 'ASM' && (
+                  {productTypeFromPart(selectedWO.pcbNumber || selectedWO.customerPart) === 'ASM' && (
                     <div className="col-span-2">
                       <label className="block text-sm font-medium text-slate-700 mb-1">Dependency (PCB Inspection)</label>
                       <select value={createForm.dependencyId} onChange={e => setCreateForm(p => ({ ...p, dependencyId: e.target.value }))}
