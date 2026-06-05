@@ -26,6 +26,32 @@ export const MODULES: Module[] = [
     path: '/dashboard',
     requiredRoles: [] // Everyone can see dashboard
   },
+  {
+    id: 'operations',
+    name: 'Operation',
+    icon: ClipboardCheck,
+    requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations', 'Production Control', 'Quality Control'],
+    subModules: [
+      {
+        id: 'operations-dashboard',
+        name: 'Dashboard',
+        path: '/operations',
+        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations', 'Production Control', 'Quality Control']
+      },
+      {
+        id: 'inspections',
+        name: 'Inspections',
+        path: '/operations/inspections',
+        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations', 'Production Control', 'Quality Control']
+      },
+      {
+        id: 'audits',
+        name: 'Audits',
+        path: '/operations/audits',
+        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations']
+      }
+    ]
+  },
   { 
     id: 'products', 
     name: 'Product', 
@@ -115,26 +141,6 @@ export const MODULES: Module[] = [
         name: 'Users', 
         path: '/users',
         requiredRoles: [] // Everyone can see user directory (read-only)
-      }
-    ]
-  },
-  {
-    id: 'operations',
-    name: 'Operations',
-    icon: ClipboardCheck,
-    requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng'],
-    subModules: [
-      {
-        id: 'operations-dashboard',
-        name: 'Dashboard',
-        path: '/operations',
-        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng']
-      },
-      {
-        id: 'audits',
-        name: 'Audits',
-        path: '/operations/audits',
-        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng']
       }
     ]
   },

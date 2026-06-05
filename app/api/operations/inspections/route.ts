@@ -1,0 +1,144 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { queryPrimary } from '@/lib/db/mysql-primary'
+
+// Roles allowed to create/edit First Articles in early phases
+const EDIT_ROLES = ['Admin', 'Quality Control', 'Operations', 'Production Control']
+const EARLY_PHASES = ['Setup', 'Measurement', 'Verify']
+
+function canEdit(roles: string[], phase: string): boolean {
+  if (roles.includes('Admin')) return true
+  // Quality Control can create/edit in early phases
+  if (roles.includes('Quality Control') && EARLY_PHASES.includes(phase)) return true
+  if (roles.includes('Operations') || roles.includes('Production Control')) return true
+  return false
+}
+
+// GET: list or single
+export async function GET(request: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { searchParams } = new URL(request.url)
+  const id = searchParams.get('id')
+  const type = searchParams.get('type') // filter by inspection_type
+
+  try {
+    if (id) {
+      const rows = await queryPrimary('SELECT * FROM inspections WHERE id = ?', [id])
+      if (!rows?.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+      // Pull dependency info if present
+      const record = rows[0]
+      if (record.dependency_id) {
+        const dep = await queryPrimary('SELECT id, inspection_number, inspection_type, phase FROM inspections WHERE id = ?', [record.dependency_id])
+        record.dependency = dep?.[0] || null
+      }
+      return NextResponse.json({ success: true, record })
+    }
+
+    let sql = 'SELECT * FROM inspections'
+    const params: any[] = []
+    if (type) { sql += ' WHERE inspection_type = ?'; params.push(type) }
+    sql += ' ORDER BY start_date DESC, id DESC'
+
+    const rows = await queryPrimary(sql, params)
+    return NextResponse.json({ success: true, data: rows })
+  } catch (error) {
+    console.error('Error fetching inspections:', error)
+    return NextResponse.json({
+      error: 'Failed to fetch', details: error instanceof Error ? error.message : String(error),
+    }, { status: 500 })
+  }
+}
+
+// POST: create
+export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const roles = (session.user as any)?.roles || []
+  const username = (session.user as any)?.username || session.user?.name || 'unknown'
+
+  if (!canEdit(roles, 'Setup')) {
+    return NextResponse.json({ error: 'Insufficient permissions to create inspections' }, { status: 403 })
+  }
+
+  try {
+    const body = await request.json()
+    const {
+      inspectionType, productType, partNumber, workOrder,
+      startDate, owner, phase, site, dependencyId, notes
+    } = body
+
+    // Generate inspection number: {TYPE-PREFIX}-{YYYY}-{seq}
+    const prefix = inspectionType === 'X-Section' ? 'XS' : inspectionType === 'AOI' ? 'AOI' : 'FAI'
+    const year = new Date().getFullYear()
+    const countRows = await queryPrimary(
+      'SELECT COUNT(*) AS c FROM inspections WHERE inspection_type = ? AND YEAR(created_at) = ?',
+      [inspectionType || 'First Article', year]
+    )
+    const seq = (Number(countRows?.[0]?.c) || 0) + 1
+    const inspectionNumber = `${prefix}-${year}-${String(seq).padStart(4, '0')}`
+
+    const result: any = await queryPrimary(`
+      INSERT INTO inspections
+        (inspection_number, inspection_type, product_type, part_number, work_order,
+         start_date, owner, phase, site, dependency_id, notes, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+    `, [
+      inspectionNumber, inspectionType || 'First Article', productType || 'PCB',
+      partNumber || null, workOrder || null, startDate || null,
+      owner || username, phase || 'Setup', site || null,
+      dependencyId || null, notes || null, username
+    ])
+
+    return NextResponse.json({ success: true, inspectionNumber, id: result?.insertId })
+  } catch (error) {
+    console.error('Error creating inspection:', error)
+    return NextResponse.json({
+      error: 'Failed to create', details: error instanceof Error ? error.message : String(error),
+    }, { status: 500 })
+  }
+}
+
+// PUT: update an inspection
+export async function PUT(request: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const roles = (session.user as any)?.roles || []
+
+  try {
+    const body = await request.json()
+    const { id, ...fields } = body
+    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+
+    // Check current phase for permission
+    const current = await queryPrimary('SELECT phase FROM inspections WHERE id = ?', [id])
+    if (!current?.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    if (!canEdit(roles, current[0].phase)) {
+      return NextResponse.json({ error: 'Insufficient permissions to edit at this phase' }, { status: 403 })
+    }
+
+    const allowed = ['inspection_type', 'product_type', 'part_number', 'work_order',
+                     'start_date', 'owner', 'phase', 'site', 'dependency_id', 'notes']
+    const updates: string[] = []
+    const params: any[] = []
+    for (const key of allowed) {
+      if (key in fields) { updates.push(`${key} = ?`); params.push(fields[key] || null) }
+    }
+    if (!updates.length) return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
+
+    params.push(id)
+    await queryPrimary(`UPDATE inspections SET ${updates.join(', ')} WHERE id = ?`, params)
+
+    return NextResponse.json({ success: true })
+  } catch (error) {
+    console.error('Error updating inspection:', error)
+    return NextResponse.json({
+      error: 'Failed to update', details: error instanceof Error ? error.message : String(error),
+    }, { status: 500 })
+  }
+}
