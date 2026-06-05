@@ -347,7 +347,7 @@ export default function FirstArticlePage() {
                 <div className="flex gap-2">
                   <input type="text" value={lookupPart} onChange={e => setLookupPart(e.target.value)}
                     className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono"
-                    placeholder={lookupMode === 'wo' ? 'e.g. 12345' : 'e.g. 72011'}
+                    placeholder={lookupMode === 'wo' ? 'e.g. 12345' : 'e.g. 76### or 12####'}
                     onKeyDown={e => { if (e.key === 'Enter') handleLookup() }} />
                   <button onClick={handleLookup} disabled={lookingUp || !lookupPart.trim()}
                     className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 flex items-center gap-2">

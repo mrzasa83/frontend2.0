@@ -9,7 +9,7 @@ const READ_CONN = '1'
 async function whereUsed(partNumber: string): Promise<{ customerPart: string; desc: string }[]> {
   const rows = await queryMSSQL<any[]>(READ_CONN, `
     ;WITH StartPart AS (
-        SELECT RKEY, INV_PART_NUMBER FROM DATA0017 WHERE INV_PART_NUMBER LIKE @p0
+        SELECT RKEY, INV_PART_NUMBER FROM DATA0017 WHERE INV_PART_NUMBER LIKE @part
     ),
     RecursiveBOM AS (
         SELECT d17.RKEY AS CHILD_RKEY, d17.RKEY AS CURRENT_RKEY, d17.INV_PART_NUMBER, 0 AS LVL
@@ -26,7 +26,7 @@ async function whereUsed(partNumber: string): Promise<{ customerPart: string; de
     INNER JOIN DATA0025 d25 ON d25.INVENTORY_PTR = rb.CURRENT_RKEY
     INNER JOIN DATA0050 d50 ON d50.BOM_PTR = d25.RKEY
     ORDER BY d50.CUSTOMER_PART_NUMBER
-  `, [`%${partNumber}%`])
+  `, { part: `%${partNumber}%` })
   return rows.map((r: any) => ({
     customerPart: (r.CUSTOMER_PART_NUMBER || '').trim(),
     desc: (r.CUSTOMER_PART_DESC || '').trim(),
@@ -52,11 +52,11 @@ async function workOrders(customerPart: string): Promise<any[]> {
     LEFT JOIN DATA0146 d146 WITH (NOLOCK) ON d146.WORK_ORDER_NO = d6.WORK_ORDER_NUMBER
     INNER JOIN DATA0017 d17 WITH (NOLOCK) ON d6.INVENTORY_PTR = d17.RKEY
     LEFT JOIN DATA0015 wh WITH (NOLOCK) ON d6.WHOUSE_PTR = wh.RKEY
-    WHERE d50.CUSTOMER_PART_NUMBER = @p0
+    WHERE d50.CUSTOMER_PART_NUMBER = @cp
       AND d6.ACT_COMPL_DATE IS NULL
       AND d6.RELEASE_DATE >= DATEADD(MONTH, -12, GETDATE())
     ORDER BY d6.WORK_ORDER_NUMBER
-  `, [customerPart])
+  `, { cp: customerPart })
   return mapWorkOrders(rows)
 }
 
@@ -79,11 +79,11 @@ async function workOrdersByNumber(woNumber: string): Promise<any[]> {
     LEFT JOIN DATA0146 d146 WITH (NOLOCK) ON d146.WORK_ORDER_NO = d6.WORK_ORDER_NUMBER
     INNER JOIN DATA0017 d17 WITH (NOLOCK) ON d6.INVENTORY_PTR = d17.RKEY
     LEFT JOIN DATA0015 wh WITH (NOLOCK) ON d6.WHOUSE_PTR = wh.RKEY
-    WHERE d6.WORK_ORDER_NUMBER LIKE @p0
+    WHERE d6.WORK_ORDER_NUMBER LIKE @wo
       AND d6.ACT_COMPL_DATE IS NULL
       AND d6.RELEASE_DATE >= DATEADD(MONTH, -12, GETDATE())
     ORDER BY d6.WORK_ORDER_NUMBER
-  `, [`%${woNumber}%`])
+  `, { wo: `%${woNumber}%` })
   return mapWorkOrders(rows)
 }
 
