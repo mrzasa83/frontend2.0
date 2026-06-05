@@ -65,6 +65,7 @@ export default function FirstArticlePage() {
   const [showCreate, setShowCreate] = useState(false)
 
   // Lookup workflow
+  const [lookupMode, setLookupMode] = useState<'part' | 'wo'>('part')
   const [lookupPart, setLookupPart] = useState('')
   const [lookingUp, setLookingUp] = useState(false)
   const [lookupWorkOrders, setLookupWorkOrders] = useState<any[]>([])
@@ -142,11 +143,16 @@ export default function FirstArticlePage() {
     if (!lookupPart.trim()) return
     setLookingUp(true); setCreateError(''); setLookupWorkOrders([]); setSelectedWO(null)
     try {
-      const res = await fetch(getApiUrl(`/api/operations/inspections/lookup?partNumber=${encodeURIComponent(lookupPart.trim())}`))
+      const param = lookupMode === 'wo'
+        ? `workOrder=${encodeURIComponent(lookupPart.trim())}`
+        : `partNumber=${encodeURIComponent(lookupPart.trim())}`
+      const res = await fetch(getApiUrl(`/api/operations/inspections/lookup?${param}`))
       if (!res.ok) throw new Error((await res.json()).details || 'Lookup failed')
       const r = await res.json()
       if (!r.workOrders?.length) {
-        setCreateError('No open work orders found for parts using this part number')
+        setCreateError(lookupMode === 'wo'
+          ? 'No open work orders match that number'
+          : 'No open work orders found for parts using this part number')
       }
       setLookupWorkOrders(r.workOrders || [])
     } catch (e: any) { setCreateError(e.message) }
@@ -323,19 +329,36 @@ export default function FirstArticlePage() {
             <div className="p-4 space-y-4">
               {createError && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm flex items-center gap-2"><AlertTriangle size={16} /> {createError}</div>}
 
-              {/* Step 1: Part lookup */}
+              {/* Step 1: Search mode + lookup */}
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Part Number (Where-Used Search)</label>
+                <div className="flex items-center gap-2 mb-2">
+                  <button onClick={() => { setLookupMode('part'); setLookupWorkOrders([]); setSelectedWO(null); setLookupPart('') }}
+                    className={`px-3 py-1.5 text-sm rounded-lg border ${lookupMode === 'part' ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium' : 'border-slate-200 text-slate-600'}`}>
+                    By Part Number
+                  </button>
+                  <button onClick={() => { setLookupMode('wo'); setLookupWorkOrders([]); setSelectedWO(null); setLookupPart('') }}
+                    className={`px-3 py-1.5 text-sm rounded-lg border ${lookupMode === 'wo' ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium' : 'border-slate-200 text-slate-600'}`}>
+                    By Work Order
+                  </button>
+                </div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">
+                  {lookupMode === 'wo' ? 'Work Order Number' : 'Part Number (Where-Used Search)'}
+                </label>
                 <div className="flex gap-2">
                   <input type="text" value={lookupPart} onChange={e => setLookupPart(e.target.value)}
                     className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm font-mono"
-                    placeholder="e.g. 75686" onKeyDown={e => { if (e.key === 'Enter') handleLookup() }} />
+                    placeholder={lookupMode === 'wo' ? 'e.g. 12345' : 'e.g. 72011'}
+                    onKeyDown={e => { if (e.key === 'Enter') handleLookup() }} />
                   <button onClick={handleLookup} disabled={lookingUp || !lookupPart.trim()}
                     className="px-4 py-2 bg-slate-700 text-white rounded-lg text-sm font-medium hover:bg-slate-800 disabled:opacity-50 flex items-center gap-2">
                     {lookingUp ? <RefreshCw size={14} className="animate-spin" /> : <Search size={14} />} Look Up
                   </button>
                 </div>
-                <p className="text-xs text-slate-400 mt-1">Finds customer parts using this part, then their open work orders.</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {lookupMode === 'wo'
+                    ? 'Searches open work orders (LIKE match, last 12 months).'
+                    : 'Finds customer parts using this part (excludes Z-prefix), then their open work orders.'}
+                </p>
               </div>
 
               {/* Step 2: Select work order */}
