@@ -8,9 +8,8 @@ const READ_CONN = '1'
 // Where-used: given an inventory part number, find customer parts that use it
 async function whereUsed(partNumber: string): Promise<{ customerPart: string; desc: string }[]> {
   const rows = await queryMSSQL<any[]>(READ_CONN, `
-    DECLARE @INV_PART VARCHAR(50) = @p0;
     ;WITH StartPart AS (
-        SELECT RKEY, INV_PART_NUMBER FROM DATA0017 WHERE INV_PART_NUMBER LIKE @INV_PART
+        SELECT RKEY, INV_PART_NUMBER FROM DATA0017 WHERE INV_PART_NUMBER LIKE @p0
     ),
     RecursiveBOM AS (
         SELECT d17.RKEY AS CHILD_RKEY, d17.RKEY AS CURRENT_RKEY, d17.INV_PART_NUMBER, 0 AS LVL
