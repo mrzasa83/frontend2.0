@@ -39,12 +39,6 @@ async function workOrders(customerPart: string): Promise<any[]> {
   return mapWorkOrders(rows)
 }
 
-// Work orders for a customer part (uses prod-status / -000 BOM logic)
-async function workOrders(customerPart: string): Promise<any[]> {
-  const rows = await queryMSSQL<any[]>(READ_CONN, woSql('CUSTOMER_PART_NUMBER LIKE @cp'), { cp: `${customerPart}%` })
-  return mapWorkOrders(rows)
-}
-
 // Work orders by work-order number LIKE search
 async function workOrdersByNumber(woNumber: string): Promise<any[]> {
   const rows = await queryMSSQL<any[]>(READ_CONN, woSql('WORK_ORDER LIKE @wo'), { wo: `%${woNumber}%` })
