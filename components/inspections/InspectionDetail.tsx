@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { RefreshCw, ArrowLeft, Link2, FileText, Database, CheckCircle2, X } from 'lucide-react'
+import { RefreshCw, ArrowLeft, Database } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 type Props = {
@@ -49,22 +49,24 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const [certSelections, setCertSelections] = useState<Record<string, { filePath: string; selectedBy: string; selectedAt: string }>>({})
   const [indexing, setIndexing] = useState(false)
   const [indexMsg, setIndexMsg] = useState('')
+  const [certSort, setCertSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'purchasedPart', dir: 'asc' })
+  const [colFilters, setColFilters] = useState<Record<string, string>>({})
 
   const canSelect = (session?.user?.roles || []).some((r: string) => ['Admin', 'Quality Control', 'Operations', 'Production Control'].includes(r))
 
-  const saveSelection = async (purchasedPart: string, poNumber: string, batchSerial: string, filePath: string | null) => {
+  const saveSelection = async (purchasedPart: string, poNumber: string, batchSerial: string, filePath: string | null, clear = false) => {
     const key = `${purchasedPart}|${poNumber}|${batchSerial}`
     try {
       const res = await fetch(getApiUrl('/api/operations/inspections/material-certs/selection'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ inspectionId, purchasedPart, poNumber, batchSerial, filePath, clear: !filePath }),
+        body: JSON.stringify({ inspectionId, purchasedPart, poNumber, batchSerial, filePath: filePath || '', clear }),
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Failed')
       const r = await res.json()
       setCertSelections(prev => {
         const next = { ...prev }
-        if (filePath) next[key] = { filePath, selectedBy: r.selectedBy || '', selectedAt: new Date().toISOString() }
-        else delete next[key]
+        if (clear) delete next[key]
+        else next[key] = { filePath: filePath || '', selectedBy: r.selectedBy || '', selectedAt: new Date().toISOString() }
         return next
       })
     } catch (e) { /* surfaced via UI state if needed */ }
@@ -173,25 +175,85 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       )
     }
     if (tabId === 'material-certs') {
+      const fileFor = (c: any) => (certFiles[`${c.purchasedPart}|${c.poNumber}|${c.batchSerial}`] || [])
+      const keyOf = (c: any) => `${c.purchasedPart}|${c.poNumber}|${c.batchSerial}`
+      const effectiveFile = (c: any) => {
+        const sel = certSelections[keyOf(c)]
+        if (sel && sel.filePath) return sel.filePath
+        const cands = fileFor(c)
+        return cands.length ? cands[0].path : ''
+      }
+      const downloadUrl = (p: string) => getApiUrl(`/api/operations/inspections/material-certs/download?path=${encodeURIComponent(p)}`)
+
+      // Column definitions: display value + sort value
+      const cols: { key: string; label: string; disp: (c: any) => string }[] = [
+        { key: 'purchasedPart', label: 'Purchased Part', disp: c => c.purchasedPart || '' },
+        { key: 'description', label: 'Description', disp: c => c.description || '' },
+        { key: 'batchSerial', label: 'Batch/Serial', disp: c => c.batchSerial || '' },
+        { key: 'expDate', label: 'Exp Date', disp: c => c.expDate ? new Date(c.expDate).toLocaleDateString() : '' },
+        { key: 'poNumber', label: 'PO #', disp: c => c.poNumber || '' },
+        { key: 'poDate', label: 'PO Date', disp: c => c.poDate ? new Date(c.poDate).toLocaleDateString() : '' },
+        { key: 'supplier', label: 'Supplier', disp: c => `${c.supplierName || ''}${c.supplierCode ? ' (' + c.supplierCode + ')' : ''}` },
+        { key: 'status', label: 'Status', disp: c => (fileFor(c).length ? 'found' : 'missing') },
+      ]
+      const sortVal = (c: any, k: string): any => {
+        if (k === 'expDate') return c.expDate ? new Date(c.expDate).getTime() : 0
+        if (k === 'poDate') return c.poDate ? new Date(c.poDate).getTime() : 0
+        const col = cols.find(x => x.key === k)
+        return (col ? col.disp(c) : '').toLowerCase()
+      }
+
+      // Apply per-column filters then sort
+      let view = certs.filter(c =>
+        cols.every(col => {
+          const f = (colFilters[col.key] || '').trim().toLowerCase()
+          if (!f) return true
+          return col.disp(c).toLowerCase().includes(f)
+        })
+      )
+      view = [...view].sort((a, b) => {
+        const av = sortVal(a, certSort.key), bv = sortVal(b, certSort.key)
+        if (av < bv) return certSort.dir === 'asc' ? -1 : 1
+        if (av > bv) return certSort.dir === 'asc' ? 1 : -1
+        return 0
+      })
+
+      const toggleSort = (k: string) => setCertSort(s => s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'asc' })
+      const selectedCount = certs.filter(c => certSelections[keyOf(c)]).length
+      const foundCount = certs.filter(c => fileFor(c).length).length
+      const allShownSelected = view.length > 0 && view.every(c => certSelections[keyOf(c)])
+      const toggleAllShown = () => {
+        if (!canSelect) return
+        if (allShownSelected) view.forEach(c => saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, null, true))
+        else view.forEach(c => { if (!certSelections[keyOf(c)]) saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, effectiveFile(c) || '') })
+      }
+
       return (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h4 className="text-sm font-semibold text-slate-700">Material Certs ({certs.length})</h4>
+            <div>
+              <h4 className="text-sm font-semibold text-slate-700">Material Certs ({certs.length})</h4>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {foundCount} of {certs.length} matched to a file · {selectedCount} selected for this inspection
+              </p>
+            </div>
             <div className="flex items-center gap-2">
               {isAdmin && (
                 <button onClick={buildCatalog} disabled={indexing}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50" title="Rebuild the L drive cert catalog">
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                  title="Walk the L drive and (re)build the cert folder index. Slow — only needed when new cert folders/files have been added.">
                   <Database size={14} className={indexing ? 'animate-pulse' : ''} /> {indexing ? 'Indexing...' : 'Build Catalog'}
                 </button>
               )}
               <button onClick={fetchCerts} disabled={certsLoading || !record.work_order}
-                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50">
+                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50"
+                title="Reload the BOM cert list from Paradigm and re-match files against the catalog. Fast.">
                 <RefreshCw size={14} className={certsLoading ? 'animate-spin' : ''} /> Refresh
               </button>
             </div>
           </div>
           {indexMsg && <p className="text-xs text-slate-500">{indexMsg}</p>}
-          <p className="text-xs text-slate-400">Purchased materials in the work order BOM (by lot / PO / supplier). Document links for review to follow.</p>
+          <p className="text-xs text-slate-400">Purchased materials in the work order BOM (by lot / PO / supplier). Check the rows that apply to this inspection; click a found file to open it.</p>
 
           {!record.work_order ? (
             <p className="text-sm text-amber-600">No work order is associated with this inspection.</p>
@@ -206,19 +268,45 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
               <table className="w-full text-sm">
                 <thead className="bg-slate-50">
                   <tr>
-                    {['Purchased Part', 'Description', 'Batch/Serial', 'Exp Date', 'PO #', 'PO Date', 'Supplier', 'Doc'].map(h => (
-                      <th key={h} className="px-3 py-2 text-left text-xs font-medium text-slate-600 whitespace-nowrap">{h}</th>
+                    <th className="px-3 py-2 w-8 text-center">
+                      <input type="checkbox" checked={allShownSelected} onChange={toggleAllShown} disabled={!canSelect}
+                        title="Select all shown rows" className="cursor-pointer" />
+                    </th>
+                    {cols.map(col => (
+                      <th key={col.key} onClick={() => toggleSort(col.key)}
+                        className="px-3 py-2 text-left text-xs font-medium text-slate-600 whitespace-nowrap cursor-pointer select-none hover:text-slate-900">
+                        {col.label}
+                        {certSort.key === col.key && <span className="ml-1">{certSort.dir === 'asc' ? '▲' : '▼'}</span>}
+                      </th>
+                    ))}
+                  </tr>
+                  <tr className="bg-white">
+                    <th className="px-2 py-1"></th>
+                    {cols.map(col => (
+                      <th key={col.key} className="px-2 py-1">
+                        <input value={colFilters[col.key] || ''}
+                          onChange={e => setColFilters(f => ({ ...f, [col.key]: e.target.value }))}
+                          placeholder="filter"
+                          className="w-full text-xs font-normal border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                      </th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
-                  {certs.map((c, i) => {
-                    const key = `${c.purchasedPart}|${c.poNumber}|${c.batchSerial}`
-                    const candidates = certFiles[key] || []
-                    const selection = certSelections[key]
-                    const downloadUrl = (p: string) => getApiUrl(`/api/operations/inspections/material-certs/download?path=${encodeURIComponent(p)}`)
+                  {view.map((c, i) => {
+                    const key = keyOf(c)
+                    const candidates = fileFor(c)
+                    const selected = !!certSelections[key]
+                    const eff = effectiveFile(c)
                     return (
-                      <tr key={`${c.purchasedPart}-${c.batchSerial}-${i}`} className="border-t border-slate-100 hover:bg-slate-50">
+                      <tr key={`${c.purchasedPart}-${c.batchSerial}-${i}`} className={`border-t border-slate-100 hover:bg-slate-50 ${selected ? 'bg-blue-50/40' : ''}`}>
+                        <td className="px-3 py-2 text-center">
+                          <input type="checkbox" checked={selected} disabled={!canSelect}
+                            onChange={() => selected
+                              ? saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, null, true)
+                              : saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, eff || '')}
+                            className="cursor-pointer" />
+                        </td>
                         <td className="px-3 py-2 font-mono text-slate-800 whitespace-nowrap">{c.purchasedPart || '—'}</td>
                         <td className="px-3 py-2 text-slate-600 text-xs">{c.description || '—'}</td>
                         <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.batchSerial || '—'}</td>
@@ -226,48 +314,33 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
                         <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.poNumber || '—'}</td>
                         <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{c.poDate ? new Date(c.poDate).toLocaleDateString() : '—'}</td>
                         <td className="px-3 py-2 text-slate-600 text-xs">{c.supplierName || '—'}{c.supplierCode ? ` (${c.supplierCode})` : ''}</td>
-                        <td className="px-3 py-2 text-xs">
-                          {selection ? (
-                            // Locked-in selection
-                            <div className="flex items-center gap-2">
-                              <a href={downloadUrl(selection.filePath)} target="_blank" rel="noopener noreferrer"
-                                className="text-green-700 hover:text-green-900 inline-flex items-center gap-1 font-medium" title={selection.filePath.split('/').pop()}>
-                                <CheckCircle2 size={14} /> View
-                              </a>
-                              {canSelect && (
-                                <button onClick={() => saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, null)}
-                                  className="text-slate-400 hover:text-red-500" title="Clear selection"><X size={13} /></button>
-                              )}
-                            </div>
-                          ) : candidates.length === 0 ? (
-                            <span className="text-slate-300" title="No matching PDF found"><FileText size={14} /></span>
-                          ) : candidates.length === 1 ? (
-                            // Single candidate: view + confirm
-                            <div className="flex items-center gap-2">
-                              <a href={downloadUrl(candidates[0].path)} target="_blank" rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1" title={candidates[0].name}>
-                                <FileText size={14} /> View
-                              </a>
-                              {canSelect && (
-                                <button onClick={() => saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, candidates[0].path)}
-                                  className="text-xs text-slate-500 hover:text-green-600 border border-slate-200 rounded px-1.5 py-0.5">Confirm</button>
-                              )}
-                            </div>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          {candidates.length === 0 ? (
+                            <span className="inline-flex items-center gap-1 text-red-600"><span className="w-2 h-2 rounded-full bg-red-500" /> missing</span>
                           ) : (
-                            // Multiple candidates: picker
                             <div className="flex items-center gap-2">
-                              <select defaultValue=""
-                                onChange={e => { if (e.target.value && canSelect) saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, e.target.value) }}
-                                className="text-xs border border-slate-200 rounded px-1 py-0.5 max-w-[140px]" disabled={!canSelect}>
-                                <option value="" disabled>{candidates.length} matches…</option>
-                                {candidates.map((f, fi) => <option key={fi} value={f.path}>{f.name}</option>)}
-                              </select>
+                              <a href={downloadUrl(eff || candidates[0].path)} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-green-700 hover:text-green-900 font-medium"
+                                title={(eff || candidates[0].path).split('/').pop()}>
+                                <span className="w-2 h-2 rounded-full bg-green-500" /> found
+                              </a>
+                              {candidates.length > 1 && (
+                                <select value={eff}
+                                  onChange={e => canSelect && saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, e.target.value)}
+                                  className="text-xs border border-slate-200 rounded px-1 py-0.5 max-w-[150px]" disabled={!canSelect}
+                                  title="Multiple files matched — pick the correct one">
+                                  {candidates.map((f, fi) => <option key={fi} value={f.path}>{f.name}</option>)}
+                                </select>
+                              )}
                             </div>
                           )}
                         </td>
                       </tr>
                     )
                   })}
+                  {view.length === 0 && (
+                    <tr><td colSpan={cols.length + 1} className="px-3 py-6 text-center text-slate-400 text-sm">No rows match the current filters.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>

@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { inspectionId, purchasedPart, poNumber, batchSerial, filePath, clear } = body
+    const { inspectionId, purchasedPart, poNumber, batchSerial, clear } = body
     if (!inspectionId || !purchasedPart) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
     if (clear) {
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, cleared: true })
     }
 
-    if (!filePath) return NextResponse.json({ error: 'filePath required' }, { status: 400 })
+    const filePath = (body.filePath || '').toString()
 
     await queryPrimary(
       `INSERT INTO inspection_cert_selections
