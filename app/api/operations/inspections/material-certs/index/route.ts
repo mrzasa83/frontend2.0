@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { promises as fs } from 'fs'
 import path from 'path'
+import crypto from 'crypto'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
@@ -61,11 +62,13 @@ export async function POST(request: NextRequest) {
     // Upsert into catalog
     let written = 0
     for (const f of found) {
+      const fullPath = f.path.substring(0, 700)
+      const hash = crypto.createHash('sha1').update(fullPath).digest('hex')
       await queryPrimary(
-        `INSERT INTO material_cert_folders (part_folder, folder_path, file_count)
-         VALUES (?,?,?)
-         ON DUPLICATE KEY UPDATE part_folder = VALUES(part_folder), file_count = VALUES(file_count)`,
-        [f.part.substring(0, 190), f.path.substring(0, 700), f.count]
+        `INSERT INTO material_cert_folders (part_folder, folder_path, path_hash, file_count)
+         VALUES (?,?,?,?)
+         ON DUPLICATE KEY UPDATE part_folder = VALUES(part_folder), folder_path = VALUES(folder_path), file_count = VALUES(file_count)`,
+        [f.part.substring(0, 190), fullPath, hash, f.count]
       )
       written++
     }
