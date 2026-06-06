@@ -1,7 +1,8 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { RefreshCw, ArrowLeft, Link2, FileText } from 'lucide-react'
+import { useSession } from 'next-auth/react'
+import { RefreshCw, ArrowLeft, Link2, FileText, Database, CheckCircle2, X } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 type Props = {
@@ -31,6 +32,8 @@ const TABS = [
 ]
 
 export default function InspectionDetail({ inspectionId, onClose, onDataChange }: Props) {
+  const { data: session } = useSession()
+  const isAdmin = (session?.user?.roles || []).includes('Admin')
   const [record, setRecord] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
@@ -42,6 +45,43 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const [certsLoading, setCertsLoading] = useState(false)
   const [certsError, setCertsError] = useState('')
   const [certsFetched, setCertsFetched] = useState(false)
+  const [certFiles, setCertFiles] = useState<Record<string, { path: string; name: string }[]>>({})
+  const [certSelections, setCertSelections] = useState<Record<string, { filePath: string; selectedBy: string; selectedAt: string }>>({})
+  const [indexing, setIndexing] = useState(false)
+  const [indexMsg, setIndexMsg] = useState('')
+
+  const canSelect = (session?.user?.roles || []).some((r: string) => ['Admin', 'Quality Control', 'Operations', 'Production Control'].includes(r))
+
+  const saveSelection = async (purchasedPart: string, poNumber: string, batchSerial: string, filePath: string | null) => {
+    const key = `${purchasedPart}|${poNumber}|${batchSerial}`
+    try {
+      const res = await fetch(getApiUrl('/api/operations/inspections/material-certs/selection'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inspectionId, purchasedPart, poNumber, batchSerial, filePath, clear: !filePath }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed')
+      const r = await res.json()
+      setCertSelections(prev => {
+        const next = { ...prev }
+        if (filePath) next[key] = { filePath, selectedBy: r.selectedBy || '', selectedAt: new Date().toISOString() }
+        else delete next[key]
+        return next
+      })
+    } catch (e) { /* surfaced via UI state if needed */ }
+  }
+
+  const buildCatalog = async () => {
+    setIndexing(true); setIndexMsg('')
+    try {
+      // Index the C of C tree (sub-path keeps the walk scoped/fast)
+      const res = await fetch(getApiUrl('/api/operations/inspections/material-certs/index?subPath=NashuaScanDocStorage'), { method: 'POST' })
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.details || r.error || 'Failed')
+      setIndexMsg(`Catalog updated: ${r.indexed} folders indexed`)
+      if (certsFetched) fetchCerts()
+    } catch (e: any) { setIndexMsg(`Error: ${e.message}`) }
+    setIndexing(false)
+  }
 
   const fetchCerts = async () => {
     if (!record?.work_order) { setCertsError('No work order on this inspection'); return }
@@ -50,7 +90,25 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       const res = await fetch(getApiUrl(`/api/operations/inspections/material-certs?workOrder=${encodeURIComponent(record.work_order)}`))
       if (!res.ok) throw new Error((await res.json()).details || 'Failed')
       const r = await res.json()
-      setCerts(r.certs || [])
+      const list = r.certs || []
+      setCerts(list)
+      // Match cert rows to PDF files on the L drive (separate fs route)
+      if (list.length) {
+        try {
+          const fr = await fetch(getApiUrl('/api/operations/inspections/material-certs/files'), {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              certs: list.map((c: any) => ({ purchasedPart: c.purchasedPart, poNumber: c.poNumber, batchSerial: c.batchSerial })),
+            }),
+          })
+          if (fr.ok) setCertFiles((await fr.json()).matches || {})
+        } catch { /* file matching is best-effort */ }
+        // Load any persisted reviewer selections
+        try {
+          const sr = await fetch(getApiUrl(`/api/operations/inspections/material-certs/selection?inspectionId=${inspectionId}`))
+          if (sr.ok) setCertSelections((await sr.json()).selections || {})
+        } catch { /* best-effort */ }
+      }
     } catch (e: any) { setCertsError(e.message) }
     setCertsLoading(false)
   }
@@ -119,11 +177,20 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-semibold text-slate-700">Material Certs ({certs.length})</h4>
-            <button onClick={fetchCerts} disabled={certsLoading || !record.work_order}
-              className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50">
-              <RefreshCw size={14} className={certsLoading ? 'animate-spin' : ''} /> Refresh
-            </button>
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <button onClick={buildCatalog} disabled={indexing}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50" title="Rebuild the L drive cert catalog">
+                  <Database size={14} className={indexing ? 'animate-pulse' : ''} /> {indexing ? 'Indexing...' : 'Build Catalog'}
+                </button>
+              )}
+              <button onClick={fetchCerts} disabled={certsLoading || !record.work_order}
+                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50">
+                <RefreshCw size={14} className={certsLoading ? 'animate-spin' : ''} /> Refresh
+              </button>
+            </div>
           </div>
+          {indexMsg && <p className="text-xs text-slate-500">{indexMsg}</p>}
           <p className="text-xs text-slate-400">Purchased materials in the work order BOM (by lot / PO / supplier). Document links for review to follow.</p>
 
           {!record.work_order ? (
@@ -145,22 +212,62 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
                   </tr>
                 </thead>
                 <tbody>
-                  {certs.map((c, i) => (
-                    <tr key={`${c.purchasedPart}-${c.batchSerial}-${i}`} className="border-t border-slate-100 hover:bg-slate-50">
-                      <td className="px-3 py-2 font-mono text-slate-800 whitespace-nowrap">{c.purchasedPart || '—'}</td>
-                      <td className="px-3 py-2 text-slate-600 text-xs">{c.description || '—'}</td>
-                      <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.batchSerial || '—'}</td>
-                      <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{c.expDate ? new Date(c.expDate).toLocaleDateString() : '—'}</td>
-                      <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.poNumber || '—'}</td>
-                      <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{c.poDate ? new Date(c.poDate).toLocaleDateString() : '—'}</td>
-                      <td className="px-3 py-2 text-slate-600 text-xs">{c.supplierName || '—'}{c.supplierCode ? ` (${c.supplierCode})` : ''}</td>
-                      <td className="px-3 py-2 text-xs">
-                        <button className="text-slate-300 cursor-not-allowed" title="Document linking — coming next">
-                          <FileText size={14} />
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
+                  {certs.map((c, i) => {
+                    const key = `${c.purchasedPart}|${c.poNumber}|${c.batchSerial}`
+                    const candidates = certFiles[key] || []
+                    const selection = certSelections[key]
+                    const downloadUrl = (p: string) => getApiUrl(`/api/operations/inspections/material-certs/download?path=${encodeURIComponent(p)}`)
+                    return (
+                      <tr key={`${c.purchasedPart}-${c.batchSerial}-${i}`} className="border-t border-slate-100 hover:bg-slate-50">
+                        <td className="px-3 py-2 font-mono text-slate-800 whitespace-nowrap">{c.purchasedPart || '—'}</td>
+                        <td className="px-3 py-2 text-slate-600 text-xs">{c.description || '—'}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.batchSerial || '—'}</td>
+                        <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{c.expDate ? new Date(c.expDate).toLocaleDateString() : '—'}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.poNumber || '—'}</td>
+                        <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{c.poDate ? new Date(c.poDate).toLocaleDateString() : '—'}</td>
+                        <td className="px-3 py-2 text-slate-600 text-xs">{c.supplierName || '—'}{c.supplierCode ? ` (${c.supplierCode})` : ''}</td>
+                        <td className="px-3 py-2 text-xs">
+                          {selection ? (
+                            // Locked-in selection
+                            <div className="flex items-center gap-2">
+                              <a href={downloadUrl(selection.filePath)} target="_blank" rel="noopener noreferrer"
+                                className="text-green-700 hover:text-green-900 inline-flex items-center gap-1 font-medium" title={selection.filePath.split('/').pop()}>
+                                <CheckCircle2 size={14} /> View
+                              </a>
+                              {canSelect && (
+                                <button onClick={() => saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, null)}
+                                  className="text-slate-400 hover:text-red-500" title="Clear selection"><X size={13} /></button>
+                              )}
+                            </div>
+                          ) : candidates.length === 0 ? (
+                            <span className="text-slate-300" title="No matching PDF found"><FileText size={14} /></span>
+                          ) : candidates.length === 1 ? (
+                            // Single candidate: view + confirm
+                            <div className="flex items-center gap-2">
+                              <a href={downloadUrl(candidates[0].path)} target="_blank" rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1" title={candidates[0].name}>
+                                <FileText size={14} /> View
+                              </a>
+                              {canSelect && (
+                                <button onClick={() => saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, candidates[0].path)}
+                                  className="text-xs text-slate-500 hover:text-green-600 border border-slate-200 rounded px-1.5 py-0.5">Confirm</button>
+                              )}
+                            </div>
+                          ) : (
+                            // Multiple candidates: picker
+                            <div className="flex items-center gap-2">
+                              <select defaultValue=""
+                                onChange={e => { if (e.target.value && canSelect) saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, e.target.value) }}
+                                className="text-xs border border-slate-200 rounded px-1 py-0.5 max-w-[140px]" disabled={!canSelect}>
+                                <option value="" disabled>{candidates.length} matches…</option>
+                                {candidates.map((f, fi) => <option key={fi} value={f.path}>{f.name}</option>)}
+                              </select>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

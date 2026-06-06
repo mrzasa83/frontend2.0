@@ -27,6 +27,7 @@ services:
       - /mnt/jdrive:/mnt/jdrive:ro      # J: drive  (EngJobs)
       - /mnt/sdrive:/mnt/sdrive:ro      # S: drive  (APCFS04\SHARED2)
       - /mnt/tdrive:/mnt/tdrive:ro      # T: drive  (Packaging)
+      - /mnt/ldrive:/mnt/ldrive:ro      # L: drive  (NashuaScanDocStorage / C of Cs)
 
     env_file: .env.local
 
