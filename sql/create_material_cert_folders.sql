@@ -11,10 +11,17 @@
 CREATE TABLE IF NOT EXISTS material_cert_folders (
   id INT AUTO_INCREMENT PRIMARY KEY,
   part_folder VARCHAR(190) NOT NULL,        -- directory basename (the purchased part)
+  part_norm VARCHAR(190) NOT NULL DEFAULT '', -- normalized (A-Z0-9 only) for tolerant lookup
   folder_path VARCHAR(700) NOT NULL,        -- full path under /mnt/ldrive (not indexed)
   path_hash CHAR(40) NOT NULL,              -- SHA1(folder_path) for uniqueness
   file_count INT DEFAULT 0,
   indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   UNIQUE KEY uq_path_hash (path_hash),
-  INDEX idx_part_folder (part_folder)
+  INDEX idx_part_folder (part_folder),
+  INDEX idx_part_norm (part_norm)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- If the table already exists from an earlier version, add the column + index:
+-- ALTER TABLE material_cert_folders ADD COLUMN part_norm VARCHAR(190) NOT NULL DEFAULT '' AFTER part_folder;
+-- ALTER TABLE material_cert_folders ADD INDEX idx_part_norm (part_norm);
+-- Then rebuild the catalog (Build Catalog button) so part_norm is populated.

@@ -64,11 +64,13 @@ export async function POST(request: NextRequest) {
     for (const f of found) {
       const fullPath = f.path.substring(0, 700)
       const hash = crypto.createHash('sha1').update(fullPath).digest('hex')
+      const partFolder = f.part.substring(0, 190)
+      const partNorm = partFolder.toUpperCase().replace(/[^A-Z0-9]/g, '').substring(0, 190)
       await queryPrimary(
-        `INSERT INTO material_cert_folders (part_folder, folder_path, path_hash, file_count)
-         VALUES (?,?,?,?)
-         ON DUPLICATE KEY UPDATE part_folder = VALUES(part_folder), folder_path = VALUES(folder_path), file_count = VALUES(file_count)`,
-        [f.part.substring(0, 190), fullPath, hash, f.count]
+        `INSERT INTO material_cert_folders (part_folder, part_norm, folder_path, path_hash, file_count)
+         VALUES (?,?,?,?,?)
+         ON DUPLICATE KEY UPDATE part_folder = VALUES(part_folder), part_norm = VALUES(part_norm), folder_path = VALUES(folder_path), file_count = VALUES(file_count)`,
+        [partFolder, partNorm, fullPath, hash, f.count]
       )
       written++
     }
