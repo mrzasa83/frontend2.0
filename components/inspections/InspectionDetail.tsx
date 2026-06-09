@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { RefreshCw, ArrowLeft, Database } from 'lucide-react'
+import { RefreshCw, ArrowLeft, Database, Pencil, Save, X } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import ReviewsTab from './ReviewsTab'
+import SignoffTab from './SignoffTab'
 
 type Props = {
   inspectionId: number
@@ -28,17 +30,37 @@ function PhaseBadge({ phase }: { phase: string }) {
 const TABS = [
   { id: 'general', label: 'General' },
   { id: 'material-certs', label: 'Material Certs' },
+  { id: 'reviews', label: 'Reviews' },
+  { id: 'signoff', label: 'Signoff' },
   { id: 'history', label: 'History' },
 ]
+
+const PHASE_OPTIONS = ['Setup', 'Measurement', 'Verify', 'Submitted', 'Rework', 'Completed', 'Canceled']
+const EARLY_PHASES = ['Setup', 'Measurement', 'Verify']
 
 export default function InspectionDetail({ inspectionId, onClose, onDataChange }: Props) {
   const { data: session } = useSession()
   const isAdmin = (session?.user?.roles || []).includes('Admin')
+  const roles = (session?.user?.roles || []) as string[]
   const [record, setRecord] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('general')
+
+  // General edit mode
+  const [editing, setEditing] = useState(false)
+  const [editVals, setEditVals] = useState<any>({})
+  const [saving, setSaving] = useState(false)
+  const [editError, setEditError] = useState('')
+
+  // canEdit mirrors the API: Admin always; QC in early phases; Ops/PC always
+  const canEditNow = (phase: string) => {
+    if (roles.includes('Admin')) return true
+    if (roles.includes('Quality Control') && EARLY_PHASES.includes(phase)) return true
+    if (roles.includes('Operations') || roles.includes('Production Control')) return true
+    return false
+  }
 
   // Material certs
   const [certs, setCerts] = useState<any[]>([])
@@ -134,12 +156,80 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
 
   useEffect(() => { fetchRecord() }, [inspectionId])
 
+  const startEdit = () => {
+    setEditVals({
+      owner: record.owner || '',
+      phase: record.phase || '',
+      site: record.site || '',
+      notes: record.notes || '',
+    })
+    setEditError('')
+    setEditing(true)
+  }
+
+  const saveEdit = async () => {
+    setSaving(true); setEditError('')
+    try {
+      const res = await fetch(getApiUrl('/api/operations/inspections'), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: inspectionId, ...editVals }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed to save')
+      setEditing(false)
+      await fetchRecord()
+      onDataChange?.()
+    } catch (e: any) { setEditError(e.message) }
+    finally { setSaving(false) }
+  }
+
   if (loading) return <div className="flex items-center gap-2 py-12 justify-center text-slate-500"><RefreshCw size={18} className="animate-spin" /> Loading...</div>
   if (error) return <div className="p-6 text-red-600">{error}</div>
   if (!record) return <div className="p-6 text-red-600">Record not found</div>
 
   const renderTab = (tabId: string) => {
     if (tabId === 'general') {
+      const editable = canEditNow(record.phase)
+      if (editing) {
+        return (
+          <div className="space-y-5 max-w-2xl">
+            {editError && <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{editError}</div>}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Owner</label>
+                <input value={editVals.owner} onChange={e => setEditVals((v: any) => ({ ...v, owner: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Phase</label>
+                <select value={editVals.phase} onChange={e => setEditVals((v: any) => ({ ...v, phase: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                  {PHASE_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Site</label>
+                <input value={editVals.site} onChange={e => setEditVals((v: any) => ({ ...v, site: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Notes</label>
+              <textarea value={editVals.notes} onChange={e => setEditVals((v: any) => ({ ...v, notes: e.target.value }))} rows={4}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={saveEdit} disabled={saving}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm flex items-center gap-2 disabled:opacity-50">
+                <Save size={15} /> {saving ? 'Saving...' : 'Save'}
+              </button>
+              <button onClick={() => setEditing(false)} disabled={saving}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg text-sm flex items-center gap-2">
+                <X size={15} /> Cancel
+              </button>
+            </div>
+          </div>
+        )
+      }
       const fields: [string, any][] = [
         ['Inspection #', record.inspection_number],
         ['Type', record.inspection_type],
@@ -157,6 +247,14 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       ]
       return (
         <div className="space-y-6">
+          {editable && (
+            <div className="flex justify-end">
+              <button onClick={startEdit}
+                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1.5 border border-slate-200">
+                <Pencil size={14} /> Edit
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
             {fields.map(([label, val]) => (
               <div key={label}>
@@ -173,6 +271,12 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
           )}
         </div>
       )
+    }
+    if (tabId === 'reviews') {
+      return <ReviewsTab inspectionId={inspectionId} />
+    }
+    if (tabId === 'signoff') {
+      return <SignoffTab inspectionId={inspectionId} currentPhase={record.phase} onChanged={async () => { await fetchRecord(); onDataChange?.() }} />
     }
     if (tabId === 'material-certs') {
       const fileFor = (c: any) => (certFiles[`${c.purchasedPart}|${c.poNumber}|${c.batchSerial}`] || [])
