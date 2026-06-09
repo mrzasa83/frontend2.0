@@ -127,6 +127,8 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
   const [loadingWorkOrders, setLoadingWorkOrders] = useState(false)
   const [workOrdersError, setWorkOrdersError] = useState<string | null>(null)
   const [showOpenOrdersOnly, setShowOpenOrdersOnly] = useState(true) // Default to open only
+  const [woFilterMode, setWoFilterMode] = useState<'startsWith' | 'contains'>('startsWith')
+  const [woInvPartFilter, setWoInvPartFilter] = useState('')
 
   const [inventoryData, setInventoryData] = useState<ProductionData[]>([])
   const [inventoryAllData, setInventoryAllData] = useState<ProductionData[]>([]) // Includes zero qty
@@ -946,51 +948,98 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
 
         {activeSubTab === 'work-orders' && (
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h4 className="font-semibold text-slate-800">
-                  Work Orders ({showOpenOrdersOnly ? workOrdersData.length : workOrdersAllData.length})
-                </h4>
-                <p className="text-sm text-slate-600">Work order history (read-only)</p>
-              </div>
-              <div className="flex items-center gap-4">
-                <button
-                  onClick={() => exportToExcel(
-                    showOpenOrdersOnly ? workOrdersData : workOrdersAllData, 
-                    workOrdersMetadata, 
-                    `${partNumber}_WorkOrders${showOpenOrdersOnly ? '_Open' : '_All'}`
-                  )}
-                  disabled={(showOpenOrdersOnly ? workOrdersData.length : workOrdersAllData.length) === 0}
-                  className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Download size={16} />
-                  Export to Excel
-                </button>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <span className="text-sm text-slate-600">Open orders only</span>
-                  <div className="relative">
-                    <input
-                      type="checkbox"
-                      checked={showOpenOrdersOnly}
-                      onChange={(e) => setShowOpenOrdersOnly(e.target.checked)}
-                      className="sr-only"
-                    />
-                    <div className={`w-10 h-5 rounded-full transition-colors ${showOpenOrdersOnly ? 'bg-blue-600' : 'bg-slate-300'}`}>
-                      <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showOpenOrdersOnly ? 'translate-x-5' : 'translate-x-0'}`} />
+            {(() => {
+              // Base set depends on the open-orders toggle, then filter on INV_PART_NUMBER
+              const baseWO = showOpenOrdersOnly ? workOrdersData : workOrdersAllData
+              const filteredWorkOrders = woInvPartFilter
+                ? baseWO.filter(row => {
+                    const invPart = String(row.INV_PART_NUMBER || '').toUpperCase()
+                    const filterText = woInvPartFilter.toUpperCase()
+                    return woFilterMode === 'startsWith'
+                      ? invPart.startsWith(filterText)
+                      : invPart.includes(filterText)
+                  })
+                : baseWO
+
+              return (
+                <>
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <h4 className="font-semibold text-slate-800">
+                        Work Orders ({filteredWorkOrders.length}{woInvPartFilter ? ` of ${baseWO.length}` : ''})
+                      </h4>
+                      <p className="text-sm text-slate-600">Work order history (read-only)</p>
+                    </div>
+                    <div className="flex items-center gap-4">
+                      <div className="flex items-center gap-2">
+                        <label className="text-sm text-slate-600">Inv Part:</label>
+                        <select
+                          value={woFilterMode}
+                          onChange={(e) => setWoFilterMode(e.target.value as 'startsWith' | 'contains')}
+                          className="px-2 py-1 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                        >
+                          <option value="startsWith">Starts with</option>
+                          <option value="contains">Contains</option>
+                        </select>
+                        <input
+                          type="text"
+                          value={woInvPartFilter}
+                          onChange={(e) => setWoInvPartFilter(e.target.value)}
+                          placeholder="e.g. S-"
+                          className="px-2 py-1 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-24"
+                        />
+                        {woInvPartFilter && (
+                          <button
+                            onClick={() => setWoInvPartFilter('')}
+                            className="text-slate-400 hover:text-slate-600"
+                            title="Clear filter"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => exportToExcel(
+                          filteredWorkOrders,
+                          workOrdersMetadata,
+                          `${partNumber}_WorkOrders${showOpenOrdersOnly ? '_Open' : '_All'}`
+                        )}
+                        disabled={filteredWorkOrders.length === 0}
+                        className="px-3 py-1.5 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        <Download size={16} />
+                        Export to Excel
+                      </button>
+                      <label className="flex items-center gap-2 cursor-pointer">
+                        <span className="text-sm text-slate-600">Open orders only</span>
+                        <div className="relative">
+                          <input
+                            type="checkbox"
+                            checked={showOpenOrdersOnly}
+                            onChange={(e) => setShowOpenOrdersOnly(e.target.checked)}
+                            className="sr-only"
+                          />
+                          <div className={`w-10 h-5 rounded-full transition-colors ${showOpenOrdersOnly ? 'bg-blue-600' : 'bg-slate-300'}`}>
+                            <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showOpenOrdersOnly ? 'translate-x-5' : 'translate-x-0'}`} />
+                          </div>
+                        </div>
+                      </label>
                     </div>
                   </div>
-                </label>
-              </div>
-            </div>
-            <DataView
-              data={showOpenOrdersOnly ? workOrdersData : workOrdersAllData}
-              metadata={workOrdersMetadata}
-              loading={loadingWorkOrders}
-              error={workOrdersError}
-              emptyMessage={`No ${showOpenOrdersOnly ? 'open ' : ''}work orders found for part ${partNumber}`}
-              editable={false}
-              mode="table"
-            />
+                  <DataView
+                    data={filteredWorkOrders}
+                    metadata={workOrdersMetadata}
+                    loading={loadingWorkOrders}
+                    error={workOrdersError}
+                    emptyMessage={woInvPartFilter
+                      ? `No ${showOpenOrdersOnly ? 'open ' : ''}work orders matching "${woInvPartFilter}"`
+                      : `No ${showOpenOrdersOnly ? 'open ' : ''}work orders found for part ${partNumber}`}
+                    editable={false}
+                    mode="table"
+                  />
+                </>
+              )
+            })()}
           </div>
         )}
 
