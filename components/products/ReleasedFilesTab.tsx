@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { 
   FileText, FolderOpen, ChevronDown, ChevronRight, 
-  Download, ExternalLink, File, FileImage, FileSpreadsheet,
+  Download, ExternalLink, File, FileImage, FileSpreadsheet, Eye,
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
   TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History
 } from 'lucide-react'
@@ -20,6 +20,7 @@ import {
   changesMetadata
 } from '@/lib/metadata/columnMetadata'
 import { getApiUrl } from '@/lib/api'
+import FilePreviewModal from './FilePreviewModal'
 
 type FileInfo = {
   name: string
@@ -104,6 +105,7 @@ function formatDate(isoDate: string): string {
 
 export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLocationChange }: Props) {
   const [activeSubTab, setActiveSubTab] = useState('general')
+  const [previewFile, setPreviewFile] = useState<FileInfo | null>(null)
   
   // ========================================
   // PRODUCTION DATA STATES
@@ -619,9 +621,16 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
                 )}
               </button>
               <button
+                onClick={() => setPreviewFile(file)}
+                className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
+                title="Preview"
+              >
+                <Eye size={16} />
+              </button>
+              <button
                 onClick={() => openFile(file)}
                 className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                title="Open file"
+                title="Open in new tab"
               >
                 <ExternalLink size={16} />
               </button>
@@ -1323,6 +1332,9 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
           </div>
         )}
       </div>
+      {previewFile && (
+        <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
+      )}
     </div>
   )
 }

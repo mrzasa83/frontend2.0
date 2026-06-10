@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { RefreshCw, ArrowLeft, Database, Pencil, Save, X, Eye, ExternalLink } from 'lucide-react'
+import { RefreshCw, ArrowLeft, Database, Pencil, Save, X, Eye, ExternalLink, Maximize2, Minimize2 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import ReviewsTab from './ReviewsTab'
 import SignoffTab from './SignoffTab'
@@ -74,6 +74,7 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const [certSort, setCertSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'purchasedPart', dir: 'asc' })
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [previewPdf, setPreviewPdf] = useState<{ url: string; name: string } | null>(null)
+  const [previewMax, setPreviewMax] = useState(false)
 
   const canSelect = (session?.user?.roles || []).some((r: string) => ['Admin', 'Quality Control', 'Operations', 'Production Control'].includes(r))
 
@@ -460,10 +461,16 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
 
           {previewPdf && (
             <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setPreviewPdf(null)}>
-              <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+              <div
+                className={`bg-white rounded-xl shadow-2xl flex flex-col transition-all duration-150 ${previewMax ? 'w-[98vw] h-[96vh]' : 'w-[80vw] h-[90vh]'}`}
+                onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-shrink-0">
                   <h3 className="text-sm font-medium text-slate-700 truncate pr-4" title={previewPdf.name}>{previewPdf.name}</h3>
                   <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={() => setPreviewMax(m => !m)} className="text-slate-500 hover:text-blue-600 p-1"
+                      title={previewMax ? 'Restore size' : 'Maximize'}>
+                      {previewMax ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    </button>
                     <a href={previewPdf.url} target="_blank" rel="noopener noreferrer"
                       className="text-slate-500 hover:text-blue-600 p-1" title="Open in new tab"><ExternalLink size={16} /></a>
                     <button onClick={() => setPreviewPdf(null)} className="text-slate-500 hover:text-slate-800 p-1" title="Close"><X size={18} /></button>
