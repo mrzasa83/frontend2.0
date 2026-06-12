@@ -578,7 +578,9 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
         {files.map((file, idx) => (
           <div
             key={idx}
-            className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg group"
+            onClick={() => setPreview({ files, index: idx })}
+            className="flex items-center gap-3 p-2 hover:bg-slate-50 rounded-lg group cursor-pointer"
+            title="Click to preview"
           >
             {getFileIcon(file.extension)}
             <div className="flex-1 min-w-0">
@@ -598,7 +600,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
             </div>
             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
-                onClick={() => copyPath(file.path)}
+                onClick={(e) => { e.stopPropagation(); copyPath(file.path) }}
                 className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
                 title="Copy path"
               >
@@ -609,14 +611,14 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
                 )}
               </button>
               <button
-                onClick={() => setPreview({ files, index: idx })}
+                onClick={(e) => { e.stopPropagation(); setPreview({ files, index: idx }) }}
                 className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
                 title="Preview"
               >
                 <Eye size={16} />
               </button>
               <button
-                onClick={() => downloadFile(file)}
+                onClick={(e) => { e.stopPropagation(); downloadFile(file) }}
                 className="p-1.5 text-green-600 hover:bg-green-50 rounded"
                 title="Download file"
               >
@@ -1196,7 +1198,8 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                               {bdParadigmFiles.map((file, idx) => (
-                                <tr key={idx} className="hover:bg-slate-50 group">
+                                <tr key={idx} onClick={() => setPreview({ files: bdParadigmFiles, index: idx })}
+                                  className="hover:bg-slate-50 group cursor-pointer" title="Click to preview">
                                   <td className="px-3 py-2 text-slate-600 font-mono">
                                     {file.matchedPartNumber || '-'}
                                   </td>
@@ -1209,7 +1212,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
                                   <td className="px-3 py-2 text-right">
                                     <div className="flex gap-1 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
                                       <button
-                                        onClick={() => copyPath(file.path)}
+                                        onClick={(e) => { e.stopPropagation(); copyPath(file.path) }}
                                         className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
                                         title="Copy path"
                                       >
@@ -1220,14 +1223,14 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
                                         )}
                                       </button>
                                       <button
-                                        onClick={() => setPreview({ files: bdParadigmFiles, index: idx })}
+                                        onClick={(e) => { e.stopPropagation(); setPreview({ files: bdParadigmFiles, index: idx }) }}
                                         className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
                                         title="Preview"
                                       >
                                         <Eye size={16} />
                                       </button>
                                       <button
-                                        onClick={() => downloadFile(file)}
+                                        onClick={(e) => { e.stopPropagation(); downloadFile(file) }}
                                         className="p-1.5 text-green-600 hover:bg-green-50 rounded"
                                         title="Download file"
                                       >
