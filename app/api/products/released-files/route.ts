@@ -5,7 +5,7 @@ import { getMySQLPrimaryPool } from '@/lib/db/mysql-primary'
 import { getMSSQLPool } from '@/lib/db/mssql'
 import * as fs from 'fs'
 import * as path from 'path'
-import { windowsToLinuxPath } from '@/lib/config/drives'
+import { windowsToLinuxPath, QC_FOLDERS_PATH } from '@/lib/config/drives'
 
 type FileInfo = {
   name: string
@@ -50,6 +50,68 @@ function extractPartNumber(apcPN: string): number | null {
     return parseInt(anyMatch[1], 10)
   }
   return null
+}
+
+/**
+ * Find a child entry of `parent` whose name matches `name` case-insensitively.
+ * Returns the full path or null. Tolerates the S-drive casing differences.
+ */
+function ciFindChild(parent: string, name: string, mustBeDir = true): string | null {
+  try {
+    if (!fs.existsSync(parent)) return null
+    const target = name.toLowerCase()
+    const entries = fs.readdirSync(parent, { withFileTypes: true })
+    // Exact (case-insensitive) match first
+    for (const e of entries) {
+      if (mustBeDir && !e.isDirectory()) continue
+      if (e.name.toLowerCase() === target) return path.join(parent, e.name)
+    }
+    return null
+  } catch { return null }
+}
+
+/**
+ * Resolve the FrontEndQC part folder directly from the part number, without
+ * relying on the folder_ranges table.
+ *   {root}/{site}/{rangeStart}-{rangeEnd}/{partFolder}
+ * e.g. /mnt/sdrive/FrontEndQCFolders/Nashua/76400-76499/76477
+ * Range is computed as floor(part/100)*100 .. +99. Part folder match is fuzzy
+ * (a directory whose name contains the part number).
+ */
+function resolveQCPartFolder(site: string, partNumber: string, numericPart: number):
+  { partFolder: string | null; rangePath: string | null } {
+  const siteDir = QC_FOLDERS_PATH(site)
+  if (!fs.existsSync(siteDir)) return { partFolder: null, rangePath: null }
+
+  const start = Math.floor(numericPart / 100) * 100
+  const end = start + 99
+  const rangeName = `${start}-${end}`
+  let rangePath = ciFindChild(siteDir, rangeName)
+  // Fallback: scan range folders and pick one whose start-end span contains the part
+  if (!rangePath) {
+    try {
+      for (const e of fs.readdirSync(siteDir, { withFileTypes: true })) {
+        if (!e.isDirectory()) continue
+        const m = e.name.match(/^(\d+)\s*-\s*(\d+)$/)
+        if (m && numericPart >= parseInt(m[1]) && numericPart <= parseInt(m[2])) {
+          rangePath = path.join(siteDir, e.name); break
+        }
+      }
+    } catch { /* ignore */ }
+  }
+  if (!rangePath) return { partFolder: null, rangePath: null }
+
+  // Fuzzy part folder: contains the part number (exact match preferred)
+  let partFolder: string | null = null
+  try {
+    const dirs = fs.readdirSync(rangePath, { withFileTypes: true }).filter(e => e.isDirectory())
+    const exact = dirs.find(e => e.name === partNumber || e.name === String(numericPart))
+    const fuzzy = dirs.find(e => e.name.includes(String(numericPart)) || e.name.toUpperCase().includes(partNumber.toUpperCase()))
+    const hit = exact || fuzzy
+    if (hit) partFolder = path.join(rangePath, hit.name)
+  } catch { /* ignore */ }
+
+  return { partFolder, rangePath }
 }
 
 /**
@@ -318,23 +380,31 @@ export async function POST(request: NextRequest) {
         }
 
         if (numericPart) {
-          // Find the range folder for this part number
-          const rangeInfo = await findRangeFolder(pool, numericPart, 'finalInspection', site)
-          
-          if (rangeInfo) {
-            // Search for the specific part folder within the range
-            const partFolderPath = searchForPartFolder(rangeInfo.basePath, partNumber)
-            
-            if (partFolderPath) {
-              locationResult.basePath = partFolderPath
-              locationResult.files = listFiles(partFolderPath)
-              locationResult.hasFiles = locationResult.files.length > 0
-            } else {
-              locationResult.basePath = rangeInfo.basePath
-              locationResult.error = `Part folder not found in range ${rangeInfo.folderName}`
-            }
+          // 1. Direct path resolution from the part number (no DB dependency)
+          const direct = resolveQCPartFolder(site, partNumber, numericPart)
+          if (direct.partFolder) {
+            locationResult.basePath = direct.partFolder
+            locationResult.files = listFiles(direct.partFolder)
+            locationResult.hasFiles = locationResult.files.length > 0
           } else {
-            locationResult.error = `No range folder found for part ${numericPart}`
+            // 2. Fallback to the folder_ranges table lookup
+            const rangeInfo = await findRangeFolder(pool, numericPart, 'finalInspection', site)
+            if (rangeInfo) {
+              const partFolderPath = searchForPartFolder(rangeInfo.basePath, partNumber)
+              if (partFolderPath) {
+                locationResult.basePath = partFolderPath
+                locationResult.files = listFiles(partFolderPath)
+                locationResult.hasFiles = locationResult.files.length > 0
+              } else {
+                locationResult.basePath = rangeInfo.basePath
+                locationResult.error = `Part folder not found in range ${rangeInfo.folderName}`
+              }
+            } else if (direct.rangePath) {
+              locationResult.basePath = direct.rangePath
+              locationResult.error = `Part folder ${partNumber} not found in ${path.basename(direct.rangePath)}`
+            } else {
+              locationResult.error = `No range folder found for part ${numericPart} at ${site}`
+            }
           }
         } else {
           locationResult.error = `Could not extract numeric part from ${partNumber}`
