@@ -29,6 +29,14 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+# LibreOffice (headless) for Office->PDF preview conversion (doc/ppt/pptx/etc.)
+# --no-install-recommends keeps the image lean; fonts-liberation gives sane fonts.
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends \
+       libreoffice-writer libreoffice-impress libreoffice-calc \
+       fonts-liberation \
+  && rm -rf /var/lib/apt/lists/*
+
 # Copy standalone build
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
