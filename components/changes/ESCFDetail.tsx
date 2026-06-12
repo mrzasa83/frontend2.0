@@ -387,7 +387,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
           </div>
         </div>
         <div className="space-y-4">
-          {F('Current Standard', 'current_standard', { ml: true })}
+          {F('Current Standard', 'current_standards', { ml: true })}
           {F('Requested Change', 'requested_change', { ml: true })}
           {F('Reason for Change', 'reason_for_change', { ml: true })}
         </div>

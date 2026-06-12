@@ -157,7 +157,7 @@ export async function PUT(request: NextRequest) {
       const allowedFields = [
         'department', 'affected_departments', 'wcm', 'initiator', 'pes',
         'pe_disposition', 'escf_status', 'change_status', 'subdate', 'subtime',
-        'is_new_process', 'current_standard', 'requested_change',
+        'is_new_process', 'current_standards', 'requested_change',
         'intended_imp_date', 'reason_for_change', 'request',
         'is_pe_cost_impact', 'prev_tooled_dis', 'pem',
         'is_ppe_cost_impact', 'rejection_reason', 'quote_hold_require',
