@@ -484,19 +484,11 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
   }
 
   const openFile = (file: FileInfo) => {
-    if (file.serveUrl) {
-      window.open(file.serveUrl, '_blank')
-    } else {
-      const serveUrl = getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`)
-      window.open(serveUrl, '_blank')
-    }
+    window.open(getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`), '_blank')
   }
 
   const downloadFile = (file: FileInfo) => {
-    const downloadUrl = file.serveUrl 
-      ? `${file.serveUrl}&download=true`
-      : getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}&download=true`)
-    window.open(downloadUrl, '_blank')
+    window.open(getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}&download=true`), '_blank')
   }
 
   // Export data to Excel using SheetJS (client-side)

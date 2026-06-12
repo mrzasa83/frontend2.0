@@ -19,6 +19,8 @@
 export function getApiUrl(path: string): string {
   const basePath = process.env.NEXT_PUBLIC_BASE_PATH || ''
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
+  // Avoid double-prefixing if the caller already included the basePath
+  if (basePath && normalizedPath.startsWith(`${basePath}/`)) return normalizedPath
   return `${basePath}${normalizedPath}`
 }
 

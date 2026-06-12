@@ -22,9 +22,9 @@ export default function FilePreviewModal({ file, onClose }: { file: PreviewFile;
   const [workbook, setWorkbook] = useState<any>(null)
 
   const ext = (file.extension || file.name.split('.').pop() || '').toLowerCase().replace(/^\./, '')
-  const serveUrl = file.serveUrl || getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`)
+  const serveUrl = getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`)
   const newTabUrl = serveUrl
-  const downloadUrl = serveUrl.includes('?') ? `${serveUrl}&download=true` : `${serveUrl}?download=true`
+  const downloadUrl = `${serveUrl}&download=true`
 
   const kind = IMAGE_EXT.includes(ext) ? 'image'
     : ext === 'pdf' ? 'pdf'
