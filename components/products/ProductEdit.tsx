@@ -40,14 +40,20 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
   const [buildLocation, setBuildLocation] = useState<string | null>(null)
   const [frontVueOpen, setFrontVueOpen] = useState(false)
   const [frontVueMax, setFrontVueMax] = useState(false)
+  const [frontVueBase, setFrontVueBase] = useState<string>('http://nh2934rh/frontVue')
 
   const isPCB = product.item_type_name === 'Printed Circuit Board'
 
-  // Standalone FrontVue app (separate container, no left nav). Configure the
-  // base URL via NEXT_PUBLIC_FRONTVUE_URL (e.g. https://nh2934rh/frontvue or a
-  // port-based nginx route). Defaults to a relative /frontvue path.
-  const FRONTVUE_BASE = process.env.NEXT_PUBLIC_FRONTVUE_URL || '/frontvue'
-  const frontVueUrl = `${FRONTVUE_BASE}?job=${encodeURIComponent(product.apcPN.trim())}&type=pcb`
+  // Standalone FrontVue app (separate container). Its base URL is read at
+  // runtime from FRONTVUE_URL (set via deploy.sh / docker-compose APP_ENV).
+  useEffect(() => {
+    fetch(getApiUrl('/api/config'))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.frontVueUrl) setFrontVueBase(d.frontVueUrl) })
+      .catch(() => { /* keep default */ })
+  }, [])
+
+  const frontVueUrl = `${frontVueBase}?job=${encodeURIComponent(product.apcPN.trim())}&type=pcb`
   const openInFrontVue = () => setFrontVueOpen(true)
 
   // Fetch status and build location on mount
