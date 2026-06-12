@@ -208,6 +208,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
   const [record, setRecord] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [wcHistory, setWcHistory] = useState<any[]>([])
+  const [emailLog, setEmailLog] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState(false)
   const [formData, setFormData] = useState<any>({})
@@ -234,6 +235,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
       setFormData(r.record)
       setHistory(r.history || [])
       setWcHistory(r.wcHistory || [])
+      setEmailLog(r.emailLog || [])
       // Fetch attachment metadata
       try {
         const attRaw = encodeURIComponent(r.record.attachments || '')
@@ -518,6 +520,34 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
                     <td className="px-3 py-2 text-green-600 text-xs">{h.new_value || '(empty)'}</td>
                     <td className="px-3 py-2 text-slate-600">{h.changed_by}</td>
                     <td className="px-3 py-2 text-slate-500 text-xs">{new Date(h.changed_at).toLocaleString()}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <h4 className="text-sm font-semibold text-slate-700 pt-2">Sent Emails ({emailLog.length})</h4>
+        {emailLog.length === 0 ? (
+          <p className="text-sm text-slate-400">No emails logged for this ESCF</p>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden max-h-[600px] overflow-y-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Subject</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Recipient</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">CC</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Sent</th>
+                </tr>
+              </thead>
+              <tbody>
+                {emailLog.map((m: any) => (
+                  <tr key={m.id} className="border-t border-slate-100 align-top">
+                    <td className="px-3 py-2 font-medium text-slate-700">{m.subject || '—'}</td>
+                    <td className="px-3 py-2 text-slate-600 text-xs break-all">{m.recipient || '—'}</td>
+                    <td className="px-3 py-2 text-slate-500 text-xs break-all">{m.cc_recipient || '—'}</td>
+                    <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{m.sent_at ? new Date(m.sent_at).toLocaleString() : '—'}</td>
                   </tr>
                 ))}
               </tbody>

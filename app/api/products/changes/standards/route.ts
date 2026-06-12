@@ -61,6 +61,21 @@ export async function GET(request: NextRequest) {
         [id]
       )
 
+      // Fetch sent-email log (legacy sendmail_log), joined on the ESCF request key.
+      // date_time is a Unix epoch (int); expose an ISO timestamp for display.
+      let emailLog: any[] = []
+      if (record.request) {
+        emailLog = await queryPrimary(
+          `SELECT id, request, subject, recipient, cc_recipient, date_time,
+                  CASE WHEN date_time IS NULL THEN NULL
+                       ELSE FROM_UNIXTIME(date_time) END AS sent_at
+           FROM sendmail_log
+           WHERE request = ?
+           ORDER BY date_time DESC, id DESC`,
+          [record.request]
+        )
+      }
+
       // Fetch work center history — all ESCFs for the same department
       let wcHistory: any[] = []
       if (record.department) {
@@ -85,7 +100,7 @@ export async function GET(request: NextRequest) {
         `, [record.department, record.department])
       }
 
-      return NextResponse.json({ success: true, record, history, wcHistory })
+      return NextResponse.json({ success: true, record, history, wcHistory, emailLog })
     }
 
     // List view with computed status and combined datetimes
