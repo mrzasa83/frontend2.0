@@ -105,7 +105,7 @@ function formatDate(isoDate: string): string {
 
 export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLocationChange }: Props) {
   const [activeSubTab, setActiveSubTab] = useState('general')
-  const [previewFile, setPreviewFile] = useState<FileInfo | null>(null)
+  const [preview, setPreview] = useState<{ files: FileInfo[]; index: number } | null>(null)
   
   // ========================================
   // PRODUCTION DATA STATES
@@ -609,7 +609,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
                 )}
               </button>
               <button
-                onClick={() => setPreviewFile(file)}
+                onClick={() => setPreview({ files, index: idx })}
                 className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
                 title="Preview"
               >
@@ -1220,7 +1220,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
                                         )}
                                       </button>
                                       <button
-                                        onClick={() => setPreviewFile(file)}
+                                        onClick={() => setPreview({ files: bdParadigmFiles, index: idx })}
                                         className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
                                         title="Preview"
                                       >
@@ -1313,8 +1313,13 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
           </div>
         )}
       </div>
-      {previewFile && (
-        <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />
+      {preview && (
+        <FilePreviewModal
+          files={preview.files}
+          index={preview.index}
+          onIndexChange={(i) => setPreview(p => p ? { ...p, index: i } : p)}
+          onClose={() => setPreview(null)}
+        />
       )}
     </div>
   )

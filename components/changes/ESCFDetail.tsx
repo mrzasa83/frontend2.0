@@ -218,7 +218,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
   const [activeTab, setActiveTab] = useState('general')
   const [showLegacy, setShowLegacy] = useState(false)
   const [attachmentMeta, setAttachmentMeta] = useState<Record<string, { description: string | null }>>({})
-  const [previewFile, setPreviewFile] = useState<{ name: string; path: string; extension: string } | null>(null)
+  const [previewState, setPreviewState] = useState<{ files: { name: string; path: string; extension: string }[]; index: number } | null>(null)
   const [matchedFiles, setMatchedFiles] = useState<{ ref: string; actualName: string; found: boolean; size: number; modified: string }[]>([])
   const [editingDesc, setEditingDesc] = useState<string | null>(null)
   const [descDraft, setDescDraft] = useState('')
@@ -660,7 +660,11 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
                       {/* Download/Open actions */}
                       {file.found && (
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                          <button onClick={() => setPreviewFile({ name: file.actualName, path: `${basePath}/${file.actualName}`, extension: file.actualName.split('.').pop() || '' })}
+                          <button onClick={() => {
+                              const previewable = matchedFiles.filter(f => f.found).map(f => ({ name: f.actualName, path: `${basePath}/${f.actualName}`, extension: f.actualName.split('.').pop() || '' }))
+                              const at = previewable.findIndex(p => p.name === file.actualName)
+                              setPreviewState({ files: previewable, index: at < 0 ? 0 : at })
+                            }}
                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
                             title="Preview">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -787,7 +791,14 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
           {tabContent[activeTab] || <p className="text-slate-400">Tab not found</p>}
         </div>
       </div>
-      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
+      {previewState && (
+        <FilePreviewModal
+          files={previewState.files}
+          index={previewState.index}
+          onIndexChange={(i) => setPreviewState(p => p ? { ...p, index: i } : p)}
+          onClose={() => setPreviewState(null)}
+        />
+      )}
     </div>
   )
 }

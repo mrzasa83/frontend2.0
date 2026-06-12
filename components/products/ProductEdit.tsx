@@ -43,7 +43,11 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
 
   const isPCB = product.item_type_name === 'Printed Circuit Board'
 
-  const frontVueUrl = getApiUrl(`/apps/frontvue?job=${encodeURIComponent(product.apcPN.trim())}&type=pcb`)
+  // Standalone FrontVue app (separate container, no left nav). Configure the
+  // base URL via NEXT_PUBLIC_FRONTVUE_URL (e.g. https://nh2934rh/frontvue or a
+  // port-based nginx route). Defaults to a relative /frontvue path.
+  const FRONTVUE_BASE = process.env.NEXT_PUBLIC_FRONTVUE_URL || '/frontvue'
+  const frontVueUrl = `${FRONTVUE_BASE}?job=${encodeURIComponent(product.apcPN.trim())}&type=pcb`
   const openInFrontVue = () => setFrontVueOpen(true)
 
   // Fetch status and build location on mount

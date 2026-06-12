@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { X, ExternalLink, Download, Maximize2, Minimize2, FileText, Loader2 } from 'lucide-react'
+import { X, ExternalLink, Download, Maximize2, Minimize2, FileText, Loader2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 type PreviewFile = { name: string; path: string; extension: string; serveUrl?: string }
@@ -12,7 +12,22 @@ const SHEET_EXT = ['xlsx', 'xls', 'csv', 'tsv']
 const OFFICE_EXT = ['doc', 'docx', 'ppt', 'pptx']
 const CONVERT_EXT = ['doc', 'ppt', 'pptx']  // rendered to PDF by the backend (LibreOffice)
 
-export default function FilePreviewModal({ file, onClose }: { file: PreviewFile; onClose: () => void }) {
+type ModalProps = {
+  file?: PreviewFile                       // single-file mode (back-compat)
+  files?: PreviewFile[]                     // list mode (enables prev/next)
+  index?: number
+  onIndexChange?: (i: number) => void
+  onClose: () => void
+}
+
+export default function FilePreviewModal({ file: singleFile, files, index = 0, onIndexChange, onClose }: ModalProps) {
+  const list = files && files.length ? files : (singleFile ? [singleFile] : [])
+  const idx = Math.min(Math.max(index, 0), Math.max(list.length - 1, 0))
+  const file = list[idx]
+  const hasNav = list.length > 1
+  const goPrev = () => { if (idx > 0 && onIndexChange) onIndexChange(idx - 1) }
+  const goNext = () => { if (idx < list.length - 1 && onIndexChange) onIndexChange(idx + 1) }
+
   const [maximized, setMaximized] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -23,6 +38,25 @@ export default function FilePreviewModal({ file, onClose }: { file: PreviewFile;
   const [workbook, setWorkbook] = useState<any>(null)
   const [docHtml, setDocHtml] = useState<string | null>(null)
   const [convertedUrl, setConvertedUrl] = useState<string | null>(null)
+
+  // Keyboard navigation (←/→ between files, Esc to close)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') goPrev()
+      else if (e.key === 'ArrowRight') goNext()
+      else if (e.key === 'Escape') onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [idx, list.length])
+
+  // Reset transient render state whenever the displayed file changes
+  useEffect(() => {
+    setError(''); setTextContent(null); setSheetHtml(null); setSheetNames([])
+    setActiveSheet(0); setWorkbook(null); setDocHtml(null); setConvertedUrl(null)
+  }, [file?.path])
+
+  if (!file) return null
 
   const ext = (file.extension || file.name.split('.').pop() || '').toLowerCase().replace(/^\./, '')
   const serveUrl = getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`)
@@ -208,7 +242,22 @@ export default function FilePreviewModal({ file, onClose }: { file: PreviewFile;
         className={`bg-white rounded-xl shadow-2xl flex flex-col transition-all duration-150 overflow-hidden ${maximized ? 'w-[98vw] h-[96vh]' : 'w-[80vw] h-[90vh]'}`}
         onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-shrink-0">
-          <h3 className="text-sm font-medium text-slate-700 truncate pr-4" title={file.name}>{file.name}</h3>
+          <div className="flex items-center gap-2 min-w-0">
+            {hasNav && (
+              <>
+                <button onClick={goPrev} disabled={idx === 0}
+                  className="text-slate-500 hover:text-blue-600 p-1 disabled:opacity-30 disabled:cursor-not-allowed" title="Previous file (←)">
+                  <ChevronLeft size={18} />
+                </button>
+                <button onClick={goNext} disabled={idx === list.length - 1}
+                  className="text-slate-500 hover:text-blue-600 p-1 disabled:opacity-30 disabled:cursor-not-allowed" title="Next file (→)">
+                  <ChevronRight size={18} />
+                </button>
+                <span className="text-xs text-slate-400 whitespace-nowrap mr-1">{idx + 1} / {list.length}</span>
+              </>
+            )}
+            <h3 className="text-sm font-medium text-slate-700 truncate" title={file.name}>{file.name}</h3>
+          </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <button onClick={() => setMaximized(m => !m)} className="text-slate-500 hover:text-blue-600 p-1" title={maximized ? 'Restore size' : 'Maximize'}>
               {maximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
