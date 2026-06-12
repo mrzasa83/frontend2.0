@@ -213,7 +213,6 @@ export default function FilePreviewModal({ file, onClose }: { file: PreviewFile;
             <button onClick={() => setMaximized(m => !m)} className="text-slate-500 hover:text-blue-600 p-1" title={maximized ? 'Restore size' : 'Maximize'}>
               {maximized ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
             </button>
-            <a href={newTabUrl} target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-blue-600 p-1" title="Open in new tab"><ExternalLink size={16} /></a>
             <a href={downloadUrl} target="_blank" rel="noopener noreferrer" className="text-slate-500 hover:text-green-600 p-1" title="Download"><Download size={16} /></a>
             <button onClick={onClose} className="text-slate-500 hover:text-slate-800 p-1" title="Close"><X size={18} /></button>
           </div>

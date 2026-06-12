@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { RefreshCw, ArrowLeft, Database, Pencil, Save, X, Eye, ExternalLink, Maximize2, Minimize2 } from 'lucide-react'
+import { RefreshCw, ArrowLeft, Database, Pencil, Save, X, Eye, Download, Maximize2, Minimize2 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import ReviewsTab from './ReviewsTab'
 import SignoffTab from './SignoffTab'
@@ -433,10 +433,6 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
                                 className="text-slate-500 hover:text-blue-600" title="Preview in window">
                                 <Eye size={15} />
                               </button>
-                              <a href={downloadUrl(eff || candidates[0].path)} target="_blank" rel="noopener noreferrer"
-                                className="text-slate-500 hover:text-blue-600" title="Open in new tab">
-                                <ExternalLink size={14} />
-                              </a>
                               {candidates.length > 1 && (
                                 <select value={eff}
                                   onChange={e => canSelect && saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, e.target.value)}
@@ -471,8 +467,8 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
                       title={previewMax ? 'Restore size' : 'Maximize'}>
                       {previewMax ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
                     </button>
-                    <a href={previewPdf.url} target="_blank" rel="noopener noreferrer"
-                      className="text-slate-500 hover:text-blue-600 p-1" title="Open in new tab"><ExternalLink size={16} /></a>
+                    <a href={`${previewPdf.url}&download=true`} target="_blank" rel="noopener noreferrer"
+                      className="text-slate-500 hover:text-green-600 p-1" title="Download"><Download size={16} /></a>
                     <button onClick={() => setPreviewPdf(null)} className="text-slate-500 hover:text-slate-800 p-1" title="Close"><X size={18} /></button>
                   </div>
                 </div>

@@ -2,8 +2,7 @@
 
 
 import { useState, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
-import { Save, X, CheckCircle, Clock, XCircle, MapPin, Pencil, ExternalLink } from 'lucide-react'
+import { Save, X, CheckCircle, Clock, XCircle, MapPin, Pencil, ExternalLink, Maximize2, Minimize2 } from 'lucide-react'
 import Tabs from '@/components/ui/Tabs'
 import DataView, { ColumnMetadata } from '@/components/ui/DataView'
 import ReleasedFilesTab from '@/components/products/ReleasedFilesTab'
@@ -39,14 +38,13 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
   const [activeTab, setActiveTab] = useState('general')
   const [productStatus, setProductStatus] = useState<string>('Loading...')
   const [buildLocation, setBuildLocation] = useState<string | null>(null)
-  const router = useRouter()
+  const [frontVueOpen, setFrontVueOpen] = useState(false)
+  const [frontVueMax, setFrontVueMax] = useState(false)
 
   const isPCB = product.item_type_name === 'Printed Circuit Board'
 
-  const openInFrontVue = () => {
-    const pn = product.apcPN.trim()
-    router.push(`/apps/frontvue?job=${encodeURIComponent(pn)}&type=pcb`)
-  }
+  const frontVueUrl = getApiUrl(`/apps/frontvue?job=${encodeURIComponent(product.apcPN.trim())}&type=pcb`)
+  const openInFrontVue = () => setFrontVueOpen(true)
 
   // Fetch status and build location on mount
   useEffect(() => {
@@ -287,6 +285,25 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
       <div className="flex-1 overflow-auto px-6 py-4">
         <Tabs tabs={topLevelTabs} activeTab={activeTab} onTabChange={setActiveTab} />
       </div>
+
+      {frontVueOpen && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setFrontVueOpen(false)}>
+          <div
+            className={`bg-white rounded-xl shadow-2xl flex flex-col transition-all duration-150 overflow-hidden ${frontVueMax ? 'w-[98vw] h-[96vh]' : 'w-[85vw] h-[90vh]'}`}
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-shrink-0">
+              <h3 className="text-sm font-medium text-slate-700 truncate pr-4">FrontVue — {product.apcPN}</h3>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button onClick={() => setFrontVueMax(m => !m)} className="text-slate-500 hover:text-blue-600 p-1" title={frontVueMax ? 'Restore size' : 'Maximize'}>
+                  {frontVueMax ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                </button>
+                <button onClick={() => setFrontVueOpen(false)} className="text-slate-500 hover:text-slate-800 p-1" title="Close"><X size={18} /></button>
+              </div>
+            </div>
+            <iframe src={frontVueUrl} title={`FrontVue ${product.apcPN}`} className="flex-1 w-full" />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

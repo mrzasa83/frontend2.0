@@ -6,6 +6,7 @@ import {
   Clock, CheckCircle, XCircle, ChevronLeft, ChevronRight
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import FilePreviewModal from '@/components/products/FilePreviewModal'
 import ReviewsTab from '@/components/changes/ReviewsTab'
 
 type Props = {
@@ -217,6 +218,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
   const [activeTab, setActiveTab] = useState('general')
   const [showLegacy, setShowLegacy] = useState(false)
   const [attachmentMeta, setAttachmentMeta] = useState<Record<string, { description: string | null }>>({})
+  const [previewFile, setPreviewFile] = useState<{ name: string; path: string; extension: string } | null>(null)
   const [matchedFiles, setMatchedFiles] = useState<{ ref: string; actualName: string; found: boolean; size: number; modified: string }[]>([])
   const [editingDesc, setEditingDesc] = useState<string | null>(null)
   const [descDraft, setDescDraft] = useState('')
@@ -658,13 +660,14 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
                       {/* Download/Open actions */}
                       {file.found && (
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
-                          <a href={downloadUrl(file.actualName)} target="_blank" rel="noopener noreferrer"
+                          <button onClick={() => setPreviewFile({ name: file.actualName, path: `${basePath}/${file.actualName}`, extension: file.actualName.split('.').pop() || '' })}
                             className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded"
-                            title="Open / Preview">
+                            title="Preview">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                             </svg>
-                          </a>
+                          </button>
                           <a href={downloadUrl(file.actualName)} download
                             className="p-1.5 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded"
                             title="Download">
@@ -784,6 +787,7 @@ export default function ESCFDetail({ escfId, isAdmin, onClose, onOpenEscf, onDat
           {tabContent[activeTab] || <p className="text-slate-400">Tab not found</p>}
         </div>
       </div>
+      {previewFile && <FilePreviewModal file={previewFile} onClose={() => setPreviewFile(null)} />}
     </div>
   )
 }

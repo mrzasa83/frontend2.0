@@ -4,7 +4,7 @@
 import { useState, useEffect } from 'react'
 import { 
   FileText, FolderOpen, ChevronDown, ChevronRight, 
-  Download, ExternalLink, File, FileImage, FileSpreadsheet, Eye,
+  Download, File, FileImage, FileSpreadsheet, Eye,
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
   TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History
 } from 'lucide-react'
@@ -483,10 +483,6 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     }
   }
 
-  const openFile = (file: FileInfo) => {
-    window.open(getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}`), '_blank')
-  }
-
   const downloadFile = (file: FileInfo) => {
     window.open(getApiUrl(`/api/files/serve?path=${encodeURIComponent(file.path)}&download=true`), '_blank')
   }
@@ -618,13 +614,6 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
                 title="Preview"
               >
                 <Eye size={16} />
-              </button>
-              <button
-                onClick={() => openFile(file)}
-                className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                title="Open in new tab"
-              >
-                <ExternalLink size={16} />
               </button>
               <button
                 onClick={() => downloadFile(file)}
@@ -1231,11 +1220,11 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
                                         )}
                                       </button>
                                       <button
-                                        onClick={() => openFile(file)}
-                                        className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
-                                        title="Open file"
+                                        onClick={() => setPreviewFile(file)}
+                                        className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
+                                        title="Preview"
                                       >
-                                        <ExternalLink size={16} />
+                                        <Eye size={16} />
                                       </button>
                                       <button
                                         onClick={() => downloadFile(file)}
