@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { ArrowLeft, Pencil, Save, X, CheckCircle, XCircle, RotateCcw } from 'lucide-react'
+import { ArrowLeft, Pencil, Save, X, CheckCircle, XCircle, RotateCcw, Printer } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import StepPicker, { Step } from './StepPicker'
 
@@ -80,6 +80,70 @@ export default function ReworkDetail({ reworkId, onClose, onDataChange }: {
     } catch (e: any) { setError(e.message) }
   }
 
+  const esc = (s: any) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c] as string))
+
+  const printRework = () => {
+    if (!record) return
+    const steps = (record.steps || []) as any[]
+    const dateStr = record.rework_date ? new Date(record.rework_date).toLocaleDateString() : ''
+    const stepRows = steps.map((s, i) => `
+      <tr>
+        <td class="num">${i + 1}</td>
+        <td class="step">${esc(s.step_name)}${s.step_code ? ` <span class="code">${esc(s.step_code)}</span>` : ''}
+          ${s.notes ? `<div class="notes">${esc(s.notes)}</div>` : ''}</td>
+        <td></td><td></td><td></td><td></td>
+      </tr>`).join('')
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(record.rework_number)}</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 24px; font-size: 12px; }
+      h1 { font-size: 18px; margin: 0; }
+      .top { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #111; padding-bottom: 8px; margin-bottom: 12px; }
+      .meta { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px 24px; margin-bottom: 14px; }
+      .meta .k { font-size: 9px; text-transform: uppercase; color: #555; letter-spacing: .04em; }
+      .meta .v { font-size: 13px; font-weight: 600; border-bottom: 1px solid #999; min-height: 18px; }
+      .sect { font-weight: 700; margin: 14px 0 4px; }
+      .disc { border: 1px solid #999; min-height: 48px; padding: 6px; white-space: pre-wrap; }
+      table { width: 100%; border-collapse: collapse; margin-top: 4px; }
+      th, td { border: 1px solid #999; padding: 4px 6px; vertical-align: top; }
+      th { background: #f0f0f0; font-size: 10px; text-transform: uppercase; }
+      td.num { width: 24px; text-align: center; color: #555; }
+      td.step { width: 46%; }
+      .code { color: #777; font-size: 10px; }
+      .notes { color: #444; font-size: 11px; margin-top: 2px; font-style: italic; }
+      .footer { margin-top: 18px; display: flex; justify-content: space-between; font-size: 10px; color: #555; border-top: 1px solid #ccc; padding-top: 6px; }
+      @media print { body { margin: 0.5in; } }
+    </style></head><body>
+      <div class="top">
+        <div><h1>Amphenol — Rework Form</h1><div style="font-size:11px;color:#555">Printed Circuits</div></div>
+        <div style="text-align:right"><div style="font-size:16px;font-weight:700">${esc(record.rework_number)}</div><div style="font-size:11px">Status: ${esc(record.status)}</div></div>
+      </div>
+      <div class="meta">
+        <div><div class="k">Customer Name</div><div class="v">${esc(record.customer_name)}</div></div>
+        <div><div class="k">Inspection Report #</div><div class="v">${esc(record.inspection_report)}</div></div>
+        <div><div class="k">Authorized By</div><div class="v">${esc(record.authorized_by)}</div></div>
+        <div><div class="k">APC Part #</div><div class="v">${esc(record.customer_part)}</div></div>
+        <div><div class="k">PCB Number</div><div class="v">${esc(record.pcb_number)}</div></div>
+        <div><div class="k">Date</div><div class="v">${esc(dateStr)}</div></div>
+        <div><div class="k">Work Order #</div><div class="v">${esc(record.work_order)}</div></div>
+        <div><div class="k">Site</div><div class="v">${esc(record.site)}</div></div>
+      </div>
+      <div class="sect">Discrepancy:</div>
+      <div class="disc">${esc(record.discrepancy)}</div>
+      <div class="sect">Rework Steps / Special Instructions:</div>
+      <table>
+        <thead><tr><th>#</th><th>Step / Instructions</th><th>Operator Init</th><th>Qty In</th><th>Qty Out</th><th>Date</th></tr></thead>
+        <tbody>${stepRows || '<tr><td colspan="6" style="text-align:center;color:#999">No steps</td></tr>'}</tbody>
+      </table>
+      <div class="footer"><span>F01-2A-990-09</span><span>The original form must remain with the Batch Card</span></div>
+      <script>window.onload = function(){ window.print(); }</script>
+    </body></html>`
+
+    const w = window.open('', '_blank')
+    if (w) { w.document.write(html); w.document.close() }
+  }
+
   if (loading) return <div className="p-8 text-center text-slate-500">Loading…</div>
   if (error && !record) return <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
   if (!record) return null
@@ -112,6 +176,9 @@ export default function ReworkDetail({ reworkId, onClose, onDataChange }: {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {!editing && (
+            <button onClick={printRework} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1.5 border border-slate-200" title="Print / Save as PDF"><Printer size={14} /> Print</button>
+          )}
           {canEdit && !editing && record.status === 'Open' && (
             <>
               <button onClick={startEdit} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1.5 border border-slate-200"><Pencil size={14} /> Edit</button>

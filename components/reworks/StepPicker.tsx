@@ -27,7 +27,18 @@ export default function StepPicker({ steps, onChange }: {
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase()
     if (!q) return depts.slice(0, 50)
-    return depts.filter(d => d.name.toLowerCase().includes(q) || d.code.toLowerCase().includes(q)).slice(0, 50)
+    // Split on whitespace; every token must appear, in order ("COMP ETCH" -> %COMP%ETCH%)
+    const tokens = q.split(/\s+/).filter(Boolean)
+    const matches = (s: string) => {
+      let pos = 0
+      for (const t of tokens) {
+        const i = s.indexOf(t, pos)
+        if (i === -1) return false
+        pos = i + t.length
+      }
+      return true
+    }
+    return depts.filter(d => matches(d.name.toLowerCase()) || matches(d.code.toLowerCase())).slice(0, 50)
   }, [depts, filter])
 
   const addStep = (s: Step) => onChange([...steps, s])
