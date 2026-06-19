@@ -45,6 +45,12 @@ export const MODULES: Module[] = [
         requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations', 'Production Control', 'Quality Control']
       },
       {
+        id: 'reworks',
+        name: 'Reworks',
+        path: '/operations/reworks',
+        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations', 'Production Control', 'Quality Control']
+      },
+      {
         id: 'audits',
         name: 'Audits',
         path: '/operations/audits',
