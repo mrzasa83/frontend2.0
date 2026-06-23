@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
     // Limit to prevent huge queries
     const limitedParts = partNumbers.slice(0, 100)
     
-    const results: Record<string, { status: string; buildLocation: string }> = {}
+    const results: Record<string, { status: string; buildLocation: string; program: string | null }> = {}
 
     // Process each part number
     for (const apcPN of limitedParts) {
@@ -32,60 +32,60 @@ export async function POST(request: NextRequest) {
         const isObsolete = apcPN.toUpperCase().startsWith('Z')
         const searchPattern = isObsolete ? apcPN.substring(1) : apcPN
 
-        // Get status from production data
+        // Status + Program from the part record (DATA0050)
         let status = 'Released'
-        if (isObsolete) {
-          status = 'Obsolete'
-        } else {
+        let program: string | null = null
+        let hasTag = false
+        {
           const prodQuery = `
-            SELECT TOP 1 CUSTOMER_PART_NUMBER 
-            FROM DATA0050 
+            SELECT TOP 1 CUSTOMER_PART_NUMBER, ANALYSIS_CODE_4 AS Program
+            FROM DATA0050
             WHERE CUSTOMER_PART_NUMBER LIKE @partNumber
             ORDER BY CUSTOMER_PART_NUMBER
           `
-          const prodResults = await queryMSSQL('1', prodQuery, {
-            partNumber: `${searchPattern}%`
-          })
-          
+          const prodResults = await queryMSSQL('1', prodQuery, { partNumber: `${searchPattern}%` })
           if (prodResults.length > 0) {
+            program = (prodResults[0].Program || '').trim() || null
             const custPN = prodResults[0].CUSTOMER_PART_NUMBER || ''
             if (custPN.length > 6) {
               const statusChar = custPN.substring(6).trim()
-              if (statusChar) {
-                status = statusChar
-              }
+              if (statusChar) { status = statusChar; hasTag = true }
             }
           }
         }
 
-        // Get build location from route data
+        // Route steps (all, ordered) for build location + single-step detection
         let buildLocation = 'Nashua'
+        let routeStepCount = 0
         const routeQuery = `
-          SELECT TOP 1 d34.DEPT_CODE
-          FROM DATA0038 d38 
-          INNER JOIN DATA0050 d50 ON d50.RKEY = d38.SOURCE_PTR 
+          SELECT d34.DEPT_CODE, d38.STEP_NUMBER
+          FROM DATA0038 d38
+          INNER JOIN DATA0050 d50 ON d50.RKEY = d38.SOURCE_PTR
           INNER JOIN DATA0034 d34 ON d34.RKEY = d38.DEPT_PTR
-          WHERE d38.TTYPE = 4 
+          WHERE d38.TTYPE = 4
             AND d50.CUSTOMER_PART_NUMBER LIKE @partNumber
           ORDER BY d38.STEP_NUMBER
         `
-        const routeResults = await queryMSSQL('1', routeQuery, {
-          partNumber: `${searchPattern}%`
-        })
-        
+        const routeResults = await queryMSSQL('1', routeQuery, { partNumber: `${searchPattern}%` })
+        routeStepCount = routeResults.length
         if (routeResults.length > 0) {
           const firstDeptCode = (routeResults[0].DEPT_CODE || '').trim().toUpperCase()
-          if (firstDeptCode.startsWith('N-')) {
-            buildLocation = 'Nogales'
-          } else if (firstDeptCode.startsWith('M-')) {
-            buildLocation = 'Mesa'
-          }
+          if (firstDeptCode.startsWith('N-')) buildLocation = 'Nogales'
+          else if (firstDeptCode.startsWith('M-')) buildLocation = 'Mesa'
         }
 
-        results[apcPN] = { status, buildLocation }
+        // Status resolution:
+        //  Z-prefix -> Obsolete; an embedded tag wins; otherwise a single-step
+        //  route means the part is still INPROCESS (not yet a full released route).
+        if (isObsolete) {
+          status = 'Obsolete'
+        } else if (!hasTag && routeStepCount === 1) {
+          status = 'INPROCESS'
+        }
+
+        results[apcPN] = { status, buildLocation, program }
       } catch (err) {
-        // If individual part fails, continue with defaults
-        results[apcPN] = { status: 'Unknown', buildLocation: 'Unknown' }
+        results[apcPN] = { status: 'Unknown', buildLocation: 'Unknown', program: null }
       }
     }
 

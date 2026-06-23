@@ -1,4 +1,5 @@
 import { Home, Package, Users, Settings, Cog, ClipboardCheck, AppWindow } from 'lucide-react'
+import { canReadModule, canReadSubmodule } from './access'
 
 export type SubModule = {
   id: string
@@ -174,6 +175,12 @@ export const MODULES: Module[] = [
         path: '/admin/roles',
         requiredRoles: ['Admin']
       },
+      {
+        id: 'access-matrix',
+        name: 'Access Matrix',
+        path: '/admin/access',
+        requiredRoles: ['Admin']
+      },
       { 
         id: 'import-parts', 
         name: 'Import Parts', 
@@ -215,50 +222,33 @@ export const MODULES: Module[] = [
 ]
 
 /**
- * Check if user has permission to access a module
+ * Check if user has permission to access a module (now matrix-driven by id).
+ * The legacy requiredRoles arrays remain on the config for reference but the
+ * access matrix in access.ts is the source of truth.
  */
 export function hasModuleAccess(
-  userRoles: string[] | undefined, 
+  userRoles: string[] | undefined,
   requiredRoles: string[]
 ): boolean {
-  // If no roles required, everyone can access
-  if (requiredRoles.length === 0) {
-    return true
-  }
-
-  // If user has no roles, they can't access
-  if (!userRoles || userRoles.length === 0) {
-    return false
-  }
-
-  // Admin can access everything
-  if (userRoles.includes('Admin')) {
-    return true
-  }
-
-  // Check if user has at least one of the required roles
+  if (requiredRoles.length === 0) return true
+  if (!userRoles || userRoles.length === 0) return false
+  if (userRoles.includes('Admin')) return true
   return requiredRoles.some(role => userRoles.includes(role))
 }
 
 /**
- * Filter modules based on user's roles
+ * Filter modules based on user's roles, using the access matrix by id.
  */
 export function getVisibleModules(userRoles: string[] | undefined): Module[] {
   return MODULES
-    .filter(module => hasModuleAccess(userRoles, module.requiredRoles))
+    .filter(module => canReadModule(userRoles, module.id))
     .map(module => {
-      // Filter sub-modules based on roles
       if (module.subModules) {
-        const visibleSubModules = module.subModules.filter(sub => 
-          hasModuleAccess(userRoles, sub.requiredRoles)
+        const visibleSubModules = module.subModules.filter(sub =>
+          canReadSubmodule(userRoles, module.id, sub.id)
         )
-        
-        // Only return module if it has visible sub-modules or a direct path
         if (visibleSubModules.length > 0 || module.path) {
-          return {
-            ...module,
-            subModules: visibleSubModules
-          }
+          return { ...module, subModules: visibleSubModules }
         }
         return null
       }
@@ -268,22 +258,20 @@ export function getVisibleModules(userRoles: string[] | undefined): Module[] {
 }
 
 /**
- * Check if user can access a specific path
+ * Check if user can access a specific path (matrix-driven).
  */
 export function canAccessPath(
   userRoles: string[] | undefined,
   path: string
 ): boolean {
-  // Find the module/sub-module that matches this path
   for (const module of MODULES) {
     if (module.path === path) {
-      return hasModuleAccess(userRoles, module.requiredRoles)
+      return canReadModule(userRoles, module.id)
     }
-    
     if (module.subModules) {
       for (const subModule of module.subModules) {
         if (subModule.path === path || path.startsWith(subModule.path)) {
-          return hasModuleAccess(userRoles, subModule.requiredRoles)
+          return canReadSubmodule(userRoles, module.id, subModule.id)
         }
       }
     }

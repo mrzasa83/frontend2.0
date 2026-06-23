@@ -61,6 +61,7 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
     const fetchHeaderData = async () => {
       try {
         // Fetch production data for status
+        let status: string | null = null
         const prodRes = await fetch(getApiUrl('/api/products/production'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -68,12 +69,10 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
         })
         if (prodRes.ok) {
           const prodData = await prodRes.json()
-          if (prodData.status) {
-            setProductStatus(prodData.status)
-          }
+          if (prodData.status) status = prodData.status
         }
 
-        // Fetch route data for build location
+        // Fetch route data for build location + step count
         const routeRes = await fetch(getApiUrl('/api/products/route'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -81,10 +80,12 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
         })
         if (routeRes.ok) {
           const routeData = await routeRes.json()
-          if (routeData.buildLocation) {
-            setBuildLocation(routeData.buildLocation)
-          }
+          if (routeData.buildLocation) setBuildLocation(routeData.buildLocation)
+          // No tag (status resolved to 'Released') + single-step route => INPROCESS
+          if (status === 'Released' && routeData.count === 1) status = 'INPROCESS'
         }
+
+        if (status) setProductStatus(status)
       } catch (error) {
         console.error('Error fetching header data:', error)
       }

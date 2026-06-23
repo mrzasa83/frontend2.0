@@ -32,6 +32,7 @@ type TableState = {
 type ProductInfo = {
   status: string
   buildLocation: string
+  program?: string | null
 }
 
 type Props = {
@@ -150,6 +151,14 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
         </span>
       )
     }
+    if (status === 'INPROCESS') {
+      return (
+        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">
+          <Clock size={10} />
+          WIP
+        </span>
+      )
+    }
     return (
       <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded text-xs">
         <Clock size={10} />
@@ -247,6 +256,9 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
                 </th>
               ))}
               <th className="text-left px-4 py-3 font-medium text-sm text-slate-700">
+                Program
+              </th>
+              <th className="text-left px-4 py-3 font-medium text-sm text-slate-700">
                 Status
               </th>
               {canEdit && (
@@ -272,6 +284,7 @@ export default function ProductTable({ products, onRowClick, onEdit, onSave, tab
                   <td className="px-4 py-3 text-sm">{product.customer || '-'}</td>
                   <td className="px-4 py-3 text-sm font-mono max-w-xs truncate">{product.customerPN || '-'}</td>
                   <td className="px-4 py-3 text-sm">{product.currentRev || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600">{info?.program || (info ? '-' : <span className="text-slate-300">…</span>)}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-1">
                       <StatusBadge status={info?.status} />
