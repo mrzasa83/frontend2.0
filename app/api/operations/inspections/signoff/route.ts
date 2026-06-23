@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import bcrypt from 'bcryptjs'
+import { canWriteScope } from '@/lib/config/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,7 +15,9 @@ const nextPhase = (p: string) => {
 }
 
 const SIGNOFF_ROLES = ['Admin', 'Quality Control']
-const canSignoff = (roles: string[]) => roles.some(r => SIGNOFF_ROLES.includes(r))
+// Signoff is gated on inspections write (matrix). Tighten via a dedicated
+// scope/role if signoff should be narrower than general inspection editing.
+const canSignoff = (roles: string[]) => canWriteScope(roles, 'operations/inspections')
 
 // GET ?inspectionId= : signoff timeline
 export async function GET(request: NextRequest) {

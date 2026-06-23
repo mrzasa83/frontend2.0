@@ -48,7 +48,9 @@ export const ROLE_ACCESS: Record<string, RoleAccess> = {
   NPIeng:      { read: ['operations', 'products', 'process'], write: ['npi'] },
 
   OpsRo:       { read: ['operations', 'products', 'process'], write: [] },
-  OpsCreate:   { read: ['operations', 'products', 'process'], write: ['operations/inspections'] },
+  // OpsCreate writes the Operation creation apps (Inspections per the table,
+  // plus Reworks which post-dates the table — adjust here if needed).
+  OpsCreate:   { read: ['operations', 'products', 'process'], write: ['operations/inspections', 'operations/reworks'] },
 
   ProcessEng:  { read: ['operations', 'products', 'process', 'apps', 'users'], write: ['process'] },
   ProductEng:  { read: ['operations', 'products', 'process', 'apps', 'users'], write: ['products'] },

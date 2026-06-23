@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
+import { canWriteScope } from '@/lib/config/access'
 
 export const dynamic = 'force-dynamic'
 
-const EDIT_ROLES = ['Admin', 'Quality Control', 'Operations', 'Production Control']
-const canEdit = (roles: string[]) => roles.some(r => EDIT_ROLES.includes(r))
+const canEdit = (roles: string[]) => canWriteScope(roles, 'operations/inspections')
 
 // GET ?inspectionId= : actions (with their notes) for an inspection
 export async function GET(request: NextRequest) {

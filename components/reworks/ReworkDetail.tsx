@@ -5,8 +5,8 @@ import { useSession } from 'next-auth/react'
 import { ArrowLeft, Pencil, Save, X, CheckCircle, XCircle, RotateCcw, Printer } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import StepPicker, { Step } from './StepPicker'
+import { canWriteScope } from '@/lib/config/access'
 
-const EDIT_ROLES = ['Admin', 'Quality Control', 'Operations', 'Production Control']
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
@@ -22,7 +22,7 @@ export default function ReworkDetail({ reworkId, onClose, onDataChange }: {
 }) {
   const { data: session } = useSession()
   const roles = (session?.user?.roles || []) as string[]
-  const canEdit = roles.some(r => EDIT_ROLES.includes(r))
+  const canEdit = canWriteScope(roles, 'operations/reworks')
 
   const [record, setRecord] = useState<any>(null)
   const [loading, setLoading] = useState(true)

@@ -9,6 +9,7 @@ import {
 import Link from 'next/link'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { getApiUrl } from '@/lib/api'
+import { canWriteScope } from '@/lib/config/access'
 import InspectionDetail from '@/components/inspections/InspectionDetail'
 
 type Inspection = {
@@ -78,7 +79,7 @@ export default function FirstArticlePage() {
 
   const roles: string[] = session?.user?.roles || []
   const username = (session?.user as any)?.username || session?.user?.name || ''
-  const canCreate = roles.some(r => ['Admin', 'Quality Control', 'Operations', 'Production Control'].includes(r))
+  const canCreate = canWriteScope(roles, 'operations/inspections')
 
   // Determine PCB vs ASM from part number prefix (7 = PCB, 1 = ASM)
   const productTypeFromPart = (part: string): string => {

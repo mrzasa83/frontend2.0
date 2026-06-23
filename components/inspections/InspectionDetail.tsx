@@ -4,6 +4,7 @@ import React, { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
 import { RefreshCw, ArrowLeft, Database, Pencil, Save, X, Eye, Download, Maximize2, Minimize2 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import { canWriteScope } from '@/lib/config/access'
 import ReviewsTab from './ReviewsTab'
 import SignoffTab from './SignoffTab'
 
@@ -36,7 +37,6 @@ const TABS = [
 ]
 
 const PHASE_OPTIONS = ['Setup', 'Measurement', 'Verify', 'Submitted', 'Rework', 'Completed', 'Canceled']
-const EARLY_PHASES = ['Setup', 'Measurement', 'Verify']
 
 export default function InspectionDetail({ inspectionId, onClose, onDataChange }: Props) {
   const { data: session } = useSession()
@@ -54,13 +54,9 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState('')
 
-  // canEdit mirrors the API: Admin always; QC in early phases; Ops/PC always
-  const canEditNow = (phase: string) => {
-    if (roles.includes('Admin')) return true
-    if (roles.includes('Quality Control') && EARLY_PHASES.includes(phase)) return true
-    if (roles.includes('Operations') || roles.includes('Production Control')) return true
-    return false
-  }
+  // Write access is matrix-driven (operations/inspections). Phase still governs
+  // workflow (what can change), but role gating comes from the access matrix.
+  const canEditNow = (_phase: string) => canWriteScope(roles, 'operations/inspections')
 
   // Material certs
   const [certs, setCerts] = useState<any[]>([])
@@ -76,7 +72,7 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const [previewPdf, setPreviewPdf] = useState<{ url: string; name: string } | null>(null)
   const [previewMax, setPreviewMax] = useState(false)
 
-  const canSelect = (session?.user?.roles || []).some((r: string) => ['Admin', 'Quality Control', 'Operations', 'Production Control'].includes(r))
+  const canSelect = canWriteScope(roles, 'operations/inspections')
 
   const saveSelection = async (purchasedPart: string, poNumber: string, batchSerial: string, filePath: string | null, clear = false) => {
     const key = `${purchasedPart}|${poNumber}|${batchSerial}`

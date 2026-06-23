@@ -2,17 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
+import { canWriteScope } from '@/lib/config/access'
 
-// Roles allowed to create/edit First Articles in early phases
-const EDIT_ROLES = ['Admin', 'Quality Control', 'Operations', 'Production Control']
-const EARLY_PHASES = ['Setup', 'Measurement', 'Verify']
-
-function canEdit(roles: string[], phase: string): boolean {
-  if (roles.includes('Admin')) return true
-  // Quality Control can create/edit in early phases
-  if (roles.includes('Quality Control') && EARLY_PHASES.includes(phase)) return true
-  if (roles.includes('Operations') || roles.includes('Production Control')) return true
-  return false
+// Write access is matrix-driven (operations/inspections scope).
+function canEdit(roles: string[], _phase: string): boolean {
+  return canWriteScope(roles, 'operations/inspections')
 }
 
 // GET: list or single

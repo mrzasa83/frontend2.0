@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
+import { canWriteScope } from '@/lib/config/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,8 +40,7 @@ export async function POST(request: NextRequest) {
 
   const roles = (session.user as any)?.roles || []
   const username = (session.user as any)?.username || session.user?.name || 'unknown'
-  const allowed = ['Admin', 'Quality Control', 'Operations', 'Production Control']
-  if (!roles.some((r: string) => allowed.includes(r))) {
+  if (!canWriteScope(roles, 'operations/inspections')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 

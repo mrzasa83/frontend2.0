@@ -4,10 +4,10 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { CheckCircle2, Circle, Lock, X, ShieldCheck } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import { canWriteScope } from '@/lib/config/access'
 
 type Signoff = { phase: string; approved_by: string; approved_at: string; note: string | null }
 
-const SIGNOFF_ROLES = ['Admin', 'Quality Control']
 // Phases that participate in the signoff pipeline (Rework/Canceled are off-pipeline)
 const PIPELINE = ['Setup', 'Measurement', 'Verify', 'Submitted', 'Completed']
 
@@ -15,7 +15,7 @@ export default function SignoffTab({ inspectionId, currentPhase, onChanged }: {
   inspectionId: number; currentPhase: string; onChanged?: () => void
 }) {
   const { data: session } = useSession()
-  const canSignoff = ((session?.user?.roles || []) as string[]).some(r => SIGNOFF_ROLES.includes(r))
+  const canSignoff = canWriteScope((session?.user?.roles || []) as string[], 'operations/inspections')
 
   const [signoffs, setSignoffs] = useState<Signoff[]>([])
   const [loading, setLoading] = useState(true)
@@ -115,7 +115,7 @@ export default function SignoffTab({ inspectionId, currentPhase, onChanged }: {
       )}
 
       {!canSignoff && (
-        <p className="text-xs text-slate-400 flex items-center gap-1"><Lock size={12} /> Only Quality Control or Admin can sign off a stage.</p>
+        <p className="text-xs text-slate-400 flex items-center gap-1"><Lock size={12} /> Your role can't sign off inspection stages.</p>
       )}
 
       {showModal && (

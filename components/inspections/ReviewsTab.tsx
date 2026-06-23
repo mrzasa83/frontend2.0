@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
 import { Plus, MessageSquare, ChevronDown, ChevronRight, CheckCircle, RotateCcw } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import { canWriteScope } from '@/lib/config/access'
 
 type Note = { id: number; action_id: number; note_text: string; created_by: string; created_at: string }
 type Action = {
@@ -11,11 +12,10 @@ type Action = {
   status: 'Open' | 'Closed'; created_by: string; created_at: string; notes: Note[]
 }
 
-const EDIT_ROLES = ['Admin', 'Quality Control', 'Operations', 'Production Control']
 
 export default function ReviewsTab({ inspectionId }: { inspectionId: number }) {
   const { data: session } = useSession()
-  const canEdit = ((session?.user?.roles || []) as string[]).some(r => EDIT_ROLES.includes(r))
+  const canEdit = canWriteScope((session?.user?.roles || []) as string[], 'operations/inspections')
 
   const [actions, setActions] = useState<Action[]>([])
   const [loading, setLoading] = useState(true)

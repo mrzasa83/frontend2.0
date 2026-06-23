@@ -5,6 +5,7 @@ import { useSession } from 'next-auth/react'
 import { Wrench, Plus, Search, RefreshCw, X, BarChart3, ChevronDown, ChevronRight } from 'lucide-react'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { getApiUrl } from '@/lib/api'
+import { canWriteScope } from '@/lib/config/access'
 import ReworkDetail from '@/components/reworks/ReworkDetail'
 import StepPicker, { Step } from '@/components/reworks/StepPicker'
 
@@ -41,7 +42,7 @@ export default function ReworksPage() {
   const { data: session } = useSession()
   const roles = (session?.user?.roles || []) as string[]
   const username = (session?.user as any)?.username || session?.user?.name || ''
-  const canCreate = roles.some(r => ['Admin', 'Quality Control', 'Operations', 'Production Control'].includes(r))
+  const canCreate = canWriteScope(roles, 'operations/reworks')
 
   const [data, setData] = useState<Rework[]>([])
   const [loading, setLoading] = useState(true)
