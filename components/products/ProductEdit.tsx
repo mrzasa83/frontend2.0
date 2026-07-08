@@ -53,7 +53,18 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
       .catch(() => { /* keep default */ })
   }, [])
 
-  const frontVueUrl = `${frontVueBase}?job=${encodeURIComponent(product.apcPN.trim())}&type=pcb`
+  // Prefill FrontVue's search form: job number, PCB radio, PCB "step" dropdown,
+  // and the Released checkbox. Param names must match what FrontVue reads on
+  // load — adjust here if FrontVue expects different keys.
+  const frontVueUrl = (() => {
+    const p = new URLSearchParams({
+      job: product.apcPN.trim(),
+      type: 'pcb',       // radio: CAM/PCB -> PCB
+      step: 'pcb',       // dropdown -> PCB
+      released: '1',     // Released checkbox -> checked
+    })
+    return `${frontVueBase}?${p.toString()}`
+  })()
   const openInFrontVue = () => setFrontVueOpen(true)
 
   // Fetch status and build location on mount
