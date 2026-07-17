@@ -3,11 +3,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   MonitorSmartphone, RefreshCw, Plus, Trash2, ChevronDown, ChevronRight,
-  Circle, Users, AlertTriangle, UserCheck,
+  Circle, AlertTriangle, UserCheck,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
-type UserInfo = { user: string; processCount: number; oldestSecs: number; newestSecs: number; loggedIn: boolean }
+type UserInfo = { user: string; sessions: number; loggedInSecs: number }
 type MachineStatus = {
   id: number; hostname: string; label: string | null
   reachable: boolean; error: string | null; users: UserInfo[]; activeCount: number
@@ -136,8 +136,8 @@ export default function CadWorkstationsPage() {
                   </div>
                   {m.reachable && (
                     <span className="flex items-center gap-1.5 text-sm text-slate-600">
-                      <Users size={14} className="text-slate-400" />
-                      {m.activeCount} {m.activeCount === 1 ? 'user' : 'users'}
+                      <UserCheck size={14} className={m.activeCount > 0 ? 'text-green-600' : 'text-slate-400'} />
+                      {m.activeCount === 0 ? 'nobody' : `${m.activeCount} logged in`}
                     </span>
                   )}
                   <button onClick={() => removeMachine(m.id, m.hostname)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded" title="Remove">
@@ -148,16 +148,15 @@ export default function CadWorkstationsPage() {
                 {isOpen && m.reachable && (
                   <div className="border-t border-slate-100 px-3 py-2">
                     {m.users.length === 0 ? (
-                      <p className="text-xs text-slate-400 py-1">No non-root users active.</p>
+                      <p className="text-xs text-slate-400 py-1">Nobody logged in.</p>
                     ) : (
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-xs text-slate-500">
                             <th className="text-left font-medium py-1">User</th>
-                            <th className="text-left font-medium py-1">Session</th>
-                            <th className="text-right font-medium py-1">Processes</th>
-                            <th className="text-right font-medium py-1">Oldest</th>
-                            <th className="text-right font-medium py-1">Newest</th>
+                            <th className="text-left font-medium py-1">Status</th>
+                            <th className="text-right font-medium py-1">Logged in for</th>
+                            <th className="text-right font-medium py-1">Sessions</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -165,13 +164,10 @@ export default function CadWorkstationsPage() {
                             <tr key={u.user} className="border-t border-slate-50">
                               <td className="py-1.5 font-mono text-slate-800">{u.user}</td>
                               <td className="py-1.5">
-                                {u.loggedIn
-                                  ? <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded"><UserCheck size={11} /> logged in</span>
-                                  : <span className="text-xs text-slate-400">processes only</span>}
+                                <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded"><UserCheck size={11} /> logged in</span>
                               </td>
-                              <td className="py-1.5 text-right text-slate-600">{u.processCount}</td>
-                              <td className="py-1.5 text-right text-slate-600">{fmtAge(u.oldestSecs)}</td>
-                              <td className="py-1.5 text-right text-slate-400">{fmtAge(u.newestSecs)}</td>
+                              <td className="py-1.5 text-right text-slate-600">{fmtAge(u.loggedInSecs)}</td>
+                              <td className="py-1.5 text-right text-slate-400">{u.sessions}</td>
                             </tr>
                           ))}
                         </tbody>
