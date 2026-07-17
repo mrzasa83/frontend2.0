@@ -21,9 +21,9 @@
     "react": "19.2.0",
     "react-dom": "19.2.0",
     "recharts": "^3.5.0",
+    "ssh2": "^1.17.0",
     "xlsx": "^0.18.5",
-    "zod": "^4.1.12",
-    "ssh2": "^1.16.0"
+    "zod": "^4.1.12"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -32,11 +32,12 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ssh2": "^1.15.5",
     "babel-plugin-react-compiler": "1.0.0",
     "baseline-browser-mapping": "^2.9.14",
     "eslint": "^9",
     "eslint-config-next": "16.0.1",
     "tailwindcss": "^4",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   }
 }
