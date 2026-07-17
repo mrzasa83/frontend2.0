@@ -181,12 +181,6 @@ export const MODULES: Module[] = [
         path: '/admin/access',
         requiredRoles: ['Admin']
       },
-      {
-        id: 'zip-recovery',
-        name: 'Zip Password Recovery',
-        path: '/admin/zip-recovery',
-        requiredRoles: ['Admin']
-      },
       { 
         id: 'import-parts', 
         name: 'Import Parts', 
