@@ -22,12 +22,12 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'recharts'],
   },
   // Keep child_process as a real Node.js require (not stubbed by webpack)
-  serverExternalPackages: ['child_process'],
+  serverExternalPackages: ['child_process', 'ssh2'],
   webpack: (config, { isServer }) => {
     if (isServer) {
       config.externals = config.externals || []
       if (Array.isArray(config.externals)) {
-        config.externals.push('child_process')
+        config.externals.push('child_process', 'ssh2')
       }
     }
     return config

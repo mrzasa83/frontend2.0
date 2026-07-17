@@ -26,6 +26,7 @@ const nextConfig = {
   },
   
   // Experimental features
+  serverExternalPackages: ['ssh2'],
   experimental: {
     // Improve performance
     optimizePackageImports: ['lucide-react', 'recharts'],

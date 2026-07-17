@@ -181,6 +181,12 @@ export const MODULES: Module[] = [
         path: '/admin/access',
         requiredRoles: ['Admin']
       },
+      {
+        id: 'cad-workstations',
+        name: 'CAD Workstations',
+        path: '/admin/cad-workstations',
+        requiredRoles: ['Admin']
+      },
       { 
         id: 'import-parts', 
         name: 'Import Parts', 
