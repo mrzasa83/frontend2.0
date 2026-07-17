@@ -64,3 +64,28 @@ services:
       # DRIVE_MOUNT_T: "/mnt/tdrive"
       # UNC_SERVER_NAME: "APCFS04"
       # UNC_SHARE_NAME:  "SHARED2"
+
+      # ── Zip Password Recovery (John the Ripper service) ────────────
+      # Reachable by service name because both containers share this
+      # compose project's default network.
+      JOHN_SERVICE_URL: "http://john-zip-recovery:8080"
+      JOHN_API_TOKEN: "change-me-to-a-long-random-token"
+
+    depends_on:
+      - john-zip-recovery
+
+  # ── John the Ripper zip-recovery service ─────────────────────────────
+  john-zip-recovery:
+    build:
+      context: ./services/john-service
+    container_name: john-zip-recovery
+    restart: unless-stopped
+    # No host port needed — frontend2 reaches it in-network on 8080.
+    # Uncomment to expose for debugging:  ports: ["8081:8080"]
+    environment:
+      JOHN_API_TOKEN: "change-me-to-a-long-random-token"   # must match frontend2
+    # Cracking is CPU-heavy; cap cores so it doesn't starve other services.
+    deploy:
+      resources:
+        limits:
+          cpus: "4.0"
