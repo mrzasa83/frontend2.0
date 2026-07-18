@@ -2,11 +2,12 @@
 
 import React, { useState, useEffect } from 'react'
 import { useSession } from 'next-auth/react'
-import { RefreshCw, ArrowLeft, Database, Pencil, Save, X, Eye, Download, Maximize2, Minimize2 } from 'lucide-react'
+import { RefreshCw, ArrowLeft, Database, Pencil, Save, X, Eye, Download, Maximize2, Minimize2, Trash2 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import { canWriteScope } from '@/lib/config/access'
 import ReviewsTab from './ReviewsTab'
 import SignoffTab from './SignoffTab'
+import ReleasedFileSection from './ReleasedFileSection'
 
 type Props = {
   inspectionId: number
@@ -31,6 +32,8 @@ function PhaseBadge({ phase }: { phase: string }) {
 const TABS = [
   { id: 'general', label: 'General' },
   { id: 'material-certs', label: 'Material Certs' },
+  { id: 'final-inspection', label: 'Final Inspection' },
+  { id: 'pack-ship', label: 'Pack & Ship' },
   { id: 'reviews', label: 'Reviews' },
   { id: 'signoff', label: 'Signoff' },
   { id: 'history', label: 'History' },
@@ -47,6 +50,11 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('general')
+  const [customerName, setCustomerName] = useState('')
+  const [showDelete, setShowDelete] = useState(false)
+  const [deletePw, setDeletePw] = useState('')
+  const [deleting, setDeleting] = useState(false)
+  const [deleteErr, setDeleteErr] = useState('')
 
   // General edit mode
   const [editing, setEditing] = useState(false)
@@ -148,8 +156,19 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       const r = await res.json()
       setRecord(r.record)
       setHistory(r.history || [])
+      if (r.record?.part_number) resolveCustomer(r.record.part_number)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
+  }
+
+  const resolveCustomer = async (part: string) => {
+    try {
+      const res = await fetch(getApiUrl('/api/operations/inspections/customers'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partNumbers: [part] }),
+      })
+      if (res.ok) setCustomerName((await res.json()).map?.[part] || '')
+    } catch { /* ignore */ }
   }
 
   useEffect(() => { fetchRecord() }, [inspectionId])
@@ -159,6 +178,12 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       owner: record.owner || '',
       phase: record.phase || '',
       site: record.site || '',
+      due_date: record.due_date ? String(record.due_date).slice(0, 10) : '',
+      net_inspect_number: record.net_inspect_number || '',
+      report_type: record.report_type || '',
+      report_destination: record.report_destination || '',
+      report_destination_other: record.report_destination_other || '',
+      source_flag: !!record.source_flag,
       notes: record.notes || '',
     })
     setEditError('')
@@ -178,6 +203,21 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       onDataChange?.()
     } catch (e: any) { setEditError(e.message) }
     finally { setSaving(false) }
+  }
+
+  const doDelete = async () => {
+    setDeleting(true); setDeleteErr('')
+    try {
+      const res = await fetch(getApiUrl('/api/operations/inspections/delete'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: inspectionId, password: deletePw }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Delete failed')
+      setShowDelete(false)
+      onDataChange?.()
+      onClose()
+    } catch (e: any) { setDeleteErr(e.message) }
+    finally { setDeleting(false) }
   }
 
   if (loading) return <div className="flex items-center gap-2 py-12 justify-center text-slate-500"><RefreshCw size={18} className="animate-spin" /> Loading...</div>
@@ -209,6 +249,47 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
                 <input value={editVals.site} onChange={e => setEditVals((v: any) => ({ ...v, site: e.target.value }))}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
               </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Due Date</label>
+                <input type="date" value={editVals.due_date || ''} onChange={e => setEditVals((v: any) => ({ ...v, due_date: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Net Inspect #</label>
+                <input value={editVals.net_inspect_number || ''} onChange={e => setEditVals((v: any) => ({ ...v, net_inspect_number: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Report Type</label>
+                <select value={editVals.report_type || ''} onChange={e => setEditVals((v: any) => ({ ...v, report_type: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                  <option value="">—</option>
+                  <option value="Internal">Internal</option>
+                  <option value="Customer">Customer</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Report Destination</label>
+                <select value={editVals.report_destination || ''} onChange={e => setEditVals((v: any) => ({ ...v, report_destination: e.target.value }))}
+                  className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                  <option value="">—</option>
+                  <option value="Net Inspect">Net Inspect</option>
+                  <option value="SSR">SSR</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              {editVals.report_destination === 'Other' && (
+                <div>
+                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Destination (Other)</label>
+                  <input value={editVals.report_destination_other || ''} onChange={e => setEditVals((v: any) => ({ ...v, report_destination_other: e.target.value }))}
+                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
+                </div>
+              )}
+              <div className="flex items-center gap-2 pt-6">
+                <input id="source_flag" type="checkbox" checked={!!editVals.source_flag} onChange={e => setEditVals((v: any) => ({ ...v, source_flag: e.target.checked }))}
+                  className="w-4 h-4" />
+                <label htmlFor="source_flag" className="text-sm text-slate-700">Source</label>
+              </div>
             </div>
             <div>
               <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Notes</label>
@@ -232,13 +313,19 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
         ['Inspection #', record.inspection_number],
         ['Type', record.inspection_type],
         ['Product Type', record.product_type],
+        ['Customer', customerName],
         ['Customer Part Number', record.part_number],
         ['PCB Number', record.pcb_number],
         ['Work Order', record.work_order],
+        ['Net Inspect #', record.net_inspect_number],
         ['Owner', record.owner],
         ['Phase', record.phase],
         ['Site', record.site],
         ['Start Date', record.start_date ? new Date(record.start_date).toLocaleDateString() : null],
+        ['Due Date', record.due_date ? new Date(record.due_date).toLocaleDateString() : null],
+        ['Report Type', record.report_type],
+        ['Report Destination', record.report_destination === 'Other' ? (record.report_destination_other || 'Other') : record.report_destination],
+        ['Source', record.source_flag ? 'Yes' : 'No'],
         ['Dependency', record.dependency ? `${record.dependency.inspection_number} (${record.dependency.phase})` : null],
         ['Created By', record.created_by],
         ['Created', record.created_at ? new Date(record.created_at).toLocaleString() : null],
@@ -246,10 +333,14 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       return (
         <div className="space-y-6">
           {editable && (
-            <div className="flex justify-end">
+            <div className="flex justify-end gap-2">
               <button onClick={startEdit}
                 className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1.5 border border-slate-200">
                 <Pencil size={14} /> Edit
+              </button>
+              <button onClick={() => { setDeletePw(''); setDeleteErr(''); setShowDelete(true) }}
+                className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-1.5 border border-red-200">
+                <Trash2 size={14} /> Delete FAI
               </button>
             </div>
           )}
@@ -275,6 +366,16 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
     }
     if (tabId === 'signoff') {
       return <SignoffTab inspectionId={inspectionId} currentPhase={record.phase} onChanged={async () => { await fetchRecord(); onDataChange?.() }} />
+    }
+    if (tabId === 'final-inspection') {
+      return record.part_number
+        ? <ReleasedFileSection partNumber={record.part_number} fileType="finalInspection" title="Final Inspection" />
+        : <p className="text-sm text-slate-400">No customer part on this inspection.</p>
+    }
+    if (tabId === 'pack-ship') {
+      return record.part_number
+        ? <ReleasedFileSection partNumber={record.part_number} fileType="packShip" title="Pack & Ship" />
+        : <p className="text-sm text-slate-400">No customer part on this inspection.</p>
     }
     if (tabId === 'material-certs') {
       const fileFor = (c: any) => (certFiles[`${c.purchasedPart}|${c.poNumber}|${c.batchSerial}`] || [])
@@ -542,6 +643,31 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
           {renderTab(activeTab)}
         </div>
       </div>
+
+      {showDelete && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => !deleting && setShowDelete(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-3 border-b border-slate-200 flex items-center gap-2">
+              <Trash2 size={18} className="text-red-600" />
+              <h3 className="font-semibold text-slate-800">Delete {record.inspection_number}</h3>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-slate-600">This permanently deletes the inspection and its history. Enter the delete password to confirm.</p>
+              {deleteErr && <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{deleteErr}</div>}
+              <input type="password" value={deletePw} onChange={e => setDeletePw(e.target.value)} autoFocus
+                onKeyDown={e => { if (e.key === 'Enter' && deletePw) doDelete() }}
+                placeholder="Delete password"
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500" />
+            </div>
+            <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
+              <button onClick={() => setShowDelete(false)} disabled={deleting} className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+              <button onClick={doDelete} disabled={deleting || !deletePw} className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 flex items-center gap-1.5">
+                <Trash2 size={14} /> {deleting ? 'Deleting…' : 'Delete FAI'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

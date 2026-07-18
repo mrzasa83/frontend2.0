@@ -15,6 +15,7 @@ import InspectionDetail from '@/components/inspections/InspectionDetail'
 type Inspection = {
   id: number; inspection_number: string; inspection_type: string; product_type: string
   part_number: string | null; pcb_number: string | null; work_order: string | null; start_date: string | null
+  due_date: string | null; net_inspect_number: string | null
   owner: string | null; phase: string; site: string | null; dependency_id: number | null
   notes: string | null; created_by: string; created_at: string
 }
@@ -61,6 +62,10 @@ export default function FirstArticlePage() {
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
   const [phaseFilter, setPhaseFilter] = useState('all')
+  const [prodFilter, setProdFilter] = useState<'all' | 'PCB' | 'ASM'>('all')
+  const [customers, setCustomers] = useState<Record<string, string>>({})
+  const [sortKey, setSortKey] = useState<string>('')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [openTabs, setOpenTabs] = useState<number[]>([])
   const [activeTab, setActiveTab] = useState<string>('list')
   const [showCreate, setShowCreate] = useState(false)
@@ -72,7 +77,7 @@ export default function FirstArticlePage() {
   const [lookupWorkOrders, setLookupWorkOrders] = useState<any[]>([])
   const [selectedWO, setSelectedWO] = useState<any>(null)
   const [createForm, setCreateForm] = useState({
-    owner: '', startDate: new Date().toISOString().split('T')[0], dependencyId: '', notes: ''
+    owner: '', startDate: new Date().toISOString().split('T')[0], dueDate: '', netInspectNumber: '', dependencyId: '', notes: ''
   })
   const [createError, setCreateError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -95,8 +100,27 @@ export default function FirstArticlePage() {
       const res = await fetch(getApiUrl('/api/operations/inspections?type=First Article'))
       if (!res.ok) throw new Error((await res.json()).details || 'Failed')
       const r = await res.json()
-      setData(r.data || [])
+      const rows: Inspection[] = r.data || []
+      setData(rows)
+      resolveCustomers(rows)
     } catch (e: any) { setError(e.message) } finally { setLoading(false) }
+  }
+
+  const resolveCustomers = async (rows: Inspection[]) => {
+    const parts = [...new Set(rows.map(r => r.part_number).filter(Boolean))] as string[]
+    if (!parts.length) return
+    try {
+      const res = await fetch(getApiUrl('/api/operations/inspections/customers'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partNumbers: parts }),
+      })
+      if (res.ok) setCustomers((await res.json()).map || {})
+    } catch { /* leave blank */ }
+  }
+
+  const toggleSort = (key: string) => {
+    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setSortKey(key); setSortDir('asc') }
   }
 
   useEffect(() => { fetchData() }, [])
@@ -115,18 +139,40 @@ export default function FirstArticlePage() {
   const filtered = useMemo(() => {
     let rows = data
     if (phaseFilter !== 'all') rows = rows.filter(r => r.phase === phaseFilter)
+    if (prodFilter !== 'all') rows = rows.filter(r => r.product_type === prodFilter)
     if (search.trim()) {
       const q = search.toLowerCase()
       rows = rows.filter(r =>
         r.inspection_number.toLowerCase().includes(q) ||
         String(r.part_number || '').toLowerCase().includes(q) ||
+        String(customers[r.part_number || ''] || '').toLowerCase().includes(q) ||
+        String(r.net_inspect_number || '').toLowerCase().includes(q) ||
         String(r.work_order || '').toLowerCase().includes(q) ||
         String(r.owner || '').toLowerCase().includes(q) ||
         String(r.site || '').toLowerCase().includes(q)
       )
     }
+    // Sort
+    const dir = sortDir === 'asc' ? 1 : -1
+    const val = (r: Inspection): string | number => {
+      switch (sortKey) {
+        case 'due_date': return r.due_date ? new Date(r.due_date).getTime() : 0
+        case 'customer': return (customers[r.part_number || ''] || '').toLowerCase()
+        case 'inspection_number': return r.inspection_number.toLowerCase()
+        case 'start_date': return r.start_date ? new Date(r.start_date).getTime() : 0
+        default: return ''
+      }
+    }
+    if (sortKey) {
+      rows = [...rows].sort((a, b) => {
+        const va = val(a), vb = val(b)
+        if (va < vb) return -1 * dir
+        if (va > vb) return 1 * dir
+        return 0
+      })
+    }
     return rows
-  }, [data, search, phaseFilter])
+  }, [data, search, phaseFilter, prodFilter, customers, sortKey, sortDir])
 
   const depMap = useMemo(() => {
     const m: Record<number, string> = {}
@@ -136,7 +182,7 @@ export default function FirstArticlePage() {
 
   const openCreate = () => {
     setLookupPart(''); setLookupWorkOrders([]); setSelectedWO(null)
-    setCreateForm({ owner: username, startDate: new Date().toISOString().split('T')[0], dependencyId: '', notes: '' })
+    setCreateForm({ owner: username, startDate: new Date().toISOString().split('T')[0], dueDate: '', netInspectNumber: '', dependencyId: '', notes: '' })
     setCreateError(''); setShowCreate(true)
   }
 
@@ -174,6 +220,8 @@ export default function FirstArticlePage() {
           pcbNumber: selectedWO.pcbNumber || null,
           workOrder: selectedWO.workOrder,
           startDate: createForm.startDate || null,
+          dueDate: createForm.dueDate || null,
+          netInspectNumber: createForm.netInspectNumber || null,
           owner: createForm.owner || username,
           site: selectedWO.site || null,
           dependencyId: createForm.dependencyId || null,
@@ -274,6 +322,16 @@ export default function FirstArticlePage() {
               phaseFilter === p ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium' : 'border-slate-200 text-slate-600 hover:border-blue-300'
             }`}>{p === 'all' ? 'All' : p} ({phaseCounts[p] || 0})</button>
         ))}
+        <span className="mx-1 h-5 w-px bg-slate-200" />
+        <span className="text-xs text-slate-400">Prod:</span>
+        <div className="flex rounded-lg border border-slate-200 overflow-hidden text-sm">
+          {(['all', 'PCB', 'ASM'] as const).map(p => (
+            <button key={p} onClick={() => setProdFilter(p)}
+              className={`px-3 py-1.5 ${prodFilter === p ? 'bg-blue-600 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>
+              {p === 'all' ? 'Both' : p}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Search */}
@@ -289,22 +347,32 @@ export default function FirstArticlePage() {
         <table className="w-full text-sm">
           <thead className="sticky top-0 bg-slate-50">
             <tr className="border-b border-slate-200">
-              {['Inspection #', 'Prod', 'Customer Part', 'PCB Number', 'Work Order', 'Owner', 'Phase', 'Site', 'Dependency', 'Start'].map(h => (
-                <th key={h} className="px-3 py-3 text-left font-medium text-slate-600 text-xs">{h}</th>
+              {[
+                { h: 'Inspection #', k: 'inspection_number' }, { h: 'Prod', k: '' }, { h: 'Customer', k: 'customer' },
+                { h: 'Customer Part', k: '' }, { h: 'PCB Number', k: '' }, { h: 'Net Inspect', k: '' },
+                { h: 'Work Order', k: '' }, { h: 'Owner', k: '' }, { h: 'Phase', k: '' }, { h: 'Site', k: '' },
+                { h: 'Dependency', k: '' }, { h: 'Start', k: 'start_date' }, { h: 'Due', k: 'due_date' },
+              ].map(({ h, k }) => (
+                <th key={h} className={`px-3 py-3 text-left font-medium text-slate-600 text-xs ${k ? 'cursor-pointer select-none hover:text-slate-800' : ''}`}
+                  onClick={k ? () => toggleSort(k) : undefined}>
+                  {h}{k && sortKey === k ? (sortDir === 'asc' ? ' ▲' : ' ▼') : ''}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-500"><RefreshCw size={20} className="animate-spin mx-auto mb-2" /> Loading...</td></tr>
+              <tr><td colSpan={13} className="px-4 py-12 text-center text-slate-500"><RefreshCw size={20} className="animate-spin mx-auto mb-2" /> Loading...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={10} className="px-4 py-12 text-center text-slate-500">No inspections found</td></tr>
+              <tr><td colSpan={13} className="px-4 py-12 text-center text-slate-500">No inspections found</td></tr>
             ) : filtered.map(r => (
               <tr key={r.id} className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer" onClick={() => handleRowClick(r.id)}>
                 <td className="px-3 py-2.5 font-mono font-medium text-slate-800">{r.inspection_number}</td>
                 <td className="px-3 py-2.5"><span className={`text-xs px-2 py-0.5 rounded ${r.product_type === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>{r.product_type}</span></td>
+                <td className="px-3 py-2.5 text-slate-600 text-xs">{customers[r.part_number || ''] || <span className="text-slate-300">…</span>}</td>
                 <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">{r.part_number || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">{r.pcb_number || '—'}</td>
+                <td className="px-3 py-2.5 text-slate-600 text-xs">{r.net_inspect_number || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 font-mono text-xs">{r.work_order || '—'}</td>
                 <td className="px-3 py-2.5 text-slate-600 text-xs">{r.owner || '—'}</td>
                 <td className="px-3 py-2.5"><PhaseBadge phase={r.phase} /></td>
@@ -315,6 +383,7 @@ export default function FirstArticlePage() {
                   ) : '—'}
                 </td>
                 <td className="px-3 py-2.5 text-slate-500 text-xs">{r.start_date ? new Date(r.start_date).toLocaleDateString() : '—'}</td>
+                <td className="px-3 py-2.5 text-slate-500 text-xs">{r.due_date ? new Date(r.due_date).toLocaleDateString() : '—'}</td>
               </tr>
             ))}
           </tbody>
@@ -424,6 +493,16 @@ export default function FirstArticlePage() {
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Start Date</label>
                     <input type="date" value={createForm.startDate} onChange={e => setCreateForm(p => ({ ...p, startDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Due Date</label>
+                    <input type="date" value={createForm.dueDate} onChange={e => setCreateForm(p => ({ ...p, dueDate: e.target.value }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Net Inspect #</label>
+                    <input type="text" value={createForm.netInspectNumber} onChange={e => setCreateForm(p => ({ ...p, netInspectNumber: e.target.value }))}
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
                   {/* Dependency for ASM */}

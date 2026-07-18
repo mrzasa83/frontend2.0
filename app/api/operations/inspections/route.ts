@@ -65,7 +65,8 @@ export async function POST(request: NextRequest) {
     const body = await request.json()
     const {
       inspectionType, productType, partNumber, pcbNumber, workOrder,
-      startDate, owner, phase, site, dependencyId, notes
+      startDate, dueDate, netInspectNumber, reportType, reportDestination,
+      reportDestinationOther, sourceFlag, owner, phase, site, dependencyId, notes
     } = body
 
     // Generate inspection number: {TYPE-PREFIX}-{YYYY}-{seq}
@@ -81,11 +82,14 @@ export async function POST(request: NextRequest) {
     const result: any = await queryPrimary(`
       INSERT INTO inspections
         (inspection_number, inspection_type, product_type, part_number, pcb_number, work_order,
-         start_date, owner, phase, site, dependency_id, notes, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+         start_date, due_date, net_inspect_number, report_type, report_destination,
+         report_destination_other, source_flag, owner, phase, site, dependency_id, notes, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `, [
       inspectionNumber, inspectionType || 'First Article', productType || 'PCB',
       partNumber || null, pcbNumber || null, workOrder || null, startDate || null,
+      dueDate || null, netInspectNumber || null, reportType || null, reportDestination || null,
+      reportDestinationOther || null, sourceFlag ? 1 : 0,
       owner || username, phase || 'Setup', site || null,
       dependencyId || null, notes || null, username
     ])
@@ -134,15 +138,17 @@ export async function PUT(request: NextRequest) {
     }
 
     const allowed = ['inspection_type', 'product_type', 'part_number', 'pcb_number', 'work_order',
-                     'start_date', 'owner', 'phase', 'site', 'dependency_id', 'notes']
+                     'start_date', 'due_date', 'net_inspect_number', 'report_type', 'report_destination',
+                     'report_destination_other', 'source_flag', 'owner', 'phase', 'site', 'dependency_id', 'notes']
     const updates: string[] = []
     const params: any[] = []
     const changes: { field: string; old: any; new: any }[] = []
     for (const key of allowed) {
       if (key in fields) {
-        updates.push(`${key} = ?`); params.push(fields[key] || null)
-        if (String(current[key] ?? '') !== String(fields[key] ?? '')) {
-          changes.push({ field: key, old: current[key], new: fields[key] })
+        const val = key === 'source_flag' ? (fields[key] ? 1 : 0) : (fields[key] || null)
+        updates.push(`${key} = ?`); params.push(val)
+        if (String(current[key] ?? '') !== String(val ?? '')) {
+          changes.push({ field: key, old: current[key], new: val })
         }
       }
     }
