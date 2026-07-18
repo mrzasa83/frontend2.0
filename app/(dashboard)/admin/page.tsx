@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { FileInput, Database, GitCompare, Terminal, ClipboardList, FolderSearch, Printer, Building2 } from 'lucide-react'
+import { FileInput, Database, GitCompare, Terminal, ClipboardList, FolderSearch, Printer, Building2, FolderTree } from 'lucide-react'
 
 export default function AdminPage() {
   const adminTools = [
@@ -51,6 +51,13 @@ export default function AdminPage() {
       icon: Building2,
       href: '/admin/work-centers',
       color: 'indigo'
+    },
+    {
+      title: 'PO Folders',
+      description: 'Map Paradigm customers to Purchase Order cert folders',
+      icon: FolderTree,
+      href: '/admin/po-folders',
+      color: 'amber'
     },
     {
       title: 'Database Management',

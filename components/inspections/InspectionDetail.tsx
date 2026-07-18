@@ -32,6 +32,7 @@ function PhaseBadge({ phase }: { phase: string }) {
 const TABS = [
   { id: 'general', label: 'General' },
   { id: 'material-certs', label: 'Material Certs' },
+  { id: 'po-certs', label: 'PO Certs' },
   { id: 'final-inspection', label: 'Final Inspection' },
   { id: 'pack-ship', label: 'Pack & Ship' },
   { id: 'reviews', label: 'Reviews' },
@@ -149,6 +150,65 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   useEffect(() => {
     if (activeTab === 'material-certs' && !certsFetched && record?.work_order) fetchCerts()
   }, [activeTab, record])
+
+  // ─── PO Certs ──────────────────────────────────────────────
+  const [poFiles, setPoFiles] = useState<any[]>([])
+  const [poLoading, setPoLoading] = useState(false)
+  const [poError, setPoError] = useState('')
+  const [poFetched, setPoFetched] = useState(false)
+  const [poFolders, setPoFolders] = useState<string[]>([])
+  const [poUsedMapping, setPoUsedMapping] = useState(false)
+  const [poSelections, setPoSelections] = useState<Record<string, any>>({})
+  const [poLatestOnly, setPoLatestOnly] = useState(true)
+  const [poColFilters, setPoColFilters] = useState<Record<string, string>>({})
+  const [poSort, setPoSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'apcPart', dir: 'asc' })
+
+  const fetchPoCerts = async () => {
+    if (!customerName) { setPoError('No Paradigm customer resolved for this inspection'); setPoFetched(true); return }
+    setPoLoading(true); setPoError(''); setPoFetched(true)
+    try {
+      const res = await fetch(getApiUrl(`/api/operations/inspections/po-certs?customer=${encodeURIComponent(customerName)}`))
+      if (!res.ok) throw new Error((await res.json()).details || 'Failed')
+      const r = await res.json()
+      setPoFiles(r.files || [])
+      setPoFolders(r.folders || [])
+      setPoUsedMapping(!!r.usedMapping)
+      // Load persisted relations
+      try {
+        const sr = await fetch(getApiUrl(`/api/operations/inspections/po-certs/selection?inspectionId=${inspectionId}`))
+        if (sr.ok) setPoSelections((await sr.json()).selections || {})
+      } catch { /* best-effort */ }
+    } catch (e: any) { setPoError(e.message) }
+    setPoLoading(false)
+  }
+
+  const savePoSelection = async (row: any, clear = false) => {
+    try {
+      const res = await fetch(getApiUrl('/api/operations/inspections/po-certs/selection'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          inspectionId, filePath: row.filePath, apcPart: row.apcPart, customerPart: row.customerPart,
+          versionLabel: row.version, poFolder: row.folder, clear,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Failed')
+      const r = await res.json()
+      setPoSelections(prev => {
+        const next = { ...prev }
+        if (clear) delete next[row.filePath]
+        else next[row.filePath] = {
+          apcPart: row.apcPart, customerPart: row.customerPart, version: row.version,
+          folder: row.folder, selectedBy: r.selectedBy || '', selectedAt: new Date().toISOString(),
+        }
+        return next
+      })
+    } catch { /* surfaced via UI if needed */ }
+  }
+
+  // Lazy-load PO certs once the customer is known and the tab is opened
+  useEffect(() => {
+    if (activeTab === 'po-certs' && !poFetched && customerName) fetchPoCerts()
+  }, [activeTab, customerName])
 
   const fetchRecord = async () => {
     setLoading(true); setError('')
@@ -557,6 +617,198 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
                   })}
                   {view.length === 0 && (
                     <tr><td colSpan={cols.length + 1} className="px-3 py-6 text-center text-slate-400 text-sm">No rows match the current filters.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {previewPdf && (
+            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setPreviewPdf(null)}>
+              <div
+                className={`bg-white rounded-xl shadow-2xl flex flex-col transition-all duration-150 ${previewMax ? 'w-[98vw] h-[96vh]' : 'w-[80vw] h-[90vh]'}`}
+                onClick={e => e.stopPropagation()}>
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-shrink-0">
+                  <h3 className="text-sm font-medium text-slate-700 truncate pr-4" title={previewPdf.name}>{previewPdf.name}</h3>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={() => setPreviewMax(m => !m)} className="text-slate-500 hover:text-blue-600 p-1"
+                      title={previewMax ? 'Restore size' : 'Maximize'}>
+                      {previewMax ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
+                    </button>
+                    <a href={`${previewPdf.url}&download=true`} target="_blank" rel="noopener noreferrer"
+                      className="text-slate-500 hover:text-green-600 p-1" title="Download"><Download size={16} /></a>
+                    <button onClick={() => setPreviewPdf(null)} className="text-slate-500 hover:text-slate-800 p-1" title="Close"><X size={18} /></button>
+                  </div>
+                </div>
+                <iframe src={previewPdf.url} title={previewPdf.name} className="flex-1 w-full rounded-b-xl" />
+              </div>
+            </div>
+          )}
+        </div>
+      )
+    }
+    if (tabId === 'po-certs') {
+      const poCols: { key: string; label: string; disp: (r: any) => string }[] = [
+        { key: 'apcPart', label: 'APC Part', disp: r => r.apcPart || '' },
+        { key: 'customerPart', label: 'Customer Part #', disp: r => r.customerPart || '' },
+        { key: 'version', label: 'Version', disp: r => r.version || '' },
+        { key: 'folder', label: 'PO Folder', disp: r => r.folder || '' },
+        { key: 'fileName', label: 'File', disp: r => r.fileName || '' },
+      ]
+      const poSortVal = (r: any, k: string): any => {
+        if (k === 'version') return r.versionRank == null ? -1 : r.versionRank
+        const col = poCols.find(x => x.key === k)
+        return (col ? col.disp(r) : '').toLowerCase()
+      }
+      const downloadUrl = (p: string) => getApiUrl(`/api/operations/inspections/po-certs/download?path=${encodeURIComponent(p)}`)
+
+      // Apply per-column filters
+      let poView = poFiles.filter(r =>
+        poCols.every(col => {
+          const f = (poColFilters[col.key] || '').trim().toLowerCase()
+          if (!f) return true
+          return col.disp(r).toLowerCase().includes(f)
+        })
+      )
+
+      // Latest-version-only: within each (apcPart + customerPart) group keep the
+      // highest versionRank. Rows with no version rank are always kept.
+      if (poLatestOnly) {
+        const best = new Map<string, number>()
+        for (const r of poView) {
+          if (r.versionRank == null) continue
+          const k = `${r.apcPart}|${r.customerPart}`
+          const cur = best.get(k)
+          if (cur == null || r.versionRank > cur) best.set(k, r.versionRank)
+        }
+        poView = poView.filter(r => {
+          if (r.versionRank == null) return true
+          const k = `${r.apcPart}|${r.customerPart}`
+          return best.get(k) === r.versionRank
+        })
+      }
+
+      poView = [...poView].sort((a, b) => {
+        const av = poSortVal(a, poSort.key), bv = poSortVal(b, poSort.key)
+        if (av < bv) return poSort.dir === 'asc' ? -1 : 1
+        if (av > bv) return poSort.dir === 'asc' ? 1 : -1
+        return 0
+      })
+
+      const togglePoSort = (k: string) => setPoSort(s => s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'asc' })
+      const relatedCount = Object.keys(poSelections).length
+      const faiPart = (record?.part_number || '').trim()
+
+      return (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h4 className="text-sm font-semibold text-slate-700">PO Certs ({poView.length}{poLatestOnly ? ' shown' : ''})</h4>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Customer <span className="font-mono">{customerName || '—'}</span>
+                {poFolders.length > 0 && <> · folder{poFolders.length > 1 ? 's' : ''}: <span className="font-mono">{poFolders.join(', ')}</span></>}
+                {!poUsedMapping && poFolders.length > 0 && <span className="text-amber-600"> (loose match — add a mapping in Admin ▸ PO Folders)</span>}
+                {relatedCount > 0 && <> · {relatedCount} related to this FAI</>}
+              </p>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+                <input type="checkbox" checked={poLatestOnly} onChange={e => setPoLatestOnly(e.target.checked)}
+                  className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                Latest version only
+              </label>
+              {faiPart && (
+                <button onClick={() => setPoColFilters(f => ({ ...f, apcPart: f.apcPart === faiPart ? '' : faiPart }))}
+                  className={`px-3 py-1.5 text-sm rounded-lg border flex items-center gap-1 ${poColFilters.apcPart === faiPart ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium' : 'border-slate-200 text-slate-600 hover:border-blue-300'}`}
+                  title="Filter to this inspection's part number">
+                  This FAI part ({faiPart})
+                </button>
+              )}
+              <button onClick={fetchPoCerts} disabled={poLoading}
+                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50">
+                <RefreshCw size={14} className={poLoading ? 'animate-spin' : ''} /> Refresh
+              </button>
+            </div>
+          </div>
+          <p className="text-xs text-slate-400">
+            Purchase-order certificates from the QC PO folder. Each row is one APC part broken out from the file name.
+            Filter, open a file to verify, then check it to relate it to this FAI.
+          </p>
+
+          {!customerName ? (
+            <p className="text-sm text-amber-600">No Paradigm customer is resolved for this inspection — cannot locate PO folders.</p>
+          ) : poError ? (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{poError}</div>
+          ) : poLoading ? (
+            <div className="flex items-center gap-2 py-8 justify-center text-slate-500"><RefreshCw size={18} className="animate-spin" /> Loading PO certs...</div>
+          ) : poFiles.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              {poFetched
+                ? (poFolders.length === 0
+                    ? 'No PO folder is mapped or matched for this customer. Add one in Admin ▸ PO Folders.'
+                    : 'No PDF files found in the resolved PO folder(s).')
+                : 'Loading...'}
+            </p>
+          ) : (
+            <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr>
+                    <th className="px-3 py-2 w-8 text-center">✓</th>
+                    {poCols.map(col => (
+                      <th key={col.key} onClick={() => togglePoSort(col.key)}
+                        className="px-3 py-2 text-left text-xs font-medium text-slate-600 whitespace-nowrap cursor-pointer select-none hover:text-slate-900">
+                        {col.label}
+                        {poSort.key === col.key && <span className="ml-1">{poSort.dir === 'asc' ? '▲' : '▼'}</span>}
+                      </th>
+                    ))}
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-20">View</th>
+                  </tr>
+                  <tr className="bg-white">
+                    <th className="px-2 py-1"></th>
+                    {poCols.map(col => (
+                      <th key={col.key} className="px-2 py-1">
+                        <input value={poColFilters[col.key] || ''}
+                          onChange={e => setPoColFilters(f => ({ ...f, [col.key]: e.target.value }))}
+                          placeholder="filter"
+                          className="w-full text-xs font-normal border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                      </th>
+                    ))}
+                    <th className="px-2 py-1"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {poView.map((r, i) => {
+                    const related = !!poSelections[r.filePath]
+                    return (
+                      <tr key={`${r.filePath}-${r.apcPart}-${i}`} className={`border-t border-slate-100 hover:bg-slate-50 ${related ? 'bg-blue-50/40' : ''}`}>
+                        <td className="px-3 py-2 text-center">
+                          <input type="checkbox" checked={related} disabled={!canSelect}
+                            onChange={() => savePoSelection(r, related)}
+                            title="Relate this certificate to the inspection"
+                            className="cursor-pointer" />
+                        </td>
+                        <td className="px-3 py-2 font-mono text-slate-800 whitespace-nowrap">{r.apcPart || <span className="text-slate-300">—</span>}</td>
+                        <td className="px-3 py-2 font-mono text-slate-600 text-xs">{r.customerPart || '—'}</td>
+                        <td className="px-3 py-2 text-xs whitespace-nowrap">
+                          {r.version
+                            ? <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{r.version}</span>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{r.folder}{r.relDir ? ` / ${r.relDir}` : ''}</td>
+                        <td className="px-3 py-2 text-slate-500 text-xs">{r.fileName}</td>
+                        <td className="px-3 py-2">
+                          <button
+                            onClick={() => setPreviewPdf({ url: downloadUrl(r.filePath), name: r.fileName })}
+                            className="text-slate-500 hover:text-blue-600" title="Preview in window">
+                            <Eye size={15} />
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                  {poView.length === 0 && (
+                    <tr><td colSpan={poCols.length + 2} className="px-3 py-6 text-center text-slate-400 text-sm">No rows match the current filters.</td></tr>
                   )}
                 </tbody>
               </table>
