@@ -31,6 +31,7 @@ export const ROLE_DEFS: { name: string; description: string; legacy?: boolean }[
   { name: 'ProductEng', description: 'View Op/Prod/Process/App/User; write Product→*' },
   { name: 'Program', description: 'View Operation, Product, App, User' },
   { name: 'roUser', description: 'View Operation, Product, App (read-only)' },
+  { name: 'FAIadmin', description: 'View Operations; delete First Article Inspections' },
   // Legacy aliases (kept for backward compatibility)
   { name: 'Operations', description: 'Legacy → like OpsCreate', legacy: true },
   { name: 'Production Control', description: 'Legacy → like OpsCreate', legacy: true },
@@ -57,6 +58,10 @@ export const ROLE_ACCESS: Record<string, RoleAccess> = {
 
   Program:     { read: ['operations', 'products', 'apps', 'users'], write: [] },
   roUser:      { read: ['operations', 'products', 'apps'], write: [] },
+
+  // FAI Admin — can view Operations and delete First Article Inspections
+  // (delete is enforced by role in the delete API, confirmed with own password).
+  FAIadmin:    { read: ['operations', 'products', 'process'], write: [] },
 
   // ── Legacy aliases ──
   Operations:           { read: ['operations', 'products', 'process'], write: ['operations'] },

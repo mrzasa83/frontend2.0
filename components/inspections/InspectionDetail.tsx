@@ -45,12 +45,14 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const { data: session } = useSession()
   const isAdmin = (session?.user?.roles || []).includes('Admin')
   const roles = (session?.user?.roles || []) as string[]
+  const canDeleteFai = roles.includes('Admin') || roles.includes('FAIadmin')
   const [record, setRecord] = useState<any>(null)
   const [history, setHistory] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('general')
   const [customerName, setCustomerName] = useState('')
+  const [analysisCode3, setAnalysisCode3] = useState('')
   const [showDelete, setShowDelete] = useState(false)
   const [deletePw, setDeletePw] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -156,18 +158,22 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       const r = await res.json()
       setRecord(r.record)
       setHistory(r.history || [])
-      if (r.record?.part_number) resolveCustomer(r.record.part_number)
+      if (r.record?.part_number || r.record?.work_order) resolveParadigm(r.record.part_number, r.record.work_order)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }
 
-  const resolveCustomer = async (part: string) => {
+  const resolveParadigm = async (part?: string, workOrder?: string) => {
     try {
       const res = await fetch(getApiUrl('/api/operations/inspections/customers'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partNumbers: [part] }),
+        body: JSON.stringify({ partNumbers: part ? [part] : [], workOrders: workOrder ? [workOrder] : [] }),
       })
-      if (res.ok) setCustomerName((await res.json()).map?.[part] || '')
+      if (res.ok) {
+        const d = await res.json()
+        if (part) setCustomerName(d.map?.[part] || '')
+        if (workOrder) setAnalysisCode3(d.analysisCode3?.[workOrder] || '')
+      }
     } catch { /* ignore */ }
   }
 
@@ -317,6 +323,7 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
         ['Customer Part Number', record.part_number],
         ['PCB Number', record.pcb_number],
         ['Work Order', record.work_order],
+        ['WO Analysis Code 3', analysisCode3],
         ['Net Inspect #', record.net_inspect_number],
         ['Owner', record.owner],
         ['Phase', record.phase],
@@ -332,16 +339,20 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       ]
       return (
         <div className="space-y-6">
-          {editable && (
+          {(editable || canDeleteFai) && (
             <div className="flex justify-end gap-2">
-              <button onClick={startEdit}
-                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1.5 border border-slate-200">
-                <Pencil size={14} /> Edit
-              </button>
-              <button onClick={() => { setDeletePw(''); setDeleteErr(''); setShowDelete(true) }}
-                className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-1.5 border border-red-200">
-                <Trash2 size={14} /> Delete FAI
-              </button>
+              {editable && (
+                <button onClick={startEdit}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1.5 border border-slate-200">
+                  <Pencil size={14} /> Edit
+                </button>
+              )}
+              {canDeleteFai && (
+                <button onClick={() => { setDeletePw(''); setDeleteErr(''); setShowDelete(true) }}
+                  className="px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 rounded-lg flex items-center gap-1.5 border border-red-200">
+                  <Trash2 size={14} /> Delete FAI
+                </button>
+              )}
             </div>
           )}
           <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -652,11 +663,11 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
               <h3 className="font-semibold text-slate-800">Delete {record.inspection_number}</h3>
             </div>
             <div className="p-5 space-y-3">
-              <p className="text-sm text-slate-600">This permanently deletes the inspection and its history. Enter the delete password to confirm.</p>
+              <p className="text-sm text-slate-600">This permanently deletes the inspection and its history. Enter <strong>your login password</strong> to confirm.</p>
               {deleteErr && <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{deleteErr}</div>}
               <input type="password" value={deletePw} onChange={e => setDeletePw(e.target.value)} autoFocus
                 onKeyDown={e => { if (e.key === 'Enter' && deletePw) doDelete() }}
-                placeholder="Delete password"
+                placeholder="Your login password"
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-red-500" />
             </div>
             <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
