@@ -222,6 +222,12 @@ export const MODULES: Module[] = [
         name: 'Work Centers', 
         path: '/admin/work-centers',
         requiredRoles: ['Admin']
+      },
+      {
+        id: 'po-folders',
+        name: 'PO Folders',
+        path: '/admin/po-folders',
+        requiredRoles: ['Admin']
       }
     ]
   }
