@@ -7,6 +7,7 @@ declare module 'next-auth' {
     email: string
     name: string
     roles: string[]
+    adSecret?: string
   }
 
   interface Session {
@@ -21,5 +22,6 @@ declare module 'next-auth/jwt' {
     id: string
     username: string
     roles: string[]
+    adSecret?: string
   }
 }

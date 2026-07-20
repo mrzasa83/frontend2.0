@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   MonitorSmartphone, RefreshCw, Plus, Trash2, ChevronDown, ChevronRight,
-  Circle, AlertTriangle, UserCheck,
+  Circle, AlertTriangle, UserCheck, KeyRound,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
@@ -35,17 +35,44 @@ export default function CadWorkstationsPage() {
   const [newLabel, setNewLabel] = useState('')
   const [adding, setAdding] = useState(false)
 
-  const loadStatus = useCallback(async () => {
+  // AD credential prompt (shown only when the logged-in user's own creds fail)
+  const [needCreds, setNeedCreds] = useState(false)
+  const [adUser, setAdUser] = useState('')
+  const [adPass, setAdPass] = useState('')
+  const [credSource, setCredSource] = useState<string>('')
+
+  // Load status. When `creds` is supplied, POST them for a one-time manual auth;
+  // otherwise GET and let the server use the logged-in user's own credential.
+  const loadStatus = useCallback(async (creds?: { adUsername: string; adPassword: string }) => {
     setLoading(true); setError('')
     try {
-      const res = await fetch(getApiUrl('/api/admin/cad-workstations/status'))
+      const res = await fetch(getApiUrl('/api/admin/cad-workstations/status'), creds
+        ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(creds) }
+        : undefined)
       const data = await res.json()
+      if (res.status === 401 && data.needsCredentials) {
+        // Fall back to asking the admin for AD credentials
+        setNeedCreds(true)
+        setError(data.error && data.credSource === 'session'
+          ? 'Your account could not authenticate to the workstations. Enter AD credentials to continue.'
+          : '')
+        setMachines([])
+        return
+      }
       if (!res.ok) throw new Error(data.error || 'Failed to load status')
       setMachines(data.machines || [])
       setCheckedAt(data.checkedAt || '')
+      setCredSource(data.credSource || '')
+      setNeedCreds(false)
     } catch (e: any) { setError(e.message) }
     finally { setLoading(false) }
   }, [])
+
+  const submitCreds = async () => {
+    if (!adUser.trim() || !adPass) return
+    await loadStatus({ adUsername: adUser.trim(), adPassword: adPass })
+    setAdPass('') // don't retain the password in component state after use
+  }
 
   useEffect(() => { loadStatus() }, [loadStatus])
 
@@ -81,16 +108,52 @@ export default function CadWorkstationsPage() {
         <button onClick={() => setShowAdd(s => !s)} className="px-3 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-2">
           <Plus size={16} /> Add
         </button>
-        <button onClick={loadStatus} disabled={loading} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 flex items-center gap-2 disabled:opacity-60">
+        <button onClick={() => loadStatus()} disabled={loading} className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700 flex items-center gap-2 disabled:opacity-60">
           <RefreshCw size={16} className={loading ? 'animate-spin' : ''} /> Refresh
         </button>
       </div>
       <p className="text-sm text-slate-500 mb-4">
         Live view of logged-in users and their processes on each workstation (root and system accounts hidden).
         {checkedAt && <span className="text-slate-400"> · checked {new Date(checkedAt).toLocaleTimeString()}</span>}
+        {credSource === 'manual' && <span className="text-slate-400"> · using entered AD credentials</span>}
+        {credSource === 'session' && <span className="text-slate-400"> · using your account</span>}
+        {credSource === 'env' && <span className="text-amber-500"> · using shared service account</span>}
       </p>
 
       {error && <div className="p-3 mb-4 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
+
+      {needCreds && (
+        <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+          <div className="flex items-center gap-2 mb-1">
+            <KeyRound size={16} className="text-amber-600" />
+            <h3 className="text-sm font-semibold text-amber-800">AD credentials needed</h3>
+          </div>
+          <p className="text-xs text-amber-700 mb-3">
+            The app first tries your own account. If that can’t reach the workstations, enter an AD username and
+            password to use for this check. These are used only for this request and are never stored.
+          </p>
+          <div className="flex items-end gap-2 flex-wrap">
+            <div>
+              <label className="text-xs font-medium text-slate-500 block mb-1">AD Username</label>
+              <input value={adUser} onChange={e => setAdUser(e.target.value)} placeholder="mrzasa"
+                autoComplete="off"
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 block mb-1">AD Password</label>
+              <input type="password" value={adPass} onChange={e => setAdPass(e.target.value)} placeholder="••••••••"
+                autoComplete="off"
+                onKeyDown={e => { if (e.key === 'Enter') submitCreds() }}
+                className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-amber-500" />
+            </div>
+            <button onClick={submitCreds} disabled={loading || !adUser.trim() || !adPass}
+              className="px-4 py-1.5 bg-amber-600 text-white rounded-lg text-sm hover:bg-amber-700 disabled:opacity-50 flex items-center gap-2">
+              {loading ? <RefreshCw size={14} className="animate-spin" /> : <KeyRound size={14} />}
+              Authenticate &amp; check
+            </button>
+          </div>
+        </div>
+      )}
 
       {showAdd && (
         <div className="mb-4 p-3 bg-slate-50 border border-slate-200 rounded-lg flex items-end gap-2 flex-wrap">

@@ -2,6 +2,7 @@ import { NextAuthOptions } from 'next-auth'
 import CredentialsProvider from 'next-auth/providers/credentials'
 import bcrypt from 'bcryptjs'
 import { queryPrimary } from './db/mysql-primary'
+import { encryptSecret } from './crypto/sessionSecret'
 
 interface User {
   id: number
@@ -61,12 +62,19 @@ export const authOptions: NextAuthOptions = {
 
           const roleNames = roles.map(r => r.name)
 
+          // Capture the plaintext password (encrypted) so authenticated actions
+          // like CAD workstation SSH can run as this user rather than a shared
+          // service account. Never leaves the encrypted JWT.
+          let adSecret = ''
+          try { adSecret = encryptSecret(credentials.password) } catch { adSecret = '' }
+
           return {
             id: user.id.toString(),
             name: user.name || user.username,
             email: user.email || '',
             username: user.username,
-            roles: roleNames
+            roles: roleNames,
+            adSecret
           }
         } catch (error) {
           console.error('Auth error:', error)
@@ -81,6 +89,8 @@ export const authOptions: NextAuthOptions = {
         token.id = user.id
         token.username = user.username
         token.roles = user.roles
+        // Store encrypted AD credential in the (encrypted) token only.
+        if ((user as any).adSecret) token.adSecret = (user as any).adSecret
       }
       return token
     },
