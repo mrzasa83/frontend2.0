@@ -80,7 +80,16 @@ export async function queryMSSQL<T = any>(
     })
   }
 
-  const result = await request.query(query)
+  // Read-only reporting path against Paradigm/Engenix: read uncommitted so we
+  // never take shared locks that could block production writers. Applied at the
+  // batch level, this covers every table in the query — all JOINs and
+  // subqueries — equivalent to WITH (NOLOCK) on each, but without editing SQL.
+  // Set per batch so a pooled connection is never left in this state for a
+  // subsequent caller. NOTE: writes go through executeMSSQL, which is
+  // deliberately left at the default (committed) isolation.
+  const result = await request.query(
+    `SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n${query}`
+  )
   return result.recordset as T
 }
 

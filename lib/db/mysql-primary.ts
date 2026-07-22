@@ -14,11 +14,36 @@ export function getMySQLPrimaryPool() {
       connectionLimit: 10,
       queueLimit: 0,
       enableKeepAlive: true,
-      keepAliveInitialDelay: 0,
+      keepAliveInitialDelay: 10000,
       connectTimeout: 10000,
+      // Recycle idle sockets before a firewall/NAT idle-reaper silently drops
+      // them. A dropped-but-pooled socket is what surfaces as a fatal
+      // `read ETIMEDOUT` on the *next* query that happens to reuse it.
+      idleTimeout: 60000,   // close idle connections after 60s
+      maxIdle: 10,
     })
   }
   return pool
+}
+
+// Per-query ceiling so a hung read fails fast with a clear message instead of
+// blocking on the OS TCP read timeout (~110s, errno -110).
+const QUERY_TIMEOUT_MS = parseInt(process.env.DB_MYSQL_PRIMARY_QUERY_TIMEOUT_MS || '15000', 10)
+
+// Error codes that mean "the pooled connection was dead" rather than "your SQL
+// or data is bad". These are safe to retry once on a fresh connection.
+const RETRYABLE = new Set([
+  'ETIMEDOUT',
+  'PROTOCOL_CONNECTION_LOST',
+  'ECONNRESET',
+  'EPIPE',
+  'PROTOCOL_SEQUENCE_TIMEOUT',
+])
+
+function isRetryable(err: any): boolean {
+  const code = err?.code || ''
+  // `fatal` connection errors from mysql2 carry one of the codes above.
+  return RETRYABLE.has(code) || (err?.fatal === true && /timeout|reset|lost|pipe/i.test(err?.message || ''))
 }
 
 export async function queryPrimary<T = any>(
@@ -26,8 +51,26 @@ export async function queryPrimary<T = any>(
   params?: any[]
 ): Promise<T> {
   const pool = getMySQLPrimaryPool()
-  const [rows] = await pool.execute(sql, params)
-  return rows as T
+
+  // Note: the per-query `timeout` option applies to pool.query (text protocol),
+  // not pool.execute (binary prepared protocol). Parameters are still bound and
+  // escaped safely by mysql2, so injection safety is unchanged.
+  const run = async (): Promise<T> => {
+    const [rows] = await pool.query({ sql, values: params, timeout: QUERY_TIMEOUT_MS } as any)
+    return rows as T
+  }
+
+  try {
+    return await run()
+  } catch (err: any) {
+    if (isRetryable(err)) {
+      // The connection we drew from the pool was stale/half-open. mysql2 has
+      // already discarded it (fatal), so a second attempt draws a fresh one.
+      console.warn(`queryPrimary: retrying after ${err.code || 'fatal'} (stale pooled connection)`)
+      return await run()
+    }
+    throw err
+  }
 }
 
 // Test connection
