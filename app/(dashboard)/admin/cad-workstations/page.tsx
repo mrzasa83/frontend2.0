@@ -3,14 +3,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   MonitorSmartphone, RefreshCw, Plus, Trash2, ChevronDown, ChevronRight,
-  Circle, AlertTriangle, UserCheck, KeyRound,
+  Circle, AlertTriangle, UserCheck, KeyRound, Monitor,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 type UserInfo = { user: string; sessions: number; loggedInSecs: number }
 type MachineStatus = {
   id: number; hostname: string; label: string | null
-  reachable: boolean; error: string | null; users: UserInfo[]; activeCount: number
+  reachable: boolean; error: string | null; users: UserInfo[]; xpraUsers: UserInfo[]; activeCount: number
 }
 
 function fmtAge(secs: number): string {
@@ -210,24 +210,34 @@ export default function CadWorkstationsPage() {
 
                 {isOpen && m.reachable && (
                   <div className="border-t border-slate-100 px-3 py-2">
-                    {m.users.length === 0 ? (
+                    {(m.users.length === 0 && (m.xpraUsers?.length ?? 0) === 0) ? (
                       <p className="text-xs text-slate-400 py-1">Nobody logged in.</p>
                     ) : (
                       <table className="w-full text-sm">
                         <thead>
                           <tr className="text-xs text-slate-500">
                             <th className="text-left font-medium py-1">User</th>
-                            <th className="text-left font-medium py-1">Status</th>
+                            <th className="text-left font-medium py-1">Access</th>
                             <th className="text-right font-medium py-1">Logged in for</th>
                             <th className="text-right font-medium py-1">Sessions</th>
                           </tr>
                         </thead>
                         <tbody>
                           {m.users.map(u => (
-                            <tr key={u.user} className="border-t border-slate-50">
+                            <tr key={`tty-${u.user}`} className="border-t border-slate-50">
                               <td className="py-1.5 font-mono text-slate-800">{u.user}</td>
                               <td className="py-1.5">
                                 <span className="inline-flex items-center gap-1 text-xs text-green-700 bg-green-50 px-1.5 py-0.5 rounded"><UserCheck size={11} /> logged in</span>
+                              </td>
+                              <td className="py-1.5 text-right text-slate-600">{fmtAge(u.loggedInSecs)}</td>
+                              <td className="py-1.5 text-right text-slate-400">{u.sessions}</td>
+                            </tr>
+                          ))}
+                          {(m.xpraUsers ?? []).map(u => (
+                            <tr key={`xpra-${u.user}`} className="border-t border-slate-50">
+                              <td className="py-1.5 font-mono text-slate-800">{u.user}</td>
+                              <td className="py-1.5">
+                                <span className="inline-flex items-center gap-1 text-xs text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded"><Monitor size={11} /> xpra</span>
                               </td>
                               <td className="py-1.5 text-right text-slate-600">{fmtAge(u.loggedInSecs)}</td>
                               <td className="py-1.5 text-right text-slate-400">{u.sessions}</td>

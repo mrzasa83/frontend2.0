@@ -14,37 +14,76 @@ const SSH_PORT = parseInt(process.env.CAD_SSH_PORT || '22', 10)
 const FALLBACK_USER = process.env.CAD_SSH_USER || ''
 const FALLBACK_PASS = process.env.CAD_SSH_PASSWORD || ''
 
+// Two probes, emitted as tagged lines:
+//   SESS| — interactive logins from `who` (tty sessions)
+//   XPRA| — remote users tunneled in over SSH with no tty (xpra shows as an
+//           `sshd: <user>@notty` process). These never appear in `who`.
+// For xpra we can't read a clean login epoch from ps, so we use `etimes`
+// (elapsed seconds since the process started) and take the oldest matching
+// process per user as the session age.
 const REMOTE_CMD =
   'export LC_ALL=C; now=$(date +%s); ' +
+  // --- interactive tty logins ---
   'who 2>/dev/null | while read -r u ln d t rest; do ' +
   'ep=$(date -d "$d $t" +%s 2>/dev/null || echo 0); ' +
-  'echo "SESS|$u|$ep|$now"; done'
+  'echo "SESS|$u|$ep|$now"; done; ' +
+  // --- xpra / no-tty SSH transports ---
+  // ps -eo user,etimes,cmd, then keep sshd lines that are @notty (xpra/tunnel),
+  // drop the grep itself and any generic listener lines.
+  'ps -eo user:32,etimes,cmd 2>/dev/null | grep sshd | while read -r u et rest; do ' +
+  'echo "$rest" | grep -q "@notty" || continue; ' +
+  'echo "XPRA|$u|$et"; done'
 
 type UserInfo = { user: string; sessions: number; loggedInSecs: number }
 
-function parse(output: string, excludeUser: string): UserInfo[] {
+function parse(output: string, excludeUser: string): { users: UserInfo[]; xpraUsers: UserInfo[] } {
   const byUser: Record<string, { sessions: number; earliest: number; now: number }> = {}
+  // xpra has no login epoch; track the largest etimes (oldest process) per user.
+  const xpra: Record<string, { sessions: number; maxEtimes: number }> = {}
   const exclude = (excludeUser || '').toLowerCase()
 
-  for (const line of output.split('\n')) {
-    const m = line.match(/^SESS\|(\S+)\|(\d+)\|(\d+)$/)
-    if (!m) continue
-    const user = m[1]
-    const ep = parseInt(m[2], 10)
-    const now = parseInt(m[3], 10)
-    const lu = user.toLowerCase()
-    if (lu === 'root' || (exclude && lu === exclude)) continue
-    if (!byUser[user]) byUser[user] = { sessions: 0, earliest: Number.MAX_SAFE_INTEGER, now }
-    byUser[user].sessions++
-    if (ep > 0) byUser[user].earliest = Math.min(byUser[user].earliest, ep)
-    byUser[user].now = now
+  const skip = (u: string) => {
+    const lu = u.toLowerCase()
+    return lu === 'root' || (exclude && lu === exclude)
   }
 
-  return Object.entries(byUser).map(([user, v]) => ({
+  for (const line of output.split('\n')) {
+    const s = line.match(/^SESS\|(\S+)\|(\d+)\|(\d+)$/)
+    if (s) {
+      const user = s[1]
+      if (skip(user)) continue
+      const ep = parseInt(s[2], 10)
+      const now = parseInt(s[3], 10)
+      if (!byUser[user]) byUser[user] = { sessions: 0, earliest: Number.MAX_SAFE_INTEGER, now }
+      byUser[user].sessions++
+      if (ep > 0) byUser[user].earliest = Math.min(byUser[user].earliest, ep)
+      byUser[user].now = now
+      continue
+    }
+    const x = line.match(/^XPRA\|(\S+)\|(\d+)$/)
+    if (x) {
+      const user = x[1]
+      if (skip(user)) continue
+      const et = parseInt(x[2], 10)
+      if (!xpra[user]) xpra[user] = { sessions: 0, maxEtimes: 0 }
+      xpra[user].sessions++
+      xpra[user].maxEtimes = Math.max(xpra[user].maxEtimes, et)
+    }
+  }
+
+  const users = Object.entries(byUser).map(([user, v]) => ({
     user,
     sessions: v.sessions,
     loggedInSecs: v.earliest === Number.MAX_SAFE_INTEGER ? 0 : Math.max(0, v.now - v.earliest),
   })).sort((a, b) => b.loggedInSecs - a.loggedInSecs)
+
+  const xpraUsers = Object.entries(xpra).map(([user, v]) => ({
+    user,
+    sessions: v.sessions,
+    loggedInSecs: v.maxEtimes,
+  })).sort((a, b) => b.loggedInSecs - a.loggedInSecs)
+
+  return { users, xpraUsers }
 }
 
 // Distinguish an auth failure (wrong creds -> prompt the user) from a host being
@@ -107,12 +146,16 @@ async function handle(request: NextRequest) {
           host: m.hostname, port: SSH_PORT, username: cred.username, password: cred.password,
           command: REMOTE_CMD, timeoutMs: 10000,
         })
-        const users = parse(stdout, cred.username)
-        return { id: m.id, hostname: m.hostname, label: m.label, reachable: true, error: null, users, activeCount: users.length }
+        const { users, xpraUsers } = parse(stdout, cred.username)
+        return {
+          id: m.id, hostname: m.hostname, label: m.label, reachable: true, error: null,
+          users, xpraUsers,
+          activeCount: users.length + xpraUsers.length,
+        }
       } catch (e: any) {
         const msg = e?.message || String(e)
         if (isAuthError(msg)) sawAuthError = true
-        return { id: m.id, hostname: m.hostname, label: m.label, reachable: false, error: msg, users: [], activeCount: 0 }
+        return { id: m.id, hostname: m.hostname, label: m.label, reachable: false, error: msg, users: [], xpraUsers: [], activeCount: 0 }
       }
     }))
 
