@@ -38,3 +38,33 @@ CREATE TABLE IF NOT EXISTS inspection_po_cert_selections (
   UNIQUE KEY uq_po_cert (inspection_id, path_hash),
   INDEX idx_inspection (inspection_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+
+-- =============================================
+-- 3) po_cert_files  (file catalog)
+--    One row per (file × APC part) parsed from the PO folder tree. Populated by
+--    a scan of the drive (Admin/Refresh) so the FAI PO Certs tab can filter by
+--    part number instantly instead of walking the network share on every open.
+--    A file naming several APC parts (e.g. "76272 76273 5000611123-Version00")
+--    yields one row per part, so an exact part match still finds multi-part POs.
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS po_cert_files (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  po_folder      VARCHAR(190) NOT NULL,            -- top-level customer PO folder
+  apc_part       VARCHAR(20)  NOT NULL DEFAULT '', -- 5-digit APC part ('' if unparsed)
+  customer_part  VARCHAR(190) NOT NULL DEFAULT '', -- customer part number (reference)
+  version_label  VARCHAR(60)  NOT NULL DEFAULT '', -- Version00003 / CO2 / Original
+  version_rank   INT DEFAULT NULL,                 -- numeric rank for "latest"
+  file_name      VARCHAR(400) NOT NULL,
+  file_path      VARCHAR(700) NOT NULL,
+  rel_dir        VARCHAR(500) NOT NULL DEFAULT '', -- sub-path within the folder
+  file_mtime     DATETIME     NULL,                -- filesystem last-modified (sort key)
+  file_size      BIGINT       NULL,
+  path_hash      CHAR(40)     NOT NULL,            -- SHA1(file_path)
+  scanned_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_pocf (path_hash, apc_part),
+  INDEX idx_part    (apc_part),
+  INDEX idx_folder  (po_folder),
+  INDEX idx_mtime   (file_mtime)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
