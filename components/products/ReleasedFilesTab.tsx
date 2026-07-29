@@ -375,19 +375,23 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
     }
   }
 
-  // PO Certs — list from the catalog, linked by customer part number.
-  const poCustomer = (customer || '').trim()
-  const poCustPart = (customerPN || '').trim()
+  // PO Certs — same logic as the FAI tab: link on the APC part number, and let
+  // the server resolve the customer from that part (the product's own customer/
+  // customerPN fields are often blank).
+  const poApcPart = (partNumber || '').trim()
+  const [poResolvedCustomer, setPoResolvedCustomer] = useState('')
 
   const fetchPoCerts = async (opts?: { search?: string; selfilter?: boolean }) => {
-    if (!poCustomer) { setPoError('No customer on this product — cannot locate PO folders'); setPoFetched(true); return }
+    if (!poApcPart) { setPoError('No APC part on this product — cannot locate PO folders'); setPoFetched(true); return }
     const selfilter = opts?.selfilter ?? poSelfilter
     const search = opts?.search ?? poSearch
     setPoLoading(true); setPoError(''); setPoFetched(true)
     try {
-      const params = new URLSearchParams({ customer: poCustomer })
-      if (selfilter && poCustPart) params.set('custPart', poCustPart)
-      else params.set('all', '1')
+      const params = new URLSearchParams()
+      // Always send the part so the server can resolve the customer from it.
+      params.set('part', poApcPart)
+      if (!selfilter) params.set('all', '1')      // browse all files in the folder(s)
+      if (customer && customer.trim()) params.set('customer', customer.trim())
       if (search.trim()) params.set('q', search.trim())
 
       const res = await fetch(getApiUrl(`/api/operations/inspections/po-certs?${params.toString()}`))
@@ -396,21 +400,23 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
       setPoFiles(r.files || [])
       setPoFolders(r.folders || [])
       setPoUsedMapping(!!r.usedMapping)
+      setPoResolvedCustomer(r.resolvedCustomer || (customer || '').trim())
     } catch (e: any) { setPoError(e.message) }
     setPoLoading(false)
   }
 
   const refreshPoCatalog = async () => {
-    if (!poCustomer) return
+    if (!poApcPart) return
     setPoRefreshing(true); setPoError('')
     try {
       const res = await fetch(getApiUrl('/api/operations/inspections/po-certs'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customer: poCustomer }),
+        body: JSON.stringify({ customer: (customer || '').trim(), part: poApcPart }),
       })
       if (!res.ok) throw new Error((await res.json()).details || 'Refresh failed')
       const r = await res.json()
       setPoIndexedAt(r.refreshedAt || new Date().toISOString())
+      if (r.resolvedCustomer) setPoResolvedCustomer(r.resolvedCustomer)
       await fetchPoCerts()
     } catch (e: any) { setPoError(e.message) }
     setPoRefreshing(false)
@@ -510,7 +516,7 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
 
   // Debounced re-query when the PO cert search box or self-filter changes
   useEffect(() => {
-    if (activeSubTab !== 'po-certs' || !poFetched || !poCustomer) return
+    if (activeSubTab !== 'po-certs' || !poFetched || !poApcPart) return
     const t = setTimeout(() => { fetchPoCerts({ search: poSearch, selfilter: poSelfilter }) }, 300)
     return () => clearTimeout(t)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1360,12 +1366,12 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
                     placeholder="Search part / file..."
                     className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-52 focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 </div>
-                {poCustPart && (
+                {poApcPart && (
                   <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer whitespace-nowrap"
-                    title="Show only files whose customer part number matches this product">
+                    title="Show only files whose APC part number matches this product">
                     <input type="checkbox" checked={poSelfilter} onChange={e => setPoSelfilter(e.target.checked)}
                       className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
-                    Only this part ({poCustPart})
+                    Only this part ({poApcPart})
                   </label>
                 )}
                 <button onClick={refreshPoCatalog} disabled={poRefreshing || poLoading}
@@ -1376,14 +1382,14 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
               </div>
             </div>
             <p className="text-sm text-slate-600 mb-4">
-              Purchase-order certificates from the QC PO folder, linked by customer part number, newest first.
-              {poCustomer && <> Customer <span className="font-mono">{poCustomer}</span>.</>}
+              Purchase-order certificates from the QC PO folder, linked by APC part number, newest first.
+              {poResolvedCustomer && <> Customer <span className="font-mono">{poResolvedCustomer}</span>.</>}
               {!poUsedMapping && poFolders.length > 0 && <span className="text-amber-600"> Loose folder match — add a mapping in Admin ▸ PO Folders.</span>}
               {poIndexedAt && <span className="text-slate-400"> · indexed {new Date(poIndexedAt).toLocaleTimeString()}</span>}
             </p>
 
-            {!poCustomer ? (
-              <p className="text-sm text-amber-600">No customer on this product — cannot locate PO folders.</p>
+            {!poApcPart ? (
+              <p className="text-sm text-amber-600">No APC part on this product — cannot locate PO folders.</p>
             ) : poError ? (
               <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{poError}</div>
             ) : (poLoading || poRefreshing) ? (
@@ -1396,8 +1402,8 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
                 <p>
                   {poFolders.length === 0
                     ? 'No PO folder is mapped or matched for this customer. Add one in Admin ▸ PO Folders.'
-                    : poSelfilter && poCustPart
-                      ? <>No indexed files match customer part <span className="font-mono">{poCustPart}</span>. Try “Refresh index”, turn off “Only this part”, or search.</>
+                    : poSelfilter && poApcPart
+                      ? <>No indexed files match part <span className="font-mono">{poApcPart}</span>. Try “Refresh index”, turn off “Only this part”, or search.</>
                       : 'No indexed files yet for this customer. Click “Refresh index” to scan the PO folder.'}
                 </p>
                 {poFolders.length > 0 && (

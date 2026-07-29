@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
+import { queryMSSQL } from '@/lib/db/mssql'
 import { PO_ROOT, parsePoFilename, normCust } from '@/lib/certs/poParser'
 import { promises as fs } from 'fs'
 import path from 'path'
@@ -12,6 +13,26 @@ export const maxDuration = 300
 
 const MAX_DEPTH = 6
 const sha1 = (s: string) => crypto.createHash('sha1').update(s).digest('hex')
+
+// Resolve the Paradigm customer abbreviation (e.g. NORTBALT) from a part number,
+// the same way the FAI tab does: DATA0050.CUSTOMER_PART_NUMBER -> DATA0010.
+// Used when the caller has a part but no reliable customer (e.g. the Products
+// app, whose items.customer can be blank).
+async function customerFromPart(part: string): Promise<string> {
+  const base = (part || '').replace(/^Z/i, '').split(/\s+/)[0].trim()
+  if (!base) return ''
+  try {
+    const rows = await queryMSSQL('1', `
+      SELECT TOP 1 c.ABBR_NAME AS CustomerName
+      FROM DATA0050 d50 WITH (NOLOCK)
+      LEFT JOIN DATA0010 c WITH (NOLOCK) ON d50.CUSTOMER_PTR = c.RKEY
+      WHERE d50.CUSTOMER_PART_NUMBER LIKE @p
+      ORDER BY d50.CUSTOMER_PART_NUMBER
+    `, { p: `${base}%` }) as any[]
+    if (rows?.length && rows[0].CustomerName) return String(rows[0].CustomerName).trim()
+  } catch { /* leave unresolved */ }
+  return ''
+}
 
 // Recursively collect PDFs (with stat) under a directory.
 async function walkPdfs(dir: string, depth: number, out: { full: string; mtime: Date | null; size: number | null }[]) {
@@ -158,23 +179,26 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
-  const customer = searchParams.get('customer') || ''
+  let customer = searchParams.get('customer') || ''
   const part = (searchParams.get('part') || '').trim()
   const custPart = (searchParams.get('custPart') || '').trim()
   const q = (searchParams.get('q') || '').trim()
   const showAll = searchParams.get('all') === '1'
 
   try {
+    // If no customer was supplied, derive it from the part number (Products app).
+    if (!customer.trim() && part) customer = await customerFromPart(part)
+
     const { folders, usedMapping } = await resolveFolders(customer)
     if (!folders.length) {
       return NextResponse.json({ success: true, files: [], folders: [], usedMapping, scanned: false,
-        note: 'No PO folder resolved for this customer' })
+        resolvedCustomer: customer, note: 'No PO folder resolved for this customer' })
     }
 
     const where: string[] = [`po_folder IN (${folders.map(() => '?').join(',')})`]
     const args: any[] = [...folders]
 
-    // Exact APC part match (FAI tab) OR loose customer-part match (Products tab).
+    // Exact APC part match (FAI + Products tabs) OR loose customer-part match.
     if (part && !showAll) { where.push('apc_part = ?'); args.push(part) }
     else if (custPart && !showAll) { where.push('customer_part LIKE ?'); args.push(`%${custPart}%`) }
     if (q) {
@@ -193,6 +217,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true, files: (rows || []).map(mapRow), folders, usedMapping, scanned: true,
+      resolvedCustomer: customer,
     })
   } catch (error) {
     console.error('PO cert list error:', error)
@@ -208,14 +233,16 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const { customer } = await request.json()
-    const { folders, usedMapping } = await resolveFolders(customer || '')
+    const { customer, part } = await request.json()
+    let cust = (customer || '').trim()
+    if (!cust && part) cust = await customerFromPart(String(part))
+    const { folders, usedMapping } = await resolveFolders(cust)
     if (!folders.length) {
       return NextResponse.json({ success: true, folders: [], usedMapping, indexed: 0,
-        note: 'No PO folder resolved for this customer' })
+        resolvedCustomer: cust, note: 'No PO folder resolved for this customer' })
     }
     const indexed = await rebuildCatalog(folders)
-    return NextResponse.json({ success: true, folders, usedMapping, indexed, refreshedAt: new Date().toISOString() })
+    return NextResponse.json({ success: true, folders, usedMapping, indexed, resolvedCustomer: cust, refreshedAt: new Date().toISOString() })
   } catch (error) {
     console.error('PO cert refresh error:', error)
     return NextResponse.json({ error: 'Failed to refresh PO cert catalog',
