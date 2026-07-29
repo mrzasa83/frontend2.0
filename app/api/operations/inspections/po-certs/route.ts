@@ -160,6 +160,7 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const customer = searchParams.get('customer') || ''
   const part = (searchParams.get('part') || '').trim()
+  const custPart = (searchParams.get('custPart') || '').trim()
   const q = (searchParams.get('q') || '').trim()
   const showAll = searchParams.get('all') === '1'
 
@@ -173,7 +174,9 @@ export async function GET(request: NextRequest) {
     const where: string[] = [`po_folder IN (${folders.map(() => '?').join(',')})`]
     const args: any[] = [...folders]
 
+    // Exact APC part match (FAI tab) OR loose customer-part match (Products tab).
     if (part && !showAll) { where.push('apc_part = ?'); args.push(part) }
+    else if (custPart && !showAll) { where.push('customer_part LIKE ?'); args.push(`%${custPart}%`) }
     if (q) {
       where.push('(apc_part LIKE ? OR customer_part LIKE ? OR file_name LIKE ?)')
       const like = `%${q}%`; args.push(like, like, like)

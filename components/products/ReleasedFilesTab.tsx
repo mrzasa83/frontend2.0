@@ -6,7 +6,8 @@ import {
   FileText, FolderOpen, ChevronDown, ChevronRight, 
   Download, File, FileImage, FileSpreadsheet, Eye,
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
-  TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History
+  TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History,
+  Search, FileCheck, X
 } from 'lucide-react'
 import DataView from '@/components/ui/DataView'
 import BOMTreeNavigator from '@/components/ui/BOMTreeNavigator'
@@ -47,6 +48,8 @@ type ProductionData = {
 
 type Props = {
   partNumber: string
+  customerPN?: string | null
+  customer?: string | null
   onStatusChange?: (status: string) => void
   onBuildLocationChange?: (location: string) => void
 }
@@ -103,7 +106,7 @@ function formatDate(isoDate: string): string {
   })
 }
 
-export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLocationChange }: Props) {
+export default function ReleasedFilesTab({ partNumber, customerPN, customer, onStatusChange, onBuildLocationChange }: Props) {
   const [activeSubTab, setActiveSubTab] = useState('general')
   const [preview, setPreview] = useState<{ files: FileInfo[]; index: number } | null>(null)
   
@@ -156,6 +159,19 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
   const [fiLoading, setFiLoading] = useState(false)
   const [fiError, setFiError] = useState<string | null>(null)
   const [fiExpanded, setFiExpanded] = useState<Set<string>>(new Set())
+
+  // PO Certs data (linked by customer part number)
+  const [poFiles, setPoFiles] = useState<any[]>([])
+  const [poLoading, setPoLoading] = useState(false)
+  const [poRefreshing, setPoRefreshing] = useState(false)
+  const [poError, setPoError] = useState('')
+  const [poFetched, setPoFetched] = useState(false)
+  const [poFolders, setPoFolders] = useState<string[]>([])
+  const [poUsedMapping, setPoUsedMapping] = useState(false)
+  const [poSelfilter, setPoSelfilter] = useState(true)
+  const [poSearch, setPoSearch] = useState('')
+  const [poIndexedAt, setPoIndexedAt] = useState('')
+  const [poPreview, setPoPreview] = useState<{ url: string; name: string } | null>(null)
   
   // Build Drawings data
   const [bdNetworkFiles, setBdNetworkFiles] = useState<FileInfo[]>([])
@@ -359,6 +375,47 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     }
   }
 
+  // PO Certs — list from the catalog, linked by customer part number.
+  const poCustomer = (customer || '').trim()
+  const poCustPart = (customerPN || '').trim()
+
+  const fetchPoCerts = async (opts?: { search?: string; selfilter?: boolean }) => {
+    if (!poCustomer) { setPoError('No customer on this product — cannot locate PO folders'); setPoFetched(true); return }
+    const selfilter = opts?.selfilter ?? poSelfilter
+    const search = opts?.search ?? poSearch
+    setPoLoading(true); setPoError(''); setPoFetched(true)
+    try {
+      const params = new URLSearchParams({ customer: poCustomer })
+      if (selfilter && poCustPart) params.set('custPart', poCustPart)
+      else params.set('all', '1')
+      if (search.trim()) params.set('q', search.trim())
+
+      const res = await fetch(getApiUrl(`/api/operations/inspections/po-certs?${params.toString()}`))
+      if (!res.ok) throw new Error((await res.json()).details || 'Failed')
+      const r = await res.json()
+      setPoFiles(r.files || [])
+      setPoFolders(r.folders || [])
+      setPoUsedMapping(!!r.usedMapping)
+    } catch (e: any) { setPoError(e.message) }
+    setPoLoading(false)
+  }
+
+  const refreshPoCatalog = async () => {
+    if (!poCustomer) return
+    setPoRefreshing(true); setPoError('')
+    try {
+      const res = await fetch(getApiUrl('/api/operations/inspections/po-certs'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer: poCustomer }),
+      })
+      if (!res.ok) throw new Error((await res.json()).details || 'Refresh failed')
+      const r = await res.json()
+      setPoIndexedAt(r.refreshedAt || new Date().toISOString())
+      await fetchPoCerts()
+    } catch (e: any) { setPoError(e.message) }
+    setPoRefreshing(false)
+  }
+
   const fetchBuildDrawings = async () => {
     setBdLoading(true)
     setBdError(null)
@@ -442,11 +499,22 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
       case 'pack-ship':
         if (psData.length === 0) fetchPackShip()
         break
+      case 'po-certs':
+        if (!poFetched) fetchPoCerts()
+        break
       case 'changes':
         fetchChangesData()
         break
     }
   }, [activeSubTab, partNumber])
+
+  // Debounced re-query when the PO cert search box or self-filter changes
+  useEffect(() => {
+    if (activeSubTab !== 'po-certs' || !poFetched || !poCustomer) return
+    const t = setTimeout(() => { fetchPoCerts({ search: poSearch, selfilter: poSelfilter }) }, 300)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [poSearch, poSelfilter])
 
   // ========================================
   // HELPER FUNCTIONS
@@ -560,6 +628,7 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
     { id: 'final-inspection', label: 'Final Inspection', icon: ClipboardList },
     { id: 'build-drawings', label: 'Build Drawings', icon: FileText },
     { id: 'pack-ship', label: 'Pack & Ship', icon: Truck },
+    { id: 'po-certs', label: 'PO Certs', icon: FileCheck },
     { id: 'changes', label: 'Changes', icon: History },
   ]
 
@@ -1277,6 +1346,130 @@ export default function ReleasedFilesTab({ partNumber, onStatusChange, onBuildLo
               Packaging and shipping documentation
             </p>
             {renderSimpleFileList(psData, psLoading, psError, fetchPackShip)}
+          </div>
+        )}
+
+        {activeSubTab === 'po-certs' && (
+          <div>
+            <div className="flex items-center justify-between gap-3 flex-wrap mb-1">
+              <h3 className="text-lg font-semibold text-slate-800">PO Certs</h3>
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative">
+                  <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+                  <input value={poSearch} onChange={e => setPoSearch(e.target.value)}
+                    placeholder="Search part / file..."
+                    className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-52 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                </div>
+                {poCustPart && (
+                  <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer whitespace-nowrap"
+                    title="Show only files whose customer part number matches this product">
+                    <input type="checkbox" checked={poSelfilter} onChange={e => setPoSelfilter(e.target.checked)}
+                      className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+                    Only this part ({poCustPart})
+                  </label>
+                )}
+                <button onClick={refreshPoCatalog} disabled={poRefreshing || poLoading}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50 border border-slate-200"
+                  title="Re-scan the PO folder on the drive and rebuild the index">
+                  <RefreshCw size={14} className={poRefreshing ? 'animate-spin' : ''} /> {poRefreshing ? 'Indexing…' : 'Refresh index'}
+                </button>
+              </div>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Purchase-order certificates from the QC PO folder, linked by customer part number, newest first.
+              {poCustomer && <> Customer <span className="font-mono">{poCustomer}</span>.</>}
+              {!poUsedMapping && poFolders.length > 0 && <span className="text-amber-600"> Loose folder match — add a mapping in Admin ▸ PO Folders.</span>}
+              {poIndexedAt && <span className="text-slate-400"> · indexed {new Date(poIndexedAt).toLocaleTimeString()}</span>}
+            </p>
+
+            {!poCustomer ? (
+              <p className="text-sm text-amber-600">No customer on this product — cannot locate PO folders.</p>
+            ) : poError ? (
+              <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{poError}</div>
+            ) : (poLoading || poRefreshing) ? (
+              <div className="flex items-center justify-center py-8 text-slate-600">
+                <RefreshCw size={24} className="animate-spin text-blue-600" />
+                <span className="ml-2">{poRefreshing ? 'Scanning the PO folder…' : 'Loading PO certs…'}</span>
+              </div>
+            ) : poFiles.length === 0 ? (
+              <div className="text-sm text-slate-500 space-y-3">
+                <p>
+                  {poFolders.length === 0
+                    ? 'No PO folder is mapped or matched for this customer. Add one in Admin ▸ PO Folders.'
+                    : poSelfilter && poCustPart
+                      ? <>No indexed files match customer part <span className="font-mono">{poCustPart}</span>. Try “Refresh index”, turn off “Only this part”, or search.</>
+                      : 'No indexed files yet for this customer. Click “Refresh index” to scan the PO folder.'}
+                </p>
+                {poFolders.length > 0 && (
+                  <button onClick={refreshPoCatalog} disabled={poRefreshing}
+                    className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2">
+                    <RefreshCw size={14} className={poRefreshing ? 'animate-spin' : ''} /> Refresh index
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 whitespace-nowrap">File Date</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 whitespace-nowrap">APC Part</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Customer Part #</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Version</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">PO Folder</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">File</th>
+                      <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-16">View</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {poFiles.map((r, i) => {
+                      const fmtDate = (v: any) => {
+                        if (!v) return '—'
+                        const d = new Date(v)
+                        return isNaN(d.getTime()) ? '—' : d.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+                      }
+                      const dl = getApiUrl(`/api/operations/inspections/po-certs/download?path=${encodeURIComponent(r.filePath)}`)
+                      return (
+                        <tr key={`${r.filePath}-${r.apcPart}-${i}`} className="border-t border-slate-100 hover:bg-slate-50">
+                          <td className="px-3 py-2 text-slate-600 text-xs whitespace-nowrap">{fmtDate(r.fileMtime)}</td>
+                          <td className="px-3 py-2 font-mono text-slate-800 whitespace-nowrap">{r.apcPart || <span className="text-slate-300">—</span>}</td>
+                          <td className="px-3 py-2 font-mono text-slate-600 text-xs">{r.customerPart || '—'}</td>
+                          <td className="px-3 py-2 text-xs whitespace-nowrap">
+                            {r.version
+                              ? <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{r.version}</span>
+                              : <span className="text-slate-300">—</span>}
+                          </td>
+                          <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{r.folder}{r.relDir ? ` / ${r.relDir}` : ''}</td>
+                          <td className="px-3 py-2 text-slate-500 text-xs">{r.fileName}</td>
+                          <td className="px-3 py-2">
+                            <button onClick={() => setPoPreview({ url: dl, name: r.fileName })}
+                              className="text-slate-500 hover:text-blue-600" title="Preview in window">
+                              <Eye size={15} />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {poPreview && (
+              <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={() => setPoPreview(null)}>
+                <div className="bg-white rounded-xl shadow-2xl flex flex-col w-[80vw] h-[90vh]" onClick={e => e.stopPropagation()}>
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-shrink-0">
+                    <h3 className="text-sm font-medium text-slate-700 truncate pr-4" title={poPreview.name}>{poPreview.name}</h3>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <a href={`${poPreview.url}&download=true`} target="_blank" rel="noopener noreferrer"
+                        className="text-slate-500 hover:text-green-600 p-1" title="Download"><Download size={16} /></a>
+                      <button onClick={() => setPoPreview(null)} className="text-slate-500 hover:text-slate-800 p-1" title="Close"><X size={18} /></button>
+                    </div>
+                  </div>
+                  <iframe src={poPreview.url} title={poPreview.name} className="flex-1 w-full rounded-b-xl" />
+                </div>
+              </div>
+            )}
           </div>
         )}
 

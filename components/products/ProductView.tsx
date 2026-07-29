@@ -164,6 +164,8 @@ export default function ProductView({ product, onClose }: Props) {
   const releasedTab = (
     <ReleasedFilesTab 
       partNumber={product.apcPN} 
+      customerPN={product.customerPN}
+      customer={product.customer}
       onStatusChange={handleStatusChange}
       onBuildLocationChange={handleBuildLocationChange}
     />
