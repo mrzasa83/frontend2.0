@@ -52,6 +52,10 @@ type Props = {
   customer?: string | null
   onStatusChange?: (status: string) => void
   onBuildLocationChange?: (location: string) => void
+  /** Start focused on a specific sub-tab (e.g. 'po-certs', 'final-inspection'). */
+  initialSubTab?: string
+  /** Restrict the left rail to this set of sub-tab ids (order preserved). */
+  onlySubTabs?: string[]
 }
 
 // Convert Linux path to Windows path for display
@@ -106,8 +110,8 @@ function formatDate(isoDate: string): string {
   })
 }
 
-export default function ReleasedFilesTab({ partNumber, customerPN, customer, onStatusChange, onBuildLocationChange }: Props) {
-  const [activeSubTab, setActiveSubTab] = useState('general')
+export default function ReleasedFilesTab({ partNumber, customerPN, customer, onStatusChange, onBuildLocationChange, initialSubTab, onlySubTabs }: Props) {
+  const [activeSubTab, setActiveSubTab] = useState(initialSubTab || 'general')
   const [preview, setPreview] = useState<{ files: FileInfo[]; index: number } | null>(null)
   
   // ========================================
@@ -623,7 +627,7 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
   // ========================================
   // SUB-TAB DEFINITIONS
   // ========================================
-  const subTabs = [
+  const allSubTabs = [
     { id: 'general', label: 'General', icon: ClipboardList },
     { id: 'bom', label: 'BOM', icon: Package },
     { id: 'yield', label: 'Yield', icon: TrendingUp },
@@ -637,6 +641,9 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
     { id: 'po-certs', label: 'PO Certs', icon: FileCheck },
     { id: 'changes', label: 'Changes', icon: History },
   ]
+  const subTabs = onlySubTabs && onlySubTabs.length
+    ? onlySubTabs.map(id => allSubTabs.find(t => t.id === id)).filter(Boolean) as typeof allSubTabs
+    : allSubTabs
 
   // ========================================
   // RENDER HELPERS

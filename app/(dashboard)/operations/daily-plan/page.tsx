@@ -3,6 +3,8 @@
 import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react'
 import { RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, Download } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import Tabs from '@/components/ui/Tabs'
+import WorkOrderDetail from '@/components/operations/WorkOrderDetail'
 
 type Row = Record<string, any>
 
@@ -79,6 +81,21 @@ export default function DailyPlanPage() {
 
   const [laborHours, setLaborHours] = useState<Record<string, number>>({})
   const [laborLoading, setLaborLoading] = useState(false)
+
+  // Tabbed workspace: base "All Work Orders" tab + one tab per opened work order
+  const [openWOs, setOpenWOs] = useState<{ workOrder: string; row: Row }[]>([])
+  const [activeTab, setActiveTab] = useState('all')
+
+  const openWorkOrder = (row: Row) => {
+    const wo = String(row.WORK_ORDER ?? '').trim()
+    if (!wo) return
+    setOpenWOs(prev => prev.some(o => o.workOrder === wo) ? prev : [...prev, { workOrder: wo, row }])
+    setActiveTab(`wo-${wo}`)
+  }
+  const closeWorkOrder = (wo: string) => {
+    setOpenWOs(prev => prev.filter(o => o.workOrder !== wo))
+    setActiveTab(cur => cur === `wo-${wo}` ? 'all' : cur)
+  }
 
   const load = useCallback(async () => {
     setLoading(true); setError(''); setLaborHours({})
@@ -190,6 +207,12 @@ export default function DailyPlanPage() {
   }
 
   const cell = (row: Row, c: typeof COLUMNS[number]) => {
+    if (c.key === 'WORK_ORDER') {
+      const wo = row.WORK_ORDER
+      return wo
+        ? <button onClick={() => openWorkOrder(row)} className="text-blue-600 hover:text-blue-800 hover:underline font-medium">{wo}</button>
+        : ''
+    }
     if (c.key === 'REMAINING_LABOR_HOURS') {
       const h = laborHours[String(row.WORK_ORDER ?? '').trim()]
       return h == null ? <span className="text-slate-300">—</span> : h
@@ -198,7 +221,7 @@ export default function DailyPlanPage() {
     return row[c.key] ?? ''
   }
 
-  return (
+  const dailyPlanTable = (
     <div className="p-6">
       <div className="flex items-center justify-between mb-2 flex-wrap gap-3">
         <div>
@@ -315,6 +338,27 @@ export default function DailyPlanPage() {
         </div>
         </>
       )}
+    </div>
+  )
+
+  const tabs = [
+    { id: 'all', label: 'All Work Orders', content: dailyPlanTable },
+    ...openWOs.map(({ workOrder, row }) => ({
+      id: `wo-${workOrder}`,
+      label: workOrder,
+      closeable: true,
+      onClose: () => closeWorkOrder(workOrder),
+      content: (
+        <div className="p-6">
+          <WorkOrderDetail workOrder={workOrder} row={row} />
+        </div>
+      ),
+    })),
+  ]
+
+  return (
+    <div>
+      <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} preserveState={true} />
     </div>
   )
 }
