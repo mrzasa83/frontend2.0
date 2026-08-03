@@ -105,7 +105,25 @@ export async function GET(request: NextRequest) {
             CASE WHEN p4.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p4.PRODUCTION_PARAMETER) ELSE '' END +
             CASE WHEN p5.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p5.PRODUCTION_PARAMETER) ELSE '' END,
             1, 3, '')
-        ) AS PARAMETER_NAMES
+        ) AS PARAMETER_NAMES,
+        -- Additional Route Step Parameters (DATA0471 values → DATA0469 defs),
+        -- multiple per step, seq-ordered, blended into "name: value" lines.
+        -- PARAM_NOTE / values are ntext → CAST to nvarchar(max) before concat.
+        (
+          STUFF((
+            SELECT '; ' +
+              LTRIM(RTRIM(ISNULL(d469.PARAMETER_DESC, d469.PARAMETER_CODE))) + ': ' +
+              LTRIM(RTRIM(ISNULL(CAST(d471.PARAMETER_VALUE AS NVARCHAR(MAX)), ''))) +
+              CASE WHEN LTRIM(RTRIM(ISNULL(CAST(d471.PARAM_NOTE AS NVARCHAR(MAX)),''))) <> ''
+                   THEN ' (' + LTRIM(RTRIM(CAST(d471.PARAM_NOTE AS NVARCHAR(MAX)))) + ')'
+                   ELSE '' END
+            FROM DATA0471 d471
+            INNER JOIN DATA0469 d469 ON d469.RKEY = d471.DATA0469_PTR
+            WHERE d471.DATA0038_PTR = d38.RKEY
+            ORDER BY d471.SEQUENCE_NO
+            FOR XML PATH(''), TYPE
+          ).value('.', 'NVARCHAR(MAX)'), 1, 2, '')
+        ) AS EXT_PARAMETERS
       FROM DATA0006 wo
       INNER JOIN DATA0038 d38 ON d38.SOURCE_PTR = wo.RKEY AND d38.TTYPE = 2
       LEFT JOIN DATA0034 d34 ON d34.RKEY = d38.DEPT_PTR

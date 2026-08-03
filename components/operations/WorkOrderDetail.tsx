@@ -23,6 +23,7 @@ type RouteStep = {
   INSTRUCTION_TEXT?: string | null
   PARAMETERS?: string | null
   PARAMETER_NAMES?: string | null
+  EXT_PARAMETERS?: string | null
 }
 
 const TABS = [
@@ -176,7 +177,7 @@ export default function WorkOrderDetail({ workOrder, row }: WorkOrderDetailProps
                     {route.map((s, i) => {
                       const isCurrent = currentStep != null && s.STEP_NUMBER === currentStep
                       const isDone = currentStep != null && s.STEP_NUMBER < currentStep
-                      const hasDetail = !!(s.INSTRUCTION_CODES?.trim() || s.INSTRUCTION_TEXT?.trim() || s.PARAMETERS?.trim() || s.PARAMETER_NAMES?.trim())
+                      const hasDetail = !!(s.INSTRUCTION_CODES?.trim() || s.INSTRUCTION_TEXT?.trim() || s.PARAMETERS?.trim() || s.PARAMETER_NAMES?.trim() || s.EXT_PARAMETERS?.trim())
                       const open = expandedSteps.has(s.STEP_NUMBER)
                       return (
                         <FragmentRow key={`${s.STEP_NUMBER}-${i}`}>
@@ -222,6 +223,16 @@ export default function WorkOrderDetail({ workOrder, row }: WorkOrderDetailProps
                                   {s.PARAMETERS?.trim() && (
                                     <div><span className="font-medium text-slate-500 uppercase tracking-wide">Values: </span>
                                       <span className="font-mono text-slate-700">{s.PARAMETERS}</span></div>
+                                  )}
+                                  {s.EXT_PARAMETERS?.trim() && (
+                                    <div>
+                                      <span className="font-medium text-slate-500 uppercase tracking-wide">Additional Parameters: </span>
+                                      <div className="mt-0.5 space-y-0.5">
+                                        {s.EXT_PARAMETERS.split('; ').map((line, li) => (
+                                          <div key={li} className="font-mono text-slate-700">{line}</div>
+                                        ))}
+                                      </div>
+                                    </div>
                                   )}
                                 </div>
                               </td>
