@@ -77,6 +77,16 @@ export default function OperationsPage() {
         <h2 className="text-lg font-semibold text-slate-800 mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <a
+            href="/operations/daily-plan"
+            className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
+          >
+            <Calendar size={24} className="text-indigo-600" />
+            <div>
+              <p className="font-medium text-slate-800">Daily Plan</p>
+              <p className="text-sm text-slate-600">Active work orders — sortable, filterable</p>
+            </div>
+          </a>
+          <a
             href="/operations/audits"
             className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
           >
