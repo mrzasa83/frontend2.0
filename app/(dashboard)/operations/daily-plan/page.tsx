@@ -76,6 +76,7 @@ export default function DailyPlanPage() {
 
   const [globalFilter, setGlobalFilter] = useState('')
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const [releasedOnly, setReleasedOnly] = useState(true)
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null)
   const [page, setPage] = useState(1)
 
@@ -117,6 +118,10 @@ export default function DailyPlanPage() {
     const g = globalFilter.trim().toLowerCase()
     const active = Object.entries(colFilters).filter(([, v]) => v.trim())
     return rows.filter(row => {
+      // Released-only: hide unreleased / on-hold-unreleased rows. The LOCATION
+      // field carries "....UNRELEASED...." and "xxxON HOLD UNRELxxx" for those;
+      // both contain "UNREL". On-hold-*released* rows stay.
+      if (releasedOnly && String(row.LOCATION ?? '').toUpperCase().includes('UNREL')) return false
       if (g) {
         const hit = COLUMNS.some(c => String(row[c.key] ?? '').toLowerCase().includes(g))
         if (!hit) return false
@@ -126,7 +131,7 @@ export default function DailyPlanPage() {
       }
       return true
     })
-  }, [rows, globalFilter, colFilters])
+  }, [rows, globalFilter, colFilters, releasedOnly])
 
   // Sorting
   const sorted = useMemo(() => {
@@ -148,7 +153,7 @@ export default function DailyPlanPage() {
     setSort(s => s?.key === key ? (s.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' })
 
   // Reset to page 1 whenever the filtered/sorted set changes shape.
-  useEffect(() => { setPage(1) }, [globalFilter, colFilters, sort, rows])
+  useEffect(() => { setPage(1) }, [globalFilter, colFilters, sort, rows, releasedOnly])
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
   const pageClamped = Math.min(page, totalPages)
@@ -234,6 +239,12 @@ export default function DailyPlanPage() {
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer whitespace-nowrap mr-1"
+            title="Hide unreleased and on-hold-unreleased work orders">
+            <input type="checkbox" checked={releasedOnly} onChange={e => setReleasedOnly(e.target.checked)}
+              className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" />
+            Released only
+          </label>
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
             <input value={globalFilter} onChange={e => setGlobalFilter(e.target.value)}
