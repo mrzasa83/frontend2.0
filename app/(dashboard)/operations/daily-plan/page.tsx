@@ -1,19 +1,22 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react'
 import { RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, Download } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 type Row = Record<string, any>
 
 // Column definitions: key must match the SQL alias. label is the header.
-const COLUMNS: { key: string; label: string; num?: boolean; date?: boolean }[] = [
-  { key: 'ABBR_NAME', label: 'Customer' },
-  { key: 'CUSTOMER_PART_NUMBER', label: 'Cust Part #' },
-  { key: 'SALES_ORDER', label: 'Sales Order' },
-  { key: 'WORK_ORDER', label: 'Work Order' },
-  { key: 'PTY', label: 'Pty' },
-  { key: 'INV_PART_NUMBER', label: 'Inv Part #' },
+// The first 6 columns are frozen (sticky-left); `w` is their fixed width in px
+// so we can compute cumulative left offsets.
+const FROZEN_COUNT = 6
+const COLUMNS: { key: string; label: string; num?: boolean; date?: boolean; w?: number }[] = [
+  { key: 'ABBR_NAME', label: 'Customer', w: 96 },
+  { key: 'CUSTOMER_PART_NUMBER', label: 'Cust Part #', w: 90 },
+  { key: 'SALES_ORDER', label: 'Sales Order', w: 110 },
+  { key: 'WORK_ORDER', label: 'Work Order', w: 110 },
+  { key: 'PTY', label: 'Pty', w: 44 },
+  { key: 'INV_PART_NUMBER', label: 'Inv Part #', w: 110 },
   { key: 'INV_PART_DESCRIPTION', label: 'Description' },
   { key: 'SCHED', label: 'Sched', num: true },
   { key: 'BKLG', label: 'Bklg', num: true },
@@ -47,6 +50,15 @@ const COLUMNS: { key: string; label: string; num?: boolean; date?: boolean }[] =
   { key: 'REMAINING_LABOR_HOURS', label: 'Rem Hrs', num: true },
 ]
 
+// Cumulative left offset (px) for each frozen column.
+const FROZEN_LEFT: number[] = (() => {
+  const arr: number[] = []
+  let acc = 0
+  for (let i = 0; i < FROZEN_COUNT; i++) { arr.push(acc); acc += COLUMNS[i].w || 100 }
+  return arr
+})()
+const PAGE_SIZE = 100
+
 function fmtDate(v: any): string {
   if (!v) return ''
   const d = new Date(v)
@@ -63,6 +75,7 @@ export default function DailyPlanPage() {
   const [globalFilter, setGlobalFilter] = useState('')
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null)
+  const [page, setPage] = useState(1)
 
   const [laborHours, setLaborHours] = useState<Record<string, number>>({})
   const [laborLoading, setLaborLoading] = useState(false)
@@ -117,9 +130,35 @@ export default function DailyPlanPage() {
   const toggleSort = (key: string) =>
     setSort(s => s?.key === key ? (s.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' })
 
-  // Lazy labor hours for the currently filtered set
+  // Reset to page 1 whenever the filtered/sorted set changes shape.
+  useEffect(() => { setPage(1) }, [globalFilter, colFilters, sort, rows])
+
+  const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE))
+  const pageClamped = Math.min(page, totalPages)
+  const paged = useMemo(
+    () => sorted.slice((pageClamped - 1) * PAGE_SIZE, pageClamped * PAGE_SIZE),
+    [sorted, pageClamped]
+  )
+  const pageStart = sorted.length === 0 ? 0 : (pageClamped - 1) * PAGE_SIZE + 1
+  const pageEnd = Math.min(pageClamped * PAGE_SIZE, sorted.length)
+
+  // Sticky styling for the frozen leading columns.
+  const frozenStyle = (idx: number, isHeader: boolean): CSSProperties =>
+    idx < FROZEN_COUNT
+      ? {
+          position: 'sticky',
+          left: FROZEN_LEFT[idx],
+          zIndex: isHeader ? 30 : 20,
+          width: COLUMNS[idx].w,
+          minWidth: COLUMNS[idx].w,
+          maxWidth: COLUMNS[idx].w,
+          boxShadow: idx === FROZEN_COUNT - 1 ? '2px 0 4px -2px rgba(0,0,0,0.15)' : undefined,
+        }
+      : {}
+
+  // Lazy labor hours for the current page's work orders
   const loadLaborHours = async () => {
-    const wos = [...new Set(sorted.map(r => String(r.WORK_ORDER ?? '').trim()).filter(Boolean))]
+    const wos = [...new Set(paged.map(r => String(r.WORK_ORDER ?? '').trim()).filter(Boolean))]
     if (!wos.length) return
     setLaborLoading(true)
     try {
@@ -127,7 +166,10 @@ export default function DailyPlanPage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ workOrders: wos }),
       })
-      if (res.ok) setLaborHours((await res.json()).hours || {})
+      if (res.ok) {
+        const data = await res.json()
+        setLaborHours(prev => ({ ...prev, ...(data.hours || {}) }))
+      }
     } catch { /* best-effort */ }
     setLaborLoading(false)
   }
@@ -200,14 +242,18 @@ export default function DailyPlanPage() {
       ) : rows.length === 0 ? (
         <p className="text-sm text-slate-400 py-8">No active work orders returned.</p>
       ) : (
-        <div className="bg-white border border-slate-200 rounded-lg overflow-auto" style={{ maxHeight: 'calc(100vh - 190px)' }}>
-          <table className="text-xs whitespace-nowrap">
-            <thead className="bg-slate-50 sticky top-0 z-10">
+        <>
+        <div className="bg-white border border-slate-200 rounded-lg overflow-auto" style={{ maxHeight: 'calc(100vh - 230px)' }}>
+          <table className="text-xs whitespace-nowrap border-separate" style={{ borderSpacing: 0 }}>
+            <thead className="sticky top-0 z-40">
               <tr>
-                {COLUMNS.map(c => {
+                {COLUMNS.map((c, idx) => {
                   const active = sort?.key === c.key
+                  const frozen = idx < FROZEN_COUNT
                   return (
-                    <th key={c.key} className="px-2 py-2 text-left font-medium text-slate-600 border-b border-slate-200">
+                    <th key={c.key}
+                      className={`px-2 py-2 text-left font-medium text-slate-600 border-b border-slate-200 ${frozen ? 'bg-slate-100' : 'bg-slate-50'}`}
+                      style={frozenStyle(idx, true)}>
                       <button onClick={() => toggleSort(c.key)} className="flex items-center gap-1 hover:text-slate-900">
                         {c.label}
                         {active ? (sort!.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : <ArrowUpDown size={10} className="text-slate-300" />}
@@ -217,28 +263,57 @@ export default function DailyPlanPage() {
                 })}
               </tr>
               <tr>
-                {COLUMNS.map(c => (
-                  <th key={c.key} className="px-1 py-1 bg-white border-b border-slate-200">
-                    <input value={colFilters[c.key] || ''} onChange={e => setColFilters(f => ({ ...f, [c.key]: e.target.value }))}
-                      placeholder="filter"
-                      className="w-full min-w-[60px] text-xs font-normal border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
-                  </th>
-                ))}
+                {COLUMNS.map((c, idx) => {
+                  const frozen = idx < FROZEN_COUNT
+                  return (
+                    <th key={c.key} className={`px-1 py-1 border-b border-slate-200 ${frozen ? 'bg-slate-100' : 'bg-white'}`}
+                      style={frozenStyle(idx, true)}>
+                      <input value={colFilters[c.key] || ''} onChange={e => setColFilters(f => ({ ...f, [c.key]: e.target.value }))}
+                        placeholder="filter"
+                        className="w-full min-w-[60px] text-xs font-normal border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                    </th>
+                  )
+                })}
               </tr>
             </thead>
             <tbody>
-              {sorted.map((row, i) => (
-                <tr key={`${row.WORK_ORDER}-${i}`} className="hover:bg-slate-50 border-b border-slate-100">
-                  {COLUMNS.map(c => (
-                    <td key={c.key} className={`px-2 py-1 ${c.num ? 'text-right tabular-nums' : ''} text-slate-700`}>
-                      {cell(row, c)}
-                    </td>
-                  ))}
+              {paged.map((row, i) => (
+                <tr key={`${row.WORK_ORDER}-${i}`} className="group border-b border-slate-100">
+                  {COLUMNS.map((c, idx) => {
+                    const frozen = idx < FROZEN_COUNT
+                    return (
+                      <td key={c.key}
+                        className={`px-2 py-1 ${c.num ? 'text-right tabular-nums' : ''} text-slate-700 border-b border-slate-100 ${frozen ? 'bg-white group-hover:bg-slate-50' : 'group-hover:bg-slate-50'}`}
+                        style={frozenStyle(idx, false)}>
+                        {cell(row, c)}
+                      </td>
+                    )
+                  })}
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        <div className="flex items-center justify-between mt-3 text-sm text-slate-600 flex-wrap gap-2">
+          <span>
+            {sorted.length > 0 ? <>Showing <b>{pageStart}</b>–<b>{pageEnd}</b> of <b>{sorted.length}</b></> : 'No matching rows'}
+            {sorted.length !== rows.length && <span className="text-slate-400"> (filtered from {rows.length})</span>}
+          </span>
+          <div className="flex items-center gap-1">
+            <button onClick={() => setPage(1)} disabled={pageClamped <= 1}
+              className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100 disabled:opacity-40">« First</button>
+            <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={pageClamped <= 1}
+              className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100 disabled:opacity-40">‹ Prev</button>
+            <span className="px-2">Page {pageClamped} of {totalPages}</span>
+            <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={pageClamped >= totalPages}
+              className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100 disabled:opacity-40">Next ›</button>
+            <button onClick={() => setPage(totalPages)} disabled={pageClamped >= totalPages}
+              className="px-2 py-1 rounded border border-slate-200 hover:bg-slate-100 disabled:opacity-40">Last »</button>
+          </div>
+        </div>
+        </>
       )}
     </div>
   )

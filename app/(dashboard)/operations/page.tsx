@@ -2,6 +2,7 @@
 
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { ClipboardCheck, FileCheck, Calendar, Users } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
@@ -76,7 +77,7 @@ export default function OperationsPage() {
       <div className="bg-white rounded-xl shadow-sm p-6">
         <h2 className="text-lg font-semibold text-slate-800 mb-4">Quick Actions</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <a
+          <Link
             href="/operations/daily-plan"
             className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
           >
@@ -85,8 +86,8 @@ export default function OperationsPage() {
               <p className="font-medium text-slate-800">Daily Plan</p>
               <p className="text-sm text-slate-600">Active work orders — sortable, filterable</p>
             </div>
-          </a>
-          <a
+          </Link>
+          <Link
             href="/operations/audits"
             className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
           >
@@ -95,8 +96,8 @@ export default function OperationsPage() {
               <p className="font-medium text-slate-800">Manage Audits</p>
               <p className="text-sm text-slate-600">Create and configure audit definitions</p>
             </div>
-          </a>
-          <a
+          </Link>
+          <Link
             href="/operations/audits?tab=records"
             className="flex items-center gap-3 p-4 bg-slate-50 rounded-lg hover:bg-slate-100 transition-colors"
           >
@@ -105,7 +106,7 @@ export default function OperationsPage() {
               <p className="font-medium text-slate-800">View Records</p>
               <p className="text-sm text-slate-600">Browse and export audit records</p>
             </div>
-          </a>
+          </Link>
         </div>
       </div>
     </div>
