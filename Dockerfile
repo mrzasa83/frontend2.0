@@ -1,11 +1,15 @@
 # ---- Stage 1: Install dependencies ----
 FROM node:20-slim AS deps
 WORKDIR /app
-# Copy package.json (and package-lock.json if present). Using npm install rather
-# than npm ci so the build reconciles new deps even when the committed lock file
-# is missing or out of sync — avoids EUSAGE "lock file out of sync" build failures.
+# Copy package.json and the lock file. The committed lock is authoritative and
+# in-sync, so prefer `npm ci` (exact, reproducible, matches the lock). Fall back
+# to a clean `npm install` if the lock is ever missing/out-of-sync, first wiping
+# any partial node_modules so we never build on an inconsistent tree.
 COPY package*.json ./
-RUN npm install --no-audit --no-fund
+RUN npm ci --no-audit --no-fund \
+  || (echo "npm ci failed — falling back to clean npm install" \
+      && rm -rf node_modules \
+      && npm install --no-audit --no-fund)
 
 # ---- Stage 2: Build ----
 FROM node:20-slim AS builder
