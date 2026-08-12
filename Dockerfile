@@ -17,6 +17,11 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Safety net: remove any stray Tailwind v3-era configs that would shadow the
+# correct postcss.config.mjs and break the v4 build. .dockerignore should keep
+# them out of the context, but this guarantees a clean v4 setup regardless.
+RUN rm -f postcss.config.js postcss.config.cjs tailwind.config.js tailwind.config.ts
+
 # Swap in Docker-specific next.config (adds basePath + standalone)
 RUN cp next.config.docker.js next.config.js
 

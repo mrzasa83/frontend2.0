@@ -4,3 +4,12 @@ node_modules
 *.tgz
 __pycache__
 *.pyc
+
+# Tailwind v4 uses postcss.config.mjs + CSS-based config only. Exclude any
+# stray v3-era configs so they can't shadow the correct .mjs inside the image.
+# (postcss.config.js uses `tailwindcss` directly, which breaks the v4 build.)
+postcss.config.js
+postcss.config.cjs
+tailwind.config.js
+tailwind.config.ts
+*.bak

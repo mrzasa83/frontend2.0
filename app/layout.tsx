@@ -1,9 +1,12 @@
 import type { Metadata } from 'next'
-import { Inter } from 'next/font/google'
+// Self-hosted Inter (no build-time Google Fonts fetch). @fontsource ships the
+// font files in node_modules, so the build has zero network dependency.
+import '@fontsource/inter/400.css'
+import '@fontsource/inter/500.css'
+import '@fontsource/inter/600.css'
+import '@fontsource/inter/700.css'
 import './globals.css'
 import Providers from './providers'
-
-const inter = Inter({ subsets: ['latin'] })
 
 export const metadata: Metadata = {
   title: 'frontEnd2.0',
@@ -34,7 +37,7 @@ export default function RootLayout({
           })();
         `}} />
       </head>
-      <body className={inter.className}>
+      <body className="font-inter">
         <Providers>{children}</Providers>
       </body>
     </html>
