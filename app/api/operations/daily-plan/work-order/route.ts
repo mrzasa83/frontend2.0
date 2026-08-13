@@ -141,10 +141,23 @@ export async function GET(request: NextRequest) {
       ORDER BY d38.STEP_NUMBER
     `, { wo: workOrder })
 
+    // Step activity/history from the production-transaction table (DATA9469).
+    // One row per active step, each with its entry date + time (TIME_IN is an
+    // HHMMSS integer). Dwell time is derived client-side from consecutive entries.
+    const historyRows = await queryMSSQL<any[]>('1', `
+      SELECT STEP_NO, LTRIM(RTRIM(WORK_CENTER)) AS WORK_CENTER,
+             RTRIM(WORK_CENTER_NAME) AS WORK_CENTER_NAME,
+             DATE_IN, TIME_IN, QUAN_IN_BKLG, QUAN_PROD
+      FROM DATA9469 WITH (NOLOCK)
+      WHERE LTRIM(RTRIM(WORK_ORDER_NO)) = LTRIM(RTRIM(@wo))
+      ORDER BY STEP_NO
+    `, { wo: workOrder })
+
     return NextResponse.json({
       success: true,
       general,
       route: routeRows || [],
+      history: historyRows || [],
       currentStep,
       released: !!(routeRows && routeRows.length),
     })

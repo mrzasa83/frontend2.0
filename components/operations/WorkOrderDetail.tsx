@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, Fragment } from 'react'
-import { ClipboardList, Route as RouteIcon, FileCheck, ClipboardCheck, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react'
+import { ClipboardList, Route as RouteIcon, FileCheck, ClipboardCheck, RefreshCw, ChevronDown, ChevronRight, Clock } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import ReleasedFilesTab from '@/components/products/ReleasedFilesTab'
 
@@ -26,9 +26,20 @@ type RouteStep = {
   EXT_PARAMETERS?: string | null
 }
 
+type HistoryStep = {
+  STEP_NO: number
+  WORK_CENTER: string
+  WORK_CENTER_NAME: string
+  DATE_IN: string | null
+  TIME_IN: number | null
+  QUAN_IN_BKLG: number | null
+  QUAN_PROD: number | null
+}
+
 const TABS = [
   { id: 'general', label: 'General', icon: ClipboardList },
   { id: 'route', label: 'Route', icon: RouteIcon },
+  { id: 'history', label: 'History', icon: Clock },
   { id: 'final-inspection', label: 'Final Inspection', icon: ClipboardCheck },
   { id: 'po-certs', label: 'PO Certs', icon: FileCheck },
 ]
@@ -59,6 +70,7 @@ export default function WorkOrderDetail({ workOrder, row }: WorkOrderDetailProps
   const [activeTab, setActiveTab] = useState('general')
   const [general, setGeneral] = useState<Record<string, any> | null>(null)
   const [route, setRoute] = useState<RouteStep[]>([])
+  const [history, setHistory] = useState<HistoryStep[]>([])
   const [currentStep, setCurrentStep] = useState<number | null>(null)
   const [expandedSteps, setExpandedSteps] = useState<Set<number>>(new Set())
   const [loading, setLoading] = useState(false)
@@ -80,6 +92,7 @@ export default function WorkOrderDetail({ workOrder, row }: WorkOrderDetailProps
       const r = await res.json()
       setGeneral(r.general || null)
       setRoute(r.route || [])
+      setHistory(r.history || [])
       setCurrentStep(r.currentStep ?? null)
       setFetched(true)
     } catch (e: any) { setError(e.message) }
@@ -88,7 +101,7 @@ export default function WorkOrderDetail({ workOrder, row }: WorkOrderDetailProps
 
   // Route data is fetched lazily the first time the Route tab is opened.
   useEffect(() => {
-    if (activeTab === 'route' && !fetched && !loading) load()
+    if ((activeTab === 'route' || activeTab === 'history') && !fetched && !loading) load()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
@@ -250,6 +263,113 @@ export default function WorkOrderDetail({ workOrder, row }: WorkOrderDetailProps
 
         {/* Final Inspection + PO Certs reuse the exact ReleasedFilesTab engine,
             focused on the single sub-tab and driven by the customer part number. */}
+        {activeTab === 'history' && (() => {
+          // Build entry timestamps per step from DATA9469, then compute dwell as
+          // the gap to the NEXT recorded entry (or now, for the last one).
+          const toTs = (dateIn: string | null, timeIn: number | null): number | null => {
+            if (!dateIn) return null
+            const d = new Date(dateIn)
+            if (isNaN(d.getTime())) return null
+            const t = Math.trunc(Number(timeIn ?? 0))
+            const s = String(t).padStart(6, '0')
+            d.setHours(Number(s.slice(0, 2)) || 0, Number(s.slice(2, 4)) || 0, Number(s.slice(4, 6)) || 0, 0)
+            return d.getTime()
+          }
+          const hist = [...history].sort((a, b) => a.STEP_NO - b.STEP_NO)
+          const entries = hist.map(h => ({ step: h.STEP_NO, ts: toTs(h.DATE_IN, h.TIME_IN), h }))
+          const dwellByStep = new Map<number, string>()
+          const dateByStep = new Map<number, { date: string; time: number | null }>()
+          const now = Date.now()
+          entries.forEach((e, i) => {
+            if (e.h.DATE_IN) dateByStep.set(e.step, { date: e.h.DATE_IN, time: e.h.TIME_IN })
+            if (e.ts == null) return
+            const nextTs = entries.slice(i + 1).find(n => n.ts != null)?.ts ?? now
+            const ms = Math.max(0, nextTs - e.ts)
+            const totalH = Math.floor(ms / 3_600_000)
+            const d = Math.floor(totalH / 24)
+            const h = totalH % 24
+            dwellByStep.set(e.step, d > 0 ? `${d}d ${h}h` : `${h}h`)
+          })
+          const activeSteps = new Set(hist.map(h => h.STEP_NO))
+          const fmtEntry = (step: number) => {
+            const e = dateByStep.get(step)
+            if (!e) return '—'
+            const d = new Date(e.date)
+            if (isNaN(d.getTime())) return '—'
+            const ds = d.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric', year: '2-digit' })
+            if (e.time == null) return ds
+            const s = String(Math.trunc(e.time)).padStart(6, '0')
+            return `${ds} ${s.slice(0, 2)}:${s.slice(2, 4)}`
+          }
+          // Prefer the full route as the skeleton; fall back to history-only if no route.
+          const skeleton = route.length
+            ? route.map(r => ({ step: r.STEP_NUMBER, code: r.DEPT_CODE, name: r.DEPT_NAME }))
+            : hist.map(h => ({ step: h.STEP_NO, code: h.WORK_CENTER, name: h.WORK_CENTER_NAME }))
+
+          return (
+            <div>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-slate-800">
+                  Step History
+                  {currentStep != null && <span className="ml-2 text-sm font-normal text-blue-600">· currently at step {currentStep}</span>}
+                </h3>
+                <button onClick={load} disabled={loading}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 border border-slate-200 disabled:opacity-50">
+                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+                </button>
+              </div>
+              {error && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
+              {loading ? (
+                <div className="flex items-center gap-2 py-8 text-slate-500"><RefreshCw size={18} className="animate-spin" /> Loading history…</div>
+              ) : skeleton.length === 0 ? (
+                <div className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-4">
+                  No route or step history for this work order (backlog / not yet started).
+                </div>
+              ) : (
+                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50">
+                      <tr>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-16">Step</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Dept</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Name</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-40">Entered</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-28">Time at Step</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {skeleton.map((s, i) => {
+                        const active = activeSteps.has(s.step)
+                        const isCurrent = currentStep != null && s.step === currentStep
+                        const dwell = dwellByStep.get(s.step)
+                        return (
+                          <tr key={`${s.step}-${i}`} className={`border-t border-slate-100 ${isCurrent ? 'bg-blue-50' : active ? 'bg-slate-50/60' : ''}`}>
+                            <td className="px-3 py-2 tabular-nums">
+                              <span className={`inline-flex items-center gap-1 ${isCurrent ? 'font-semibold text-blue-700' : 'text-slate-800'}`}>
+                                {s.step}
+                                {isCurrent && <span className="text-[10px] uppercase tracking-wide bg-blue-600 text-white px-1.5 py-0.5 rounded">current</span>}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 font-mono text-slate-700">{s.code || '—'}</td>
+                            <td className="px-3 py-2 text-slate-600">{s.name || '—'}</td>
+                            <td className="px-3 py-2 text-slate-600 text-xs">{fmtEntry(s.step)}</td>
+                            <td className="px-3 py-2 text-right tabular-nums text-slate-700">
+                              {dwell ? <span className={isCurrent ? 'text-blue-700 font-medium' : ''}>{dwell}{isCurrent ? ' (so far)' : ''}</span> : <span className="text-slate-300">—</span>}
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                  <p className="text-xs text-slate-400 px-3 py-2 border-t border-slate-100">
+                    Time at step is the gap between recorded step entries (from production transactions). Steps with no recorded activity show “—”.
+                  </p>
+                </div>
+              )}
+            </div>
+          )
+        })()}
+
         {activeTab === 'final-inspection' && (
           customerPart ? (
             <ReleasedFilesTab partNumber={customerPart} customer={customer}
