@@ -12,7 +12,7 @@ type Row = Record<string, any>
 // The first 6 columns are frozen (sticky-left); `w` is their fixed width in px
 // so we can compute cumulative left offsets.
 const FROZEN_COUNT = 6
-const COLUMNS: { key: string; label: string; num?: boolean; date?: boolean; w?: number }[] = [
+const COLUMNS: { key: string; label: string; num?: boolean; date?: boolean; time?: boolean; w?: number }[] = [
   { key: 'ABBR_NAME', label: 'Customer', w: 96 },
   { key: 'CUSTOMER_PART_NUMBER', label: 'Cust Part #', w: 90 },
   { key: 'SALES_ORDER', label: 'Sales Order', w: 110 },
@@ -44,6 +44,9 @@ const COLUMNS: { key: string; label: string; num?: boolean; date?: boolean; w?: 
   { key: 'CALC_START_DATE', label: 'Calc Start', date: true },
   { key: 'RMA_NUMBER', label: 'RMA' },
   { key: 'DAYS_IN', label: 'Days In', num: true },
+  { key: 'STEP_DATE_IN', label: 'Step Entered', date: true },
+  { key: 'STEP_TIME_IN', label: 'Step Time', time: true },
+  { key: 'CAL_DAYS_AT_STEP', label: 'Cal Days @ Step', num: true },
   { key: 'PERCENT_COMPLETE', label: '% Comp', num: true },
   { key: 'DEPT_CODE', label: 'Dept' },
   { key: 'DEPT_NAME', label: 'Dept Name' },
@@ -65,6 +68,15 @@ function fmtDate(v: any): string {
   if (!v) return ''
   const d = new Date(v)
   return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString(undefined, { year: '2-digit', month: 'numeric', day: 'numeric' })
+}
+
+// DATA9469 TIME_IN is an HHMMSS integer (e.g. 51938 = 05:19:38, 100152 = 10:01:52).
+function fmtTime(v: any): string {
+  if (v == null || v === '') return ''
+  const n = Number(v)
+  if (isNaN(n)) return String(v)
+  const s = String(Math.trunc(n)).padStart(6, '0')
+  return `${s.slice(0, 2)}:${s.slice(2, 4)}:${s.slice(4, 6)}`
 }
 
 export default function DailyPlanPage() {
@@ -201,6 +213,7 @@ export default function DailyPlanPage() {
     const lines = sorted.map(row => COLUMNS.map(c => {
       let v = c.key === 'REMAINING_LABOR_HOURS' ? (laborHours[String(row.WORK_ORDER ?? '').trim()] ?? '') : row[c.key]
       if (c.date) v = fmtDate(v)
+      if (c.time) v = fmtTime(v)
       const s = String(v ?? '').replace(/"/g, '""')
       return /[",\n]/.test(s) ? `"${s}"` : s
     }).join(','))
@@ -223,6 +236,7 @@ export default function DailyPlanPage() {
       return h == null ? <span className="text-slate-300">—</span> : h
     }
     if (c.date) return fmtDate(row[c.key])
+    if (c.time) return fmtTime(row[c.key])
     return row[c.key] ?? ''
   }
 
