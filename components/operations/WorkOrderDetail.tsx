@@ -264,47 +264,37 @@ export default function WorkOrderDetail({ workOrder, row }: WorkOrderDetailProps
         {/* Final Inspection + PO Certs reuse the exact ReleasedFilesTab engine,
             focused on the single sub-tab and driven by the customer part number. */}
         {activeTab === 'history' && (() => {
-          // Build entry timestamps per step from DATA9469, then compute dwell as
-          // the gap to the NEXT recorded entry (or now, for the last one).
-          const toTs = (dateIn: string | null, timeIn: number | null): number | null => {
-            if (!dateIn) return null
-            const d = new Date(dateIn)
+          // DATA9469 only retains the CURRENT step's row (completed-step history
+          // isn't stored in an accessible table). So we show the full route as the
+          // progress skeleton, mark each step relative to the current one, and give
+          // real entry date/time + time-so-far for the current step only.
+          const cur = history.find(h => currentStep != null && h.STEP_NO === currentStep) || history[0]
+          const curEntryTs = (() => {
+            if (!cur?.DATE_IN) return null
+            const d = new Date(cur.DATE_IN)
             if (isNaN(d.getTime())) return null
-            const t = Math.trunc(Number(timeIn ?? 0))
-            const s = String(t).padStart(6, '0')
+            const s = String(Math.trunc(Number(cur.TIME_IN ?? 0))).padStart(6, '0')
             d.setHours(Number(s.slice(0, 2)) || 0, Number(s.slice(2, 4)) || 0, Number(s.slice(4, 6)) || 0, 0)
             return d.getTime()
-          }
-          const hist = [...history].sort((a, b) => a.STEP_NO - b.STEP_NO)
-          const entries = hist.map(h => ({ step: h.STEP_NO, ts: toTs(h.DATE_IN, h.TIME_IN), h }))
-          const dwellByStep = new Map<number, string>()
-          const dateByStep = new Map<number, { date: string; time: number | null }>()
-          const now = Date.now()
-          entries.forEach((e, i) => {
-            if (e.h.DATE_IN) dateByStep.set(e.step, { date: e.h.DATE_IN, time: e.h.TIME_IN })
-            if (e.ts == null) return
-            const nextTs = entries.slice(i + 1).find(n => n.ts != null)?.ts ?? now
-            const ms = Math.max(0, nextTs - e.ts)
-            const totalH = Math.floor(ms / 3_600_000)
-            const d = Math.floor(totalH / 24)
-            const h = totalH % 24
-            dwellByStep.set(e.step, d > 0 ? `${d}d ${h}h` : `${h}h`)
-          })
-          const activeSteps = new Set(hist.map(h => h.STEP_NO))
-          const fmtEntry = (step: number) => {
-            const e = dateByStep.get(step)
-            if (!e) return '—'
-            const d = new Date(e.date)
+          })()
+          const curDwell = (() => {
+            if (curEntryTs == null) return null
+            const totalH = Math.floor(Math.max(0, Date.now() - curEntryTs) / 3_600_000)
+            const d = Math.floor(totalH / 24), h = totalH % 24
+            return d > 0 ? `${d}d ${h}h` : `${h}h`
+          })()
+          const fmtEntry = (dateIn: string | null, timeIn: number | null) => {
+            if (!dateIn) return '—'
+            const d = new Date(dateIn)
             if (isNaN(d.getTime())) return '—'
             const ds = d.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric', year: '2-digit' })
-            if (e.time == null) return ds
-            const s = String(Math.trunc(e.time)).padStart(6, '0')
+            if (timeIn == null) return ds
+            const s = String(Math.trunc(timeIn)).padStart(6, '0')
             return `${ds} ${s.slice(0, 2)}:${s.slice(2, 4)}`
           }
-          // Prefer the full route as the skeleton; fall back to history-only if no route.
           const skeleton = route.length
             ? route.map(r => ({ step: r.STEP_NUMBER, code: r.DEPT_CODE, name: r.DEPT_NAME }))
-            : hist.map(h => ({ step: h.STEP_NO, code: h.WORK_CENTER, name: h.WORK_CENTER_NAME }))
+            : history.map(h => ({ step: h.STEP_NO, code: h.WORK_CENTER, name: h.WORK_CENTER_NAME }))
 
           return (
             <div>
@@ -323,48 +313,77 @@ export default function WorkOrderDetail({ workOrder, row }: WorkOrderDetailProps
                 <div className="flex items-center gap-2 py-8 text-slate-500"><RefreshCw size={18} className="animate-spin" /> Loading history…</div>
               ) : skeleton.length === 0 ? (
                 <div className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-4">
-                  No route or step history for this work order (backlog / not yet started).
+                  No route or step activity for this work order (backlog / not yet started).
                 </div>
               ) : (
-                <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-slate-50">
-                      <tr>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-16">Step</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Dept</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Name</th>
-                        <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-40">Entered</th>
-                        <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-28">Time at Step</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {skeleton.map((s, i) => {
-                        const active = activeSteps.has(s.step)
-                        const isCurrent = currentStep != null && s.step === currentStep
-                        const dwell = dwellByStep.get(s.step)
-                        return (
-                          <tr key={`${s.step}-${i}`} className={`border-t border-slate-100 ${isCurrent ? 'bg-blue-50' : active ? 'bg-slate-50/60' : ''}`}>
-                            <td className="px-3 py-2 tabular-nums">
-                              <span className={`inline-flex items-center gap-1 ${isCurrent ? 'font-semibold text-blue-700' : 'text-slate-800'}`}>
-                                {s.step}
-                                {isCurrent && <span className="text-[10px] uppercase tracking-wide bg-blue-600 text-white px-1.5 py-0.5 rounded">current</span>}
-                              </span>
-                            </td>
-                            <td className="px-3 py-2 font-mono text-slate-700">{s.code || '—'}</td>
-                            <td className="px-3 py-2 text-slate-600">{s.name || '—'}</td>
-                            <td className="px-3 py-2 text-slate-600 text-xs">{fmtEntry(s.step)}</td>
-                            <td className="px-3 py-2 text-right tabular-nums text-slate-700">
-                              {dwell ? <span className={isCurrent ? 'text-blue-700 font-medium' : ''}>{dwell}{isCurrent ? ' (so far)' : ''}</span> : <span className="text-slate-300">—</span>}
-                            </td>
-                          </tr>
-                        )
-                      })}
-                    </tbody>
-                  </table>
-                  <p className="text-xs text-slate-400 px-3 py-2 border-t border-slate-100">
-                    Time at step is the gap between recorded step entries (from production transactions). Steps with no recorded activity show “—”.
-                  </p>
-                </div>
+                <>
+                  {/* Current-step summary card */}
+                  {cur && currentStep != null && (
+                    <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center gap-6 flex-wrap">
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-blue-600 font-medium">Current Step</div>
+                        <div className="text-sm text-slate-800 font-semibold">{currentStep} · {cur.WORK_CENTER_NAME?.trim()}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-blue-600 font-medium">Entered</div>
+                        <div className="text-sm text-slate-800">{fmtEntry(cur.DATE_IN, cur.TIME_IN)}</div>
+                      </div>
+                      <div>
+                        <div className="text-[10px] uppercase tracking-wide text-blue-600 font-medium">Time at Step</div>
+                        <div className="text-sm text-slate-800 font-medium">{curDwell ? `${curDwell} so far` : '—'}</div>
+                      </div>
+                      {cur.QUAN_IN_BKLG != null && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wide text-blue-600 font-medium">Backlog</div>
+                          <div className="text-sm text-slate-800">{cur.QUAN_IN_BKLG}</div>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-sm">
+                      <thead className="bg-slate-50">
+                        <tr>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-16">Step</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Dept</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Name</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-32">Status</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-40">Entered</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {skeleton.map((s, i) => {
+                          const isCurrent = currentStep != null && s.step === currentStep
+                          const isDone = currentStep != null && s.step < currentStep
+                          const status = isCurrent ? 'In progress' : isDone ? 'Completed' : 'Upcoming'
+                          return (
+                            <tr key={`${s.step}-${i}`} className={`border-t border-slate-100 ${isCurrent ? 'bg-blue-50' : isDone ? 'bg-slate-50/60' : ''}`}>
+                              <td className="px-3 py-2 tabular-nums">
+                                <span className={`inline-flex items-center gap-1 ${isCurrent ? 'font-semibold text-blue-700' : 'text-slate-800'}`}>
+                                  {s.step}
+                                  {isCurrent && <span className="text-[10px] uppercase tracking-wide bg-blue-600 text-white px-1.5 py-0.5 rounded">current</span>}
+                                </span>
+                              </td>
+                              <td className="px-3 py-2 font-mono text-slate-700">{s.code || '—'}</td>
+                              <td className="px-3 py-2 text-slate-600">{s.name || '—'}</td>
+                              <td className="px-3 py-2">
+                                <span className={`text-xs px-1.5 py-0.5 rounded ${isCurrent ? 'bg-blue-100 text-blue-700' : isDone ? 'bg-slate-100 text-slate-500' : 'text-slate-400'}`}>{status}</span>
+                              </td>
+                              <td className="px-3 py-2 text-slate-600 text-xs">
+                                {isCurrent ? fmtEntry(cur?.DATE_IN ?? null, cur?.TIME_IN ?? null) : <span className="text-slate-300">—</span>}
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                    <p className="text-xs text-slate-400 px-3 py-2 border-t border-slate-100">
+                      Live production tracking records only the current step's entry, so entry time is shown for the current step. Completed-step
+                      durations, produced quantities, and operator aren’t retained in an accessible table yet.
+                    </p>
+                  </div>
+                </>
               )}
             </div>
           )
