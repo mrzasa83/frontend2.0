@@ -213,20 +213,29 @@ export default function DailyPlanPage() {
     setLaborLoading(false)
   }
 
-  const exportCsv = () => {
-    const header = COLUMNS.map(c => c.label).join(',')
-    const lines = sorted.map(row => COLUMNS.map(c => {
-      let v = c.key === 'REMAINING_LABOR_HOURS' ? (laborHours[String(row.WORK_ORDER ?? '').trim()] ?? '') : row[c.key]
-      if (c.date) v = fmtDate(v)
-      if (c.time) v = fmtTime(v)
-      const s = String(v ?? '').replace(/"/g, '""')
-      return /[",\n]/.test(s) ? `"${s}"` : s
-    }).join(','))
-    const blob = new Blob([[header, ...lines].join('\n')], { type: 'text/csv' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url; a.download = `daily-plan-${new Date().toISOString().slice(0, 10)}.csv`; a.click()
-    URL.revokeObjectURL(url)
+  const exportExcel = async () => {
+    const XLSX = await import('xlsx')
+    // One object per row, keyed by the visible column label, formatted the same
+    // way the table shows them (dates, HHMMSS times, lazy labor hours).
+    const data = sorted.map(row => {
+      const o: Record<string, any> = {}
+      for (const c of COLUMNS) {
+        let v: any = c.key === 'REMAINING_LABOR_HOURS'
+          ? (laborHours[String(row.WORK_ORDER ?? '').trim()] ?? '')
+          : row[c.key]
+        if (c.date) v = fmtDate(v)
+        else if (c.time) v = fmtTime(v)
+        o[c.label] = v ?? ''
+      }
+      return o
+    })
+    const ws = XLSX.utils.json_to_sheet(data)
+    ws['!cols'] = COLUMNS.map(c => ({ wch: Math.max(c.label.length + 2, c.key === 'INV_PART_DESCRIPTION' ? 30 : 12) }))
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Daily Plan')
+    const stamp = new Date().toISOString().slice(0, 10)
+    const deptTag = routeDept ? `_${routeDept.replace(/[^a-zA-Z0-9_-]/g, '')}` : ''
+    XLSX.writeFile(wb, `daily-plan${deptTag}_${stamp}.xlsx`)
   }
 
   const cell = (row: Row, c: typeof COLUMNS[number]) => {
@@ -291,9 +300,9 @@ export default function DailyPlanPage() {
             title="Fetch remaining labor hours for the filtered rows (slower query)">
             <Clock size={14} className={laborLoading ? 'animate-spin' : ''} /> Labor hrs
           </button>
-          <button onClick={exportCsv} disabled={!sorted.length}
+          <button onClick={exportExcel} disabled={!sorted.length}
             className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 border border-slate-200 disabled:opacity-50">
-            <Download size={14} /> CSV
+            <Download size={14} /> Excel
           </button>
           <button onClick={load} disabled={loading}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50">
