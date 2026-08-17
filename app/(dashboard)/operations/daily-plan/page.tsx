@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback, type CSSProperties } from 'react'
-import { RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, Download } from 'lucide-react'
+import { RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Clock, Download, Check, Flag } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import Tabs from '@/components/ui/Tabs'
 import WorkOrderDetail from '@/components/operations/WorkOrderDetail'
@@ -12,7 +12,7 @@ type Row = Record<string, any>
 // The first 6 columns are frozen (sticky-left); `w` is their fixed width in px
 // so we can compute cumulative left offsets.
 const FROZEN_COUNT = 6
-const COLUMNS: { key: string; label: string; num?: boolean; date?: boolean; time?: boolean; w?: number }[] = [
+const COLUMNS: { key: string; label: string; num?: boolean; date?: boolean; time?: boolean; special?: 'fix'; w?: number }[] = [
   { key: 'ABBR_NAME', label: 'Customer', w: 96 },
   { key: 'CUSTOMER_PART_NUMBER', label: 'Cust Part #', w: 90 },
   { key: 'SALES_ORDER', label: 'Sales Order', w: 110 },
@@ -182,6 +182,19 @@ export default function DailyPlanPage() {
   const pageEnd = Math.min(pageClamped * PAGE_SIZE, sorted.length)
 
   // Sticky styling for the frozen leading columns.
+  // When a route-dept filter is active, insert a small marker column right after
+  // Step, indicating whether the filtered dept comes at/after the current step
+  // (fixable) or before it (already passed).
+  const displayColumns = useMemo(() => {
+    if (!routeDept) return COLUMNS
+    const out: typeof COLUMNS = []
+    for (const c of COLUMNS) {
+      out.push(c)
+      if (c.key === 'STEP') out.push({ key: '_FIX', label: '⚑', special: 'fix', w: 44 })
+    }
+    return out
+  }, [routeDept])
+
   const frozenStyle = (idx: number, isHeader: boolean): CSSProperties =>
     idx < FROZEN_COUNT
       ? {
@@ -226,6 +239,11 @@ export default function DailyPlanPage() {
         if (c.date) v = fmtDate(v)
         else if (c.time) v = fmtTime(v)
         o[c.label] = v ?? ''
+        // Insert the fixable status right after Step when a dept filter is active.
+        if (c.key === 'STEP' && routeDept) {
+          const dept = Number(row.MATCHED_DEPT_STEP), cur = Number(row.STEP)
+          o[`${routeDept} vs current`] = isNaN(dept) ? '' : (isNaN(cur) || dept >= cur) ? 'Fixable (at/after)' : 'Passed (before)'
+        }
       }
       return o
     })
@@ -239,6 +257,16 @@ export default function DailyPlanPage() {
   }
 
   const cell = (row: Row, c: typeof COLUMNS[number]) => {
+    if (c.special === 'fix') {
+      const dept = Number(row.MATCHED_DEPT_STEP)
+      const cur = Number(row.STEP)
+      if (!routeDept || isNaN(dept)) return <span className="text-slate-300">—</span>
+      // At or after the current step = still fixable; before = already passed.
+      if (isNaN(cur) || dept >= cur) {
+        return <Check size={15} className="text-green-600 mx-auto" aria-label="At or after current step — fixable" />
+      }
+      return <Flag size={14} className="text-red-500 mx-auto" aria-label="Before current step — already passed" />
+    }
     if (c.key === 'WORK_ORDER') {
       const wo = row.WORK_ORDER
       return wo
@@ -266,6 +294,12 @@ export default function DailyPlanPage() {
             {!loading && <span className="text-slate-400"> · {sorted.length} of {rows.length} rows</span>}
             {routeDept && <span className="text-blue-600"> · route dept: {routeDept}</span>}
           </p>
+          {routeDept && (
+            <p className="text-xs text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
+              <span className="flex items-center gap-1"><Check size={13} className="text-green-600" /> {routeDept} is at or after the current step — still fixable</span>
+              <span className="flex items-center gap-1"><Flag size={12} className="text-red-500" /> {routeDept} already passed (before current step)</span>
+            </p>
+          )}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="relative flex items-center">
@@ -325,9 +359,18 @@ export default function DailyPlanPage() {
           <table className="text-xs whitespace-nowrap border-separate" style={{ borderSpacing: 0 }}>
             <thead className="sticky top-0 z-40">
               <tr>
-                {COLUMNS.map((c, idx) => {
+                {displayColumns.map((c, idx) => {
                   const active = sort?.key === c.key
                   const frozen = idx < FROZEN_COUNT
+                  if (c.special) {
+                    return (
+                      <th key={c.key}
+                        className="px-2 py-2 text-center font-medium text-slate-600 border-b border-slate-200 bg-slate-50"
+                        title="Filtered dept vs current step: green ✓ = at or after current step (fixable); red flag = before current step (already passed)">
+                        <span className="text-slate-500">Fix?</span>
+                      </th>
+                    )
+                  }
                   return (
                     <th key={c.key}
                       className={`px-2 py-2 text-left font-medium text-slate-600 border-b border-slate-200 ${frozen ? 'bg-slate-100' : 'bg-slate-50'}`}
@@ -341,8 +384,11 @@ export default function DailyPlanPage() {
                 })}
               </tr>
               <tr>
-                {COLUMNS.map((c, idx) => {
+                {displayColumns.map((c, idx) => {
                   const frozen = idx < FROZEN_COUNT
+                  if (c.special) {
+                    return <th key={c.key} className="px-1 py-1 border-b border-slate-200 bg-white"></th>
+                  }
                   return (
                     <th key={c.key} className={`px-1 py-1 border-b border-slate-200 ${frozen ? 'bg-slate-100' : 'bg-white'}`}
                       style={frozenStyle(idx, true)}>
@@ -357,8 +403,15 @@ export default function DailyPlanPage() {
             <tbody>
               {paged.map((row, i) => (
                 <tr key={`${row.WORK_ORDER}-${i}`} className="group border-b border-slate-100">
-                  {COLUMNS.map((c, idx) => {
+                  {displayColumns.map((c, idx) => {
                     const frozen = idx < FROZEN_COUNT
+                    if (c.special) {
+                      return (
+                        <td key={c.key} className="px-2 py-1 text-center border-b border-slate-100 group-hover:bg-slate-50">
+                          {cell(row, c)}
+                        </td>
+                      )
+                    }
                     return (
                       <td key={c.key}
                         className={`px-2 py-1 ${c.num ? 'text-right tabular-nums' : ''} text-slate-700 border-b border-slate-100 ${frozen ? 'bg-white group-hover:bg-slate-50' : 'group-hover:bg-slate-50'}`}

@@ -83,6 +83,7 @@ SELECT DATA0010_1.ABBR_NAME
   END AS CHAR),1,4) AS PNLS
 , SUBSTRING(CAST(DATA0006_1.PARTS_PER_PANEL AS CHAR),1,4) AS NRUP
 , CS.STEP_NO AS STEP
+/*ROUTE_DEPT_STEP_SELECT*/
 , (CAST(CS.STEP_NO AS VARCHAR) + ' OF ' + CAST(StepMax.MAX_STEP AS VARCHAR)) AS CURRENT_STEP_OF_STEPS
 , SUBSTRING((CASE DATA0006_1.PROD_STATUS WHEN '2' THEN '....UNRELEASED....'
   WHEN '206' THEN 'xxxON HOLD UNRELxxx'
@@ -199,5 +200,18 @@ export function buildDailyPlanSQL(routeDept?: string): string {
     AND UPPER(LTRIM(RTRIM(rd34.DEPT_CODE))) LIKE '${pattern}'
 )`
 
-  return DAILY_PLAN_SQL.replace('/*ROUTE_DEPT_FILTER*/', exists)
+  // The earliest route step where the filtered dept appears, so the UI can compare
+  // it to the current step (before current = passed; at/after = still fixable).
+  const stepSelect = `, (
+  SELECT MIN(rs38.STEP_NUMBER)
+  FROM DATA0038 rs38 WITH (NOLOCK)
+  INNER JOIN DATA0034 rs34 WITH (NOLOCK) ON rs34.RKEY = rs38.DEPT_PTR
+  WHERE rs38.SOURCE_PTR = DATA0006_1.RKEY
+    AND rs38.TTYPE = 2
+    AND UPPER(LTRIM(RTRIM(rs34.DEPT_CODE))) LIKE '${pattern}'
+) AS MATCHED_DEPT_STEP`
+
+  return DAILY_PLAN_SQL
+    .replace('/*ROUTE_DEPT_FILTER*/', exists)
+    .replace('/*ROUTE_DEPT_STEP_SELECT*/', stepSelect)
 }
