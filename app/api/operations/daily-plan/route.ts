@@ -2,24 +2,29 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryMSSQL } from '@/lib/db/mssql'
-import { DAILY_PLAN_SQL } from '@/lib/queries/dailyPlan'
+import { DAILY_PLAN_SQL, buildDailyPlanSQL } from '@/lib/queries/dailyPlan'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-// GET  -> the Daily Plan rows (optimized, set-based). Live query each load.
-export async function GET() {
+// GET  ?routeDept=CODE  -> the Daily Plan rows (optimized, set-based). Live query
+// each load. When routeDept is supplied, only work orders whose ROUTE contains
+// that department at any step are returned.
+export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
+    const routeDept = new URL(request.url).searchParams.get('routeDept') || ''
+    const sql = routeDept.trim() ? buildDailyPlanSQL(routeDept) : DAILY_PLAN_SQL
     const t0 = Date.now()
-    const rows = await queryMSSQL<any[]>('1', DAILY_PLAN_SQL)
+    const rows = await queryMSSQL<any[]>('1', sql)
     return NextResponse.json({
       success: true,
       rows: rows || [],
       count: rows?.length ?? 0,
       ms: Date.now() - t0,
+      routeDept: routeDept.trim() || null,
       fetchedAt: new Date().toISOString(),
     })
   } catch (error) {

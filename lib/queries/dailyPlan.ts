@@ -160,5 +160,44 @@ OUTER APPLY (
   WHERE D3.TDATE BETWEEN CS.DATE_IN AND GETDATE()
 ) AS Hol
 WHERE DATA0006_1.PROD_STATUS IN (2,3,206,306)
+/*ROUTE_DEPT_FILTER*/
 ORDER BY DATA0050_1.CUSTOMER_PART_NUMBER
 `
+
+/**
+ * Build the Daily Plan SQL, optionally filtered to work orders whose ROUTE
+ * contains a given department at ANY step (not just the current step).
+ *
+ * The route steps live in DATA0038 (TTYPE=2, keyed on the work order's RKEY),
+ * joined to DATA0034 for the department. So "route contains dept X" is an
+ * EXISTS against that per-WO route. The dept is matched on DATA0034.DEPT_CODE,
+ * trimmed and case-insensitively, and supports a partial (LIKE) match so a user
+ * can type part of a dept code.
+ *
+ * The dept value is sanitized (alphanumeric, dash, underscore, %, space only)
+ * and embedded, since queryMSSQL runs a batch string; this avoids any injection
+ * while keeping the single-string execution path.
+ */
+export function buildDailyPlanSQL(routeDept?: string): string {
+  const raw = (routeDept || '').trim()
+  if (!raw) return DAILY_PLAN_SQL
+
+  // Sanitize: keep only safe characters for a dept code / partial. Single quotes
+  // are stripped, so the value cannot break out of the LIKE string literal.
+  const safe = raw.replace(/[^A-Za-z0-9_%\- ]/g, '').toUpperCase().slice(0, 40)
+  if (!safe) return DAILY_PLAN_SQL
+
+  // Wrap with wildcards if the user didn't supply their own.
+  const pattern = safe.includes('%') ? safe : `%${safe}%`
+
+  const exists = `AND EXISTS (
+  SELECT 1
+  FROM DATA0038 rd38 WITH (NOLOCK)
+  INNER JOIN DATA0034 rd34 WITH (NOLOCK) ON rd34.RKEY = rd38.DEPT_PTR
+  WHERE rd38.SOURCE_PTR = DATA0006_1.RKEY
+    AND rd38.TTYPE = 2
+    AND UPPER(LTRIM(RTRIM(rd34.DEPT_CODE))) LIKE '${pattern}'
+)`
+
+  return DAILY_PLAN_SQL.replace('/*ROUTE_DEPT_FILTER*/', exists)
+}

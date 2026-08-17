@@ -89,6 +89,8 @@ export default function DailyPlanPage() {
   const [globalFilter, setGlobalFilter] = useState('')
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [releasedOnly, setReleasedOnly] = useState(true)
+  const [routeDept, setRouteDept] = useState('')          // committed (queried) value
+  const [routeDeptInput, setRouteDeptInput] = useState('') // what's in the box
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null)
   const [page, setPage] = useState(1)
 
@@ -113,7 +115,10 @@ export default function DailyPlanPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(''); setLaborHours({})
     try {
-      const res = await fetch(getApiUrl('/api/operations/daily-plan'))
+      const url = routeDept.trim()
+        ? getApiUrl(`/api/operations/daily-plan?routeDept=${encodeURIComponent(routeDept.trim())}`)
+        : getApiUrl('/api/operations/daily-plan')
+      const res = await fetch(url)
       if (!res.ok) throw new Error((await res.json()).details || 'Failed to load')
       const r = await res.json()
       setRows(r.rows || [])
@@ -121,7 +126,7 @@ export default function DailyPlanPage() {
       setFetchedAt(r.fetchedAt || '')
     } catch (e: any) { setError(e.message) }
     setLoading(false)
-  }, [])
+  }, [routeDept])
 
   useEffect(() => { load() }, [load])
 
@@ -250,9 +255,25 @@ export default function DailyPlanPage() {
             {ms != null && <span className="text-slate-400"> · {(ms / 1000).toFixed(1)}s</span>}
             {fetchedAt && <span className="text-slate-400"> · {new Date(fetchedAt).toLocaleTimeString()}</span>}
             {!loading && <span className="text-slate-400"> · {sorted.length} of {rows.length} rows</span>}
+            {routeDept && <span className="text-blue-600"> · route dept: {routeDept}</span>}
           </p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="relative flex items-center">
+            <input value={routeDeptInput}
+              onChange={e => setRouteDeptInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') setRouteDept(routeDeptInput) }}
+              placeholder="Route dept (any step)…"
+              title="Show only work orders whose route includes this department at any step (e.g. I-AOI-D)"
+              className="pl-3 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-48 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            <button onClick={() => setRouteDept(routeDeptInput)} disabled={loading}
+              className="ml-1 px-2.5 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50"
+              title="Apply route-department filter">Go</button>
+            {routeDept && (
+              <button onClick={() => { setRouteDept(''); setRouteDeptInput('') }}
+                className="ml-1 px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg" title="Clear route-department filter">✕</button>
+            )}
+          </div>
           <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer whitespace-nowrap mr-1"
             title="Hide unreleased and on-hold-unreleased work orders">
             <input type="checkbox" checked={releasedOnly} onChange={e => setReleasedOnly(e.target.checked)}
