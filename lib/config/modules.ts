@@ -1,4 +1,4 @@
-import { Home, Package, Users, Settings, Cog, ClipboardCheck, AppWindow } from 'lucide-react'
+import { Home, Package, Users, Settings, Cog, ClipboardCheck, AppWindow, FileText } from 'lucide-react'
 import { canReadModule, canReadSubmodule } from './access'
 
 export type SubModule = {
@@ -26,6 +26,32 @@ export const MODULES: Module[] = [
     icon: Home, 
     path: '/dashboard',
     requiredRoles: [] // Everyone can see dashboard
+  },
+  {
+    id: 'contract',
+    name: 'Contract',
+    icon: FileText,
+    requiredRoles: ['Admin', 'Program'],
+    subModules: [
+      {
+        id: 'contract-dashboard',
+        name: 'Dashboard',
+        path: '/contract',
+        requiredRoles: ['Admin', 'Program']
+      },
+      {
+        id: 'contract-clauses',
+        name: 'Clauses',
+        path: '/contract/clauses',
+        requiredRoles: ['Admin', 'Program']
+      },
+      {
+        id: 'contract-pos',
+        name: 'POs',
+        path: '/contract/pos',
+        requiredRoles: ['Admin', 'Program']
+      },
+    ]
   },
   {
     id: 'operations',

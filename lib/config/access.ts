@@ -16,7 +16,7 @@
 
 export type RoleAccess = { read: string[]; write: string[] }
 
-export const ALL_MODULES = ['dashboard', 'operations', 'products', 'process', 'apps', 'users', 'admin'] as const
+export const ALL_MODULES = ['dashboard', 'contract', 'operations', 'products', 'process', 'apps', 'users', 'admin'] as const
 
 // Roles in display order, with a short description for the Admin viewer.
 export const ROLE_DEFS: { name: string; description: string; legacy?: boolean }[] = [
@@ -56,7 +56,7 @@ export const ROLE_ACCESS: Record<string, RoleAccess> = {
   ProcessEng:  { read: ['operations', 'products', 'process', 'apps', 'users'], write: ['process'] },
   ProductEng:  { read: ['operations', 'products', 'process', 'apps', 'users'], write: ['products'] },
 
-  Program:     { read: ['operations', 'products', 'apps', 'users'], write: [] },
+  Program:     { read: ['operations', 'products', 'apps', 'users', 'contract'], write: [] },
   roUser:      { read: ['operations', 'products', 'apps'], write: [] },
 
   // FAI Admin — can view Operations and delete First Article Inspections
