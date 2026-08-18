@@ -179,7 +179,7 @@ ORDER BY DATA0050_1.CUSTOMER_PART_NUMBER
  * and embedded, since queryMSSQL runs a batch string; this avoids any injection
  * while keeping the single-string execution path.
  */
-export function buildDailyPlanSQL(routeDept?: string): string {
+export function buildDailyPlanSQL(routeDept?: string, phrase?: string): string {
   const raw = (routeDept || '').trim()
   if (!raw) return DAILY_PLAN_SQL
 
@@ -191,13 +191,53 @@ export function buildDailyPlanSQL(routeDept?: string): string {
   // Wrap with wildcards if the user didn't supply their own.
   const pattern = safe.includes('%') ? safe : `%${safe}%`
 
+  // Optional phrase: search the step's instructions / parameters / additional
+  // parameters. Only applied at steps matching the dept. Sanitized the same way
+  // (quotes stripped -> cannot break out of the LIKE literal), then wildcarded.
+  const rawPhrase = (phrase || '').trim()
+  const safePhrase = rawPhrase.replace(/[^A-Za-z0-9_%.\- ]/g, '').toUpperCase().slice(0, 80)
+  const phrasePattern = safePhrase ? (safePhrase.includes('%') ? safePhrase : `%${safePhrase}%`) : ''
+
+  // Text-match predicate over the same instruction (DATA0036), parameter-name
+  // (DATA0035), inline parameter, and additional-parameter (DATA0471->DATA0469)
+  // sources the work-order detail assembles. Only applied when a phrase is given.
+  const phraseClause = phrasePattern ? `
+    AND (
+      UPPER(ISNULL(i1.INST_CODE,'')+' '+ISNULL(i2.INST_CODE,'')+' '+ISNULL(i3.INST_CODE,'')+' '+ISNULL(i4.INST_CODE,'')+' '+ISNULL(i5.INST_CODE,'')) LIKE '${phrasePattern}'
+      OR UPPER(ISNULL(i1.PROD_ROUT_INST_1,'')+' '+ISNULL(i1.PROD_ROUT_INST_2,'')+' '+ISNULL(i1.PROD_ROUT_INST_3,'')+' '+ISNULL(i1.PROD_ROUT_INST_4,'')) LIKE '${phrasePattern}'
+      OR UPPER(ISNULL(rd38.PARAMETER_1,'')+' '+ISNULL(rd38.PARAMETER_2,'')+' '+ISNULL(rd38.PARAMETER_3,'')+' '+ISNULL(rd38.PARAMETER_4,'')+' '+ISNULL(rd38.PARAMETER_5,'')+' '+ISNULL(rd38.PARAMETER_6,'')+' '+ISNULL(rd38.PARAMETER_7,'')+' '+ISNULL(rd38.PARAMETER_8,'')+' '+ISNULL(rd38.PARAMETER_9,'')+' '+ISNULL(rd38.PARAMETER_10,'')) LIKE '${phrasePattern}'
+      OR UPPER(ISNULL(p1.PRODUCTION_PARAMETER,'')+' '+ISNULL(p2.PRODUCTION_PARAMETER,'')+' '+ISNULL(p3.PRODUCTION_PARAMETER,'')+' '+ISNULL(p4.PRODUCTION_PARAMETER,'')+' '+ISNULL(p5.PRODUCTION_PARAMETER,'')) LIKE '${phrasePattern}'
+      OR EXISTS (
+        SELECT 1 FROM DATA0471 xd471 WITH (NOLOCK)
+        INNER JOIN DATA0469 xd469 WITH (NOLOCK) ON xd469.RKEY = xd471.DATA0469_PTR
+        WHERE xd471.DATA0038_PTR = rd38.RKEY
+          AND UPPER(
+                ISNULL(xd469.PARAMETER_DESC,'') + ' ' + ISNULL(xd469.PARAMETER_CODE,'') + ' ' +
+                ISNULL(CAST(xd471.PARAMETER_VALUE AS NVARCHAR(MAX)),'') + ' ' +
+                ISNULL(CAST(xd471.PARAM_NOTE AS NVARCHAR(MAX)),'')
+              ) LIKE '${phrasePattern}'
+      )
+    )` : ''
+
+  const phraseJoins = phrasePattern ? `
+  LEFT JOIN DATA0036 i1 WITH (NOLOCK) ON i1.RKEY = rd38.DEF_ROUT_INST_1_PTR
+  LEFT JOIN DATA0036 i2 WITH (NOLOCK) ON i2.RKEY = rd38.DEF_ROUT_INST_2_PTR
+  LEFT JOIN DATA0036 i3 WITH (NOLOCK) ON i3.RKEY = rd38.DEF_ROUT_INST_3_PTR
+  LEFT JOIN DATA0036 i4 WITH (NOLOCK) ON i4.RKEY = rd38.DEF_ROUT_INST_4_PTR
+  LEFT JOIN DATA0036 i5 WITH (NOLOCK) ON i5.RKEY = rd38.DEF_ROUT_INST_5_PTR
+  LEFT JOIN DATA0035 p1 WITH (NOLOCK) ON p1.RKEY = rd38.DEF_ROUT_PARA_1_PTR
+  LEFT JOIN DATA0035 p2 WITH (NOLOCK) ON p2.RKEY = rd38.DEF_ROUT_PARA_2_PTR
+  LEFT JOIN DATA0035 p3 WITH (NOLOCK) ON p3.RKEY = rd38.DEF_ROUT_PARA_3_PTR
+  LEFT JOIN DATA0035 p4 WITH (NOLOCK) ON p4.RKEY = rd38.DEF_ROUT_PARA_4_PTR
+  LEFT JOIN DATA0035 p5 WITH (NOLOCK) ON p5.RKEY = rd38.DEF_ROUT_PARA_5_PTR` : ''
+
   const exists = `AND EXISTS (
   SELECT 1
   FROM DATA0038 rd38 WITH (NOLOCK)
-  INNER JOIN DATA0034 rd34 WITH (NOLOCK) ON rd34.RKEY = rd38.DEPT_PTR
+  INNER JOIN DATA0034 rd34 WITH (NOLOCK) ON rd34.RKEY = rd38.DEPT_PTR${phraseJoins}
   WHERE rd38.SOURCE_PTR = DATA0006_1.RKEY
     AND rd38.TTYPE = 2
-    AND UPPER(LTRIM(RTRIM(rd34.DEPT_CODE))) LIKE '${pattern}'
+    AND UPPER(LTRIM(RTRIM(rd34.DEPT_CODE))) LIKE '${pattern}'${phraseClause}
 )`
 
   // The earliest route step where the filtered dept appears, so the UI can compare

@@ -16,7 +16,8 @@ export async function GET(request: NextRequest) {
 
   try {
     const routeDept = new URL(request.url).searchParams.get('routeDept') || ''
-    const sql = routeDept.trim() ? buildDailyPlanSQL(routeDept) : DAILY_PLAN_SQL
+    const phrase = new URL(request.url).searchParams.get('phrase') || ''
+    const sql = routeDept.trim() ? buildDailyPlanSQL(routeDept, phrase) : DAILY_PLAN_SQL
     const t0 = Date.now()
     const rows = await queryMSSQL<any[]>('1', sql)
     return NextResponse.json({
@@ -25,6 +26,7 @@ export async function GET(request: NextRequest) {
       count: rows?.length ?? 0,
       ms: Date.now() - t0,
       routeDept: routeDept.trim() || null,
+      phrase: phrase.trim() || null,
       fetchedAt: new Date().toISOString(),
     })
   } catch (error) {

@@ -91,6 +91,8 @@ export default function DailyPlanPage() {
   const [releasedOnly, setReleasedOnly] = useState(true)
   const [routeDept, setRouteDept] = useState('')          // committed (queried) value
   const [routeDeptInput, setRouteDeptInput] = useState('') // what's in the box
+  const [phrase, setPhrase] = useState('')                 // committed phrase
+  const [phraseInput, setPhraseInput] = useState('')       // phrase box
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null)
   const [page, setPage] = useState(1)
 
@@ -115,8 +117,11 @@ export default function DailyPlanPage() {
   const load = useCallback(async () => {
     setLoading(true); setError(''); setLaborHours({})
     try {
-      const url = routeDept.trim()
-        ? getApiUrl(`/api/operations/daily-plan?routeDept=${encodeURIComponent(routeDept.trim())}`)
+      const params = new URLSearchParams()
+      if (routeDept.trim()) params.set('routeDept', routeDept.trim())
+      if (routeDept.trim() && phrase.trim()) params.set('phrase', phrase.trim())
+      const url = params.toString()
+        ? getApiUrl(`/api/operations/daily-plan?${params.toString()}`)
         : getApiUrl('/api/operations/daily-plan')
       const res = await fetch(url)
       if (!res.ok) throw new Error((await res.json()).details || 'Failed to load')
@@ -126,7 +131,7 @@ export default function DailyPlanPage() {
       setFetchedAt(r.fetchedAt || '')
     } catch (e: any) { setError(e.message) }
     setLoading(false)
-  }, [routeDept])
+  }, [routeDept, phrase])
 
   useEffect(() => { load() }, [load])
 
@@ -293,6 +298,7 @@ export default function DailyPlanPage() {
             {fetchedAt && <span className="text-slate-400"> · {new Date(fetchedAt).toLocaleTimeString()}</span>}
             {!loading && <span className="text-slate-400"> · {sorted.length} of {rows.length} rows</span>}
             {routeDept && <span className="text-blue-600"> · route dept: {routeDept}</span>}
+            {phrase && <span className="text-blue-600"> · phrase: “{phrase}”</span>}
           </p>
           {routeDept && (
             <p className="text-xs text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
@@ -301,21 +307,41 @@ export default function DailyPlanPage() {
             </p>
           )}
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="relative flex items-center">
-            <input value={routeDeptInput}
-              onChange={e => setRouteDeptInput(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter') setRouteDept(routeDeptInput) }}
-              placeholder="Route dept (any step)…"
-              title="Show only work orders whose route includes this department at any step (e.g. I-AOI-D)"
-              className="pl-3 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-48 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-            <button onClick={() => setRouteDept(routeDeptInput)} disabled={loading}
-              className="ml-1 px-2.5 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50"
-              title="Apply route-department filter">Go</button>
-            {routeDept && (
-              <button onClick={() => { setRouteDept(''); setRouteDeptInput('') }}
-                className="ml-1 px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg" title="Clear route-department filter">✕</button>
-            )}
+        <div className="flex items-start gap-2 flex-wrap">
+          <div className="flex flex-col gap-1.5">
+            <div className="relative flex items-center">
+              <input value={routeDeptInput}
+                onChange={e => setRouteDeptInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') setRouteDept(routeDeptInput) }}
+                placeholder="Route dept (any step)…"
+                title="Show only work orders whose route includes this department at any step (e.g. I-AOI-D)"
+                className="pl-3 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-48 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+              <button onClick={() => setRouteDept(routeDeptInput)} disabled={loading}
+                className="ml-1 px-2.5 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50"
+                title="Apply route-department filter">Go</button>
+              {routeDept && (
+                <button onClick={() => { setRouteDept(''); setRouteDeptInput(''); setPhrase(''); setPhraseInput('') }}
+                  className="ml-1 px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg" title="Clear route-department filter">✕</button>
+              )}
+            </div>
+            {/* Phrase filter — searches instructions/parameters/additional params at the dept's step. Requires a dept. */}
+            <div className="relative flex items-center">
+              <Search size={13} className="absolute left-2.5 top-2.5 text-slate-400" />
+              <input value={phraseInput}
+                onChange={e => setPhraseInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && routeDept) setPhrase(phraseInput) }}
+                disabled={!routeDept}
+                placeholder={routeDept ? 'Param / instruction phrase…' : 'Set a dept first'}
+                title="Within the dept's route step(s), match a phrase in instructions, parameters, or additional parameters"
+                className="pl-7 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-48 focus:outline-none focus:ring-1 focus:ring-blue-400 disabled:bg-slate-50 disabled:text-slate-400" />
+              <button onClick={() => routeDept && setPhrase(phraseInput)} disabled={loading || !routeDept}
+                className="ml-1 px-2.5 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50"
+                title="Apply phrase filter">Go</button>
+              {phrase && (
+                <button onClick={() => { setPhrase(''); setPhraseInput('') }}
+                  className="ml-1 px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg" title="Clear phrase filter">✕</button>
+              )}
+            </div>
           </div>
           <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer whitespace-nowrap mr-1"
             title="Hide unreleased and on-hold-unreleased work orders">
