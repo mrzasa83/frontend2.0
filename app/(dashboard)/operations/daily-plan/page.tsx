@@ -93,6 +93,8 @@ export default function DailyPlanPage() {
   const [routeDeptInput, setRouteDeptInput] = useState('') // what's in the box
   const [phrase, setPhrase] = useState('')                 // committed phrase
   const [phraseInput, setPhraseInput] = useState('')       // phrase box
+  const [deptList, setDeptList] = useState<{ code: string; name: string }[]>([])
+  const [deptOpen, setDeptOpen] = useState(false)
   const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' } | null>(null)
   const [page, setPage] = useState(1)
 
@@ -134,6 +136,22 @@ export default function DailyPlanPage() {
   }, [routeDept, phrase])
 
   useEffect(() => { load() }, [load])
+
+  // Load the active department list once, for the route-dept type-ahead.
+  useEffect(() => {
+    let cancelled = false
+    fetch(getApiUrl('/api/operations/reworks/step-options'))
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(d => {
+        if (cancelled) return
+        const active = (d.departments || [])
+          .filter((x: any) => x.active && x.code)
+          .map((x: any) => ({ code: x.code, name: x.name }))
+        setDeptList(active)
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // Filtering
   const filtered = useMemo(() => {
@@ -199,6 +217,15 @@ export default function DailyPlanPage() {
     }
     return out
   }, [routeDept])
+
+  // Type-ahead suggestions: match code OR name against what's typed (like frontImage).
+  const deptSuggestions = useMemo(() => {
+    const q = routeDeptInput.trim().toUpperCase()
+    if (!q) return deptList.slice(0, 50)
+    return deptList
+      .filter(d => d.code.toUpperCase().includes(q) || d.name.toUpperCase().includes(q))
+      .slice(0, 50)
+  }, [deptList, routeDeptInput])
 
   const frozenStyle = (idx: number, isHeader: boolean): CSSProperties =>
     idx < FROZEN_COUNT
@@ -310,13 +337,30 @@ export default function DailyPlanPage() {
         <div className="flex items-start gap-2 flex-wrap">
           <div className="flex flex-col gap-1.5">
             <div className="relative flex items-center">
-              <input value={routeDeptInput}
-                onChange={e => setRouteDeptInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter') setRouteDept(routeDeptInput) }}
-                placeholder="Route dept — name or code…"
-                title="Show work orders whose route includes this department at any step. Type a code (I-AOI-D) or a name (Composite AOI)."
-                className="pl-3 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-48 focus:outline-none focus:ring-1 focus:ring-blue-400" />
-              <button onClick={() => setRouteDept(routeDeptInput)} disabled={loading}
+              <div className="relative">
+                <input value={routeDeptInput}
+                  onChange={e => { setRouteDeptInput(e.target.value); setDeptOpen(true) }}
+                  onFocus={() => setDeptOpen(true)}
+                  onBlur={() => setTimeout(() => setDeptOpen(false), 150)}
+                  onKeyDown={e => { if (e.key === 'Enter') { setRouteDept(routeDeptInput); setDeptOpen(false) } if (e.key === 'Escape') setDeptOpen(false) }}
+                  placeholder="Route dept — name or code…"
+                  title="Show work orders whose route includes this department at any step. Type a code (I-AOI-D) or a name (Composite AOI)."
+                  className="pl-3 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-56 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                {deptOpen && deptSuggestions.length > 0 && (
+                  <div className="absolute z-20 mt-1 w-72 max-h-72 overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg">
+                    {deptSuggestions.map(d => (
+                      <button key={d.code}
+                        onMouseDown={e => e.preventDefault()}
+                        onClick={() => { setRouteDeptInput(d.code); setRouteDept(d.code); setDeptOpen(false) }}
+                        className="w-full text-left px-3 py-1.5 hover:bg-blue-50 flex items-center gap-2 text-sm">
+                        <span className="font-mono text-slate-800 w-24 shrink-0">{d.code}</span>
+                        <span className="text-slate-500 truncate">{d.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <button onClick={() => { setRouteDept(routeDeptInput); setDeptOpen(false) }} disabled={loading}
                 className="ml-1 px-2.5 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50"
                 title="Apply route-department filter">Go</button>
               {routeDept && (
