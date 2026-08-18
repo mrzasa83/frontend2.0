@@ -213,7 +213,7 @@ export default function DailyPlanPage() {
     const out: typeof COLUMNS = []
     for (const c of COLUMNS) {
       out.push(c)
-      if (c.key === 'STEP') out.push({ key: '_FIX', label: '⚑', special: 'fix', w: 44 })
+      if (c.key === 'STEP') out.push({ key: '_FIX', label: '⚑', special: 'fix', w: 60 })
     }
     return out
   }, [routeDept])
@@ -294,10 +294,16 @@ export default function DailyPlanPage() {
       const cur = Number(row.STEP)
       if (!routeDept || isNaN(dept)) return <span className="text-slate-300">—</span>
       // At or after the current step = still fixable; before = already passed.
-      if (isNaN(cur) || dept >= cur) {
-        return <Check size={15} className="text-green-600 mx-auto" aria-label="At or after current step — fixable" />
-      }
-      return <Flag size={14} className="text-red-500 mx-auto" aria-label="Before current step — already passed" />
+      const fixable = isNaN(cur) || dept >= cur
+      return (
+        <span className="flex items-center justify-center gap-1 tabular-nums"
+          title={fixable ? `Dept at step ${dept} — at or after current step ${cur} (fixable)` : `Dept at step ${dept} — before current step ${cur} (already passed)`}>
+          {fixable
+            ? <Check size={14} className="text-green-600 shrink-0" />
+            : <Flag size={13} className="text-red-500 shrink-0" />}
+          <span className={fixable ? 'text-green-700' : 'text-red-600'}>{dept}</span>
+        </span>
+      )
     }
     if (c.key === 'WORK_ORDER') {
       const wo = row.WORK_ORDER
@@ -329,8 +335,8 @@ export default function DailyPlanPage() {
           </p>
           {routeDept && (
             <p className="text-xs text-slate-500 mt-1 flex items-center gap-3 flex-wrap">
-              <span className="flex items-center gap-1"><Check size={13} className="text-green-600" /> {routeDept} is at or after the current step — still fixable</span>
-              <span className="flex items-center gap-1"><Flag size={12} className="text-red-500" /> {routeDept} already passed (before current step)</span>
+              <span className="flex items-center gap-1"><Check size={13} className="text-green-600" /> {routeDept} at/after current step — fixable (number = its step)</span>
+              <span className="flex items-center gap-1"><Flag size={12} className="text-red-500" /> {routeDept} before current step — already passed</span>
             </p>
           )}
         </div>
@@ -347,7 +353,7 @@ export default function DailyPlanPage() {
                   title="Show work orders whose route includes this department at any step. Type a code (I-AOI-D) or a name (Composite AOI)."
                   className="pl-3 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-56 focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 {deptOpen && deptSuggestions.length > 0 && (
-                  <div className="absolute z-20 mt-1 w-72 max-h-72 overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg">
+                  <div className="absolute z-[60] mt-1 w-72 max-h-72 overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg">
                     {deptSuggestions.map(d => (
                       <button key={d.code}
                         onMouseDown={e => e.preventDefault()}
