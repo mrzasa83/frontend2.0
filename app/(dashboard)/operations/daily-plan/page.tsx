@@ -313,8 +313,8 @@ export default function DailyPlanPage() {
               <input value={routeDeptInput}
                 onChange={e => setRouteDeptInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter') setRouteDept(routeDeptInput) }}
-                placeholder="Route dept (any step)…"
-                title="Show only work orders whose route includes this department at any step (e.g. I-AOI-D)"
+                placeholder="Route dept — name or code…"
+                title="Show work orders whose route includes this department at any step. Type a code (I-AOI-D) or a name (Composite AOI)."
                 className="pl-3 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-48 focus:outline-none focus:ring-1 focus:ring-blue-400" />
               <button onClick={() => setRouteDept(routeDeptInput)} disabled={loading}
                 className="ml-1 px-2.5 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 disabled:opacity-50"

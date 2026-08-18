@@ -201,20 +201,21 @@ export function buildDailyPlanSQL(routeDept?: string, phrase?: string): string {
   // Text-match predicate over the same instruction (DATA0036), parameter-name
   // (DATA0035), inline parameter, and additional-parameter (DATA0471->DATA0469)
   // sources the work-order detail assembles. Only applied when a phrase is given.
+  const C = 'COLLATE DATABASE_DEFAULT'
   const phraseClause = phrasePattern ? `
     AND (
-      UPPER(ISNULL(i1.INST_CODE,'')+' '+ISNULL(i2.INST_CODE,'')+' '+ISNULL(i3.INST_CODE,'')+' '+ISNULL(i4.INST_CODE,'')+' '+ISNULL(i5.INST_CODE,'')) LIKE '${phrasePattern}'
-      OR UPPER(ISNULL(i1.PROD_ROUT_INST_1,'')+' '+ISNULL(i1.PROD_ROUT_INST_2,'')+' '+ISNULL(i1.PROD_ROUT_INST_3,'')+' '+ISNULL(i1.PROD_ROUT_INST_4,'')) LIKE '${phrasePattern}'
-      OR UPPER(ISNULL(rd38.PARAMETER_1,'')+' '+ISNULL(rd38.PARAMETER_2,'')+' '+ISNULL(rd38.PARAMETER_3,'')+' '+ISNULL(rd38.PARAMETER_4,'')+' '+ISNULL(rd38.PARAMETER_5,'')+' '+ISNULL(rd38.PARAMETER_6,'')+' '+ISNULL(rd38.PARAMETER_7,'')+' '+ISNULL(rd38.PARAMETER_8,'')+' '+ISNULL(rd38.PARAMETER_9,'')+' '+ISNULL(rd38.PARAMETER_10,'')) LIKE '${phrasePattern}'
-      OR UPPER(ISNULL(p1.PRODUCTION_PARAMETER,'')+' '+ISNULL(p2.PRODUCTION_PARAMETER,'')+' '+ISNULL(p3.PRODUCTION_PARAMETER,'')+' '+ISNULL(p4.PRODUCTION_PARAMETER,'')+' '+ISNULL(p5.PRODUCTION_PARAMETER,'')) LIKE '${phrasePattern}'
+      UPPER(ISNULL(i1.INST_CODE,'') ${C}+' '+ISNULL(i2.INST_CODE,'') ${C}+' '+ISNULL(i3.INST_CODE,'') ${C}+' '+ISNULL(i4.INST_CODE,'') ${C}+' '+ISNULL(i5.INST_CODE,'') ${C}) LIKE '${phrasePattern}'
+      OR UPPER(ISNULL(i1.PROD_ROUT_INST_1,'') ${C}+' '+ISNULL(i1.PROD_ROUT_INST_2,'') ${C}+' '+ISNULL(i1.PROD_ROUT_INST_3,'') ${C}+' '+ISNULL(i1.PROD_ROUT_INST_4,'') ${C}) LIKE '${phrasePattern}'
+      OR UPPER(ISNULL(rd38.PARAMETER_1,'') ${C}+' '+ISNULL(rd38.PARAMETER_2,'') ${C}+' '+ISNULL(rd38.PARAMETER_3,'') ${C}+' '+ISNULL(rd38.PARAMETER_4,'') ${C}+' '+ISNULL(rd38.PARAMETER_5,'') ${C}+' '+ISNULL(rd38.PARAMETER_6,'') ${C}+' '+ISNULL(rd38.PARAMETER_7,'') ${C}+' '+ISNULL(rd38.PARAMETER_8,'') ${C}+' '+ISNULL(rd38.PARAMETER_9,'') ${C}+' '+ISNULL(rd38.PARAMETER_10,'') ${C}) LIKE '${phrasePattern}'
+      OR UPPER(ISNULL(p1.PRODUCTION_PARAMETER,'') ${C}+' '+ISNULL(p2.PRODUCTION_PARAMETER,'') ${C}+' '+ISNULL(p3.PRODUCTION_PARAMETER,'') ${C}+' '+ISNULL(p4.PRODUCTION_PARAMETER,'') ${C}+' '+ISNULL(p5.PRODUCTION_PARAMETER,'') ${C}) LIKE '${phrasePattern}'
       OR EXISTS (
         SELECT 1 FROM DATA0471 xd471 WITH (NOLOCK)
         INNER JOIN DATA0469 xd469 WITH (NOLOCK) ON xd469.RKEY = xd471.DATA0469_PTR
         WHERE xd471.DATA0038_PTR = rd38.RKEY
           AND UPPER(
-                ISNULL(xd469.PARAMETER_DESC,'') + ' ' + ISNULL(xd469.PARAMETER_CODE,'') + ' ' +
-                ISNULL(CAST(xd471.PARAMETER_VALUE AS NVARCHAR(MAX)),'') + ' ' +
-                ISNULL(CAST(xd471.PARAM_NOTE AS NVARCHAR(MAX)),'')
+                ISNULL(xd469.PARAMETER_DESC,'') ${C} + ' ' + ISNULL(xd469.PARAMETER_CODE,'') ${C} + ' ' +
+                ISNULL(CAST(xd471.PARAMETER_VALUE AS NVARCHAR(MAX)),'') ${C} + ' ' +
+                ISNULL(CAST(xd471.PARAM_NOTE AS NVARCHAR(MAX)),'') ${C}
               ) LIKE '${phrasePattern}'
       )
     )` : ''
@@ -237,7 +238,10 @@ export function buildDailyPlanSQL(routeDept?: string, phrase?: string): string {
   INNER JOIN DATA0034 rd34 WITH (NOLOCK) ON rd34.RKEY = rd38.DEPT_PTR${phraseJoins}
   WHERE rd38.SOURCE_PTR = DATA0006_1.RKEY
     AND rd38.TTYPE = 2
-    AND UPPER(LTRIM(RTRIM(rd34.DEPT_CODE))) LIKE '${pattern}'${phraseClause}
+    AND (
+      UPPER(LTRIM(RTRIM(rd34.DEPT_CODE))) LIKE '${pattern}'
+      OR UPPER(LTRIM(RTRIM(rd34.DEPT_NAME))) LIKE '${pattern}'
+    )${phraseClause}
 )`
 
   // The earliest route step where the filtered dept appears, so the UI can compare
@@ -248,7 +252,10 @@ export function buildDailyPlanSQL(routeDept?: string, phrase?: string): string {
   INNER JOIN DATA0034 rs34 WITH (NOLOCK) ON rs34.RKEY = rs38.DEPT_PTR
   WHERE rs38.SOURCE_PTR = DATA0006_1.RKEY
     AND rs38.TTYPE = 2
-    AND UPPER(LTRIM(RTRIM(rs34.DEPT_CODE))) LIKE '${pattern}'
+    AND (
+      UPPER(LTRIM(RTRIM(rs34.DEPT_CODE))) LIKE '${pattern}'
+      OR UPPER(LTRIM(RTRIM(rs34.DEPT_NAME))) LIKE '${pattern}'
+    )
 ) AS MATCHED_DEPT_STEP`
 
   return DAILY_PLAN_SQL
