@@ -28,32 +28,6 @@ export const MODULES: Module[] = [
     requiredRoles: [] // Everyone can see dashboard
   },
   {
-    id: 'contract',
-    name: 'Contract',
-    icon: FileText,
-    requiredRoles: ['Admin', 'Program'],
-    subModules: [
-      {
-        id: 'contract-dashboard',
-        name: 'Dashboard',
-        path: '/contract',
-        requiredRoles: ['Admin', 'Program']
-      },
-      {
-        id: 'contract-clauses',
-        name: 'Clauses',
-        path: '/contract/clauses',
-        requiredRoles: ['Admin', 'Program']
-      },
-      {
-        id: 'contract-pos',
-        name: 'POs',
-        path: '/contract/pos',
-        requiredRoles: ['Admin', 'Program']
-      },
-    ]
-  },
-  {
     id: 'operations',
     name: 'Operation',
     icon: ClipboardCheck,
@@ -83,12 +57,38 @@ export const MODULES: Module[] = [
         path: '/operations/reworks',
         requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations', 'Production Control', 'Quality Control']
       },
-      {
+  {
         id: 'audits',
         name: 'Audits',
         path: '/operations/audits',
         requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations']
       }
+    ]
+  },
+  {
+    id: 'contract',
+    name: 'Contract',
+    icon: FileText,
+    requiredRoles: ['Admin', 'Program'],
+    subModules: [
+      {
+        id: 'contract-dashboard',
+        name: 'Dashboard',
+        path: '/contract',
+        requiredRoles: ['Admin', 'Program']
+      },
+      {
+        id: 'contract-clauses',
+        name: 'Clauses',
+        path: '/contract/clauses',
+        requiredRoles: ['Admin', 'Program']
+      },
+      {
+        id: 'contract-pos',
+        name: 'POs',
+        path: '/contract/pos',
+        requiredRoles: ['Admin', 'Program']
+      },
     ]
   },
   { 

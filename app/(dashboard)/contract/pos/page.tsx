@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
-import { RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, ScanLine, Plus, X, Trash2, ArrowLeft } from 'lucide-react'
+import { RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, ScanLine, Plus, X, Trash2, ArrowLeft, ClipboardList, ScrollText, Files } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 type PORow = {
@@ -184,9 +184,9 @@ function PODetail({ po, onBack, session }: { po: PORow; onBack: () => void; sess
   useEffect(() => { loadDetail() }, [loadDetail])
 
   const TABS = [
-    { id: 'general', label: 'General' },
-    { id: 'clauses', label: 'Clauses' },
-    { id: 'files', label: 'Files' },
+    { id: 'general', label: 'General', icon: ClipboardList },
+    { id: 'clauses', label: 'Clauses', icon: ScrollText },
+    { id: 'files', label: 'Files', icon: Files },
   ] as const
 
   return (
@@ -199,34 +199,48 @@ function PODetail({ po, onBack, session }: { po: PORow; onBack: () => void; sess
         <p className="text-sm text-slate-600">{po.customer} · APC {po.apc_part} · latest {po.latest_version || '—'}</p>
       </div>
 
-      <div className="flex gap-1 border-b border-slate-200 mb-4">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${tab === t.id ? 'border-blue-600 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-800'}`}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
       {error && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
 
-      {tab === 'general' && (
-        <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-2xl">
-          <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
-            <div><dt className="text-xs uppercase text-slate-400">PO #</dt><dd className="font-mono text-slate-800">{po.po_number}</dd></div>
-            <div><dt className="text-xs uppercase text-slate-400">Customer</dt><dd className="text-slate-800">{po.customer}</dd></div>
-            <div><dt className="text-xs uppercase text-slate-400">APC Part</dt><dd className="font-mono text-slate-800">{po.apc_part}</dd></div>
-            <div><dt className="text-xs uppercase text-slate-400">Latest Version</dt><dd className="text-slate-800">{po.latest_version || '—'}</dd></div>
-            <div><dt className="text-xs uppercase text-slate-400">Versions</dt><dd className="text-slate-800">{po.version_count}</dd></div>
-            <div><dt className="text-xs uppercase text-slate-400">Files</dt><dd className="text-slate-800">{po.file_count}</dd></div>
-            <div><dt className="text-xs uppercase text-slate-400">Latest File</dt><dd className="text-slate-800">{fmtDate(po.latest_mtime)}</dd></div>
-            <div><dt className="text-xs uppercase text-slate-400">Related Clauses</dt><dd className="text-slate-800">{relations.length}</dd></div>
-          </dl>
+      <div className="flex gap-0 min-h-[400px]">
+        {/* Left rail */}
+        <div className="w-52 flex-shrink-0 border-r border-slate-200 pr-0">
+          {TABS.map(t => {
+            const Icon = t.icon
+            const active = tab === t.id
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left transition-colors ${
+                  active ? 'bg-blue-600 text-white font-medium rounded-lg' : 'text-slate-600 hover:bg-slate-100 rounded-lg'
+                }`}>
+                <Icon size={16} /> {t.label}
+              </button>
+            )
+          })}
         </div>
-      )}
 
-      {tab === 'clauses' && <ClausesTab po={po} relations={relations} reload={loadDetail} session={session} />}
-      {tab === 'files' && <FilesTab files={files} loading={loading} />}
+        {/* Content */}
+        <div className="flex-1 pl-6 min-w-0">
+          {tab === 'general' && (
+            <div>
+              <h3 className="text-lg font-semibold text-slate-800 mb-4">General</h3>
+              <div className="bg-white border border-slate-200 rounded-lg p-5 max-w-2xl">
+                <dl className="grid grid-cols-2 gap-x-8 gap-y-3 text-sm">
+                  <div><dt className="text-xs uppercase text-slate-400">PO #</dt><dd className="font-mono text-slate-800">{po.po_number}</dd></div>
+                  <div><dt className="text-xs uppercase text-slate-400">Customer</dt><dd className="text-slate-800">{po.customer}</dd></div>
+                  <div><dt className="text-xs uppercase text-slate-400">APC Part</dt><dd className="font-mono text-slate-800">{po.apc_part}</dd></div>
+                  <div><dt className="text-xs uppercase text-slate-400">Latest Version</dt><dd className="text-slate-800">{po.latest_version || '—'}</dd></div>
+                  <div><dt className="text-xs uppercase text-slate-400">Versions</dt><dd className="text-slate-800">{po.version_count}</dd></div>
+                  <div><dt className="text-xs uppercase text-slate-400">Files</dt><dd className="text-slate-800">{po.file_count}</dd></div>
+                  <div><dt className="text-xs uppercase text-slate-400">Latest File</dt><dd className="text-slate-800">{fmtDate(po.latest_mtime)}</dd></div>
+                  <div><dt className="text-xs uppercase text-slate-400">Related Clauses</dt><dd className="text-slate-800">{relations.length}</dd></div>
+                </dl>
+              </div>
+            </div>
+          )}
+          {tab === 'clauses' && <ClausesTab po={po} relations={relations} reload={loadDetail} session={session} />}
+          {tab === 'files' && <FilesTab files={files} loading={loading} />}
+        </div>
+      </div>
     </div>
   )
 }
