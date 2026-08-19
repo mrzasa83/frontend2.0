@@ -147,21 +147,33 @@ def extract(path):
                     pages_text[i] = t
                     ocr_pages += 1
 
-    full = '\n'.join(pages_text)
-    # OCR/extraction sometimes spaces out the dots and dashes in a clause number.
-    norm = re.sub(r'\s*([.\-])\s*', r'\1', full)
-
-    found = {}
-    for m in FAR_RE.finditer(norm):
-        num = f"{m.group(1)}.{m.group(2)}-{m.group(3)}"
-        found.setdefault(num, standard_hint(num))
-    for m in AGENCY_RE.finditer(full):
-        found.setdefault(m.group(1).strip(), '')
+    # Scan page by page so every hit carries the page it was found on.
+    found = {}       # number -> standard hint
+    pages_of = {}    # number -> ordered list of 1-based page numbers
+    for idx, page_text in enumerate(pages_text):
+        page_no = idx + 1
+        # OCR/extraction sometimes spaces out the dots and dashes in a clause number.
+        norm = re.sub(r'\s*([.\-])\s*', r'\1', page_text or '')
+        for m in FAR_RE.finditer(norm):
+            num = f"{m.group(1)}.{m.group(2)}-{m.group(3)}"
+            found.setdefault(num, standard_hint(num))
+            pages_of.setdefault(num, [])
+            if page_no not in pages_of[num]:
+                pages_of[num].append(page_no)
+        for m in AGENCY_RE.finditer(page_text or ''):
+            num = m.group(1).strip()
+            found.setdefault(num, '')
+            pages_of.setdefault(num, [])
+            if page_no not in pages_of[num]:
+                pages_of[num].append(page_no)
 
     return {
         "status": "ok", "message": "",
         "pages": total, "ocr_pages": ocr_pages,
-        "clauses": [{"number": k, "standard_hint": v} for k, v in sorted(found.items())],
+        "clauses": [
+            {"number": k, "standard_hint": v, "pages": pages_of.get(k, [])}
+            for k, v in sorted(found.items())
+        ],
     }
 
 if __name__ == '__main__':

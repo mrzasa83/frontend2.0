@@ -21,6 +21,11 @@ export async function POST(request: NextRequest) {
     const po_number = String(b?.po_number ?? '').trim()
     const customer = String(b?.customer ?? '').trim()
     const clause_id = Number(b?.clause_id)
+    const found_pages = String(b?.found_pages ?? '').trim().slice(0, 120)
+    const source_file = String(b?.source_file ?? '').trim().slice(0, 400)
+    // 'auto' when the user accepted an Auto Scan suggestion; otherwise the add is
+    // manual and is attributed to the signed-in user.
+    const via = String(b?.via ?? '').trim().toLowerCase() === 'auto' ? 'auto' : 'manual'
     if (!po_number || !customer || !clause_id || isNaN(clause_id)) {
       return NextResponse.json({ error: 'po_number, customer, clause_id required' }, { status: 400 })
     }
@@ -34,10 +39,17 @@ export async function POST(request: NextRequest) {
     // how_added = the username for manual adds (auto scan uses 'auto').
     await queryPrimary(
       `INSERT INTO contract_po_clauses
-         (po_number, customer, clause_id, standard, clause_number, how_added, confidence, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, 'manual', ?)
-       ON DUPLICATE KEY UPDATE how_added = VALUES(how_added)`,
-      [po_number, customer, clause_id, clause[0].standard, clause[0].clause_number, user, user]
+         (po_number, customer, clause_id, standard, clause_number, how_added, confidence,
+          found_pages, source_file, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         how_added = VALUES(how_added),
+         found_pages = IF(VALUES(found_pages) <> '', VALUES(found_pages), found_pages),
+         source_file = IF(VALUES(source_file) <> '', VALUES(source_file), source_file)`,
+      [po_number, customer, clause_id, clause[0].standard, clause[0].clause_number,
+       via === 'auto' ? 'auto' : user,
+       via === 'auto' ? 'catalog' : 'manual',
+       found_pages, source_file, user]
     )
     return NextResponse.json({ success: true })
   } catch (error) {

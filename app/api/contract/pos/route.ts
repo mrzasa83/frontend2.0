@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
       )
       const clauses = await queryPrimary<any[]>(
         `SELECT pc.id, pc.clause_id, pc.standard, pc.clause_number, pc.how_added,
-                pc.source_file, pc.confidence, pc.created_by, pc.created_at,
+                pc.source_file, pc.confidence, pc.found_pages, pc.created_by, pc.created_at,
                 c.title, c.classification
          FROM contract_po_clauses pc
          LEFT JOIN contract_clauses c ON c.id = pc.clause_id
@@ -70,15 +70,45 @@ export async function GET(request: NextRequest) {
       const like = `%${q}%`
       params.push(like, like, like)
     }
+
+    // Per-column filters. These run server-side so they filter the whole table,
+    // not just the current page. Column names are fixed here, never interpolated
+    // from user input; only the values are bound as parameters.
+    const colFilter = (param: string, column: string) => {
+      const v = (sp.get(param) || '').trim()
+      if (!v) return
+      whereParts.push(`${column} LIKE ?`)
+      params.push(`%${v}%`)
+    }
+    colFilter('f_po', 'customer_part')
+    colFilter('f_customer', 'po_folder')
+    colFilter('f_apc', 'apc_part')
+
     const whereSql = whereParts.join(' AND ')
+
+    // Version filters compare against the aggregated latest version, so they
+    // belong in HAVING rather than WHERE.
+    const havingParts: string[] = []
+    const havingParams: any[] = []
+    const fVersion = (sp.get('f_version') || '').trim()
+    if (fVersion) {
+      havingParts.push('latest_version LIKE ?')
+      havingParams.push(`%${fVersion}%`)
+    }
+    const havingSql = havingParts.length ? `HAVING ${havingParts.join(' AND ')}` : ''
 
     // Count of distinct PO groups (for pagination).
     const countRows = await queryPrimary<any[]>(
       `SELECT COUNT(*) AS total FROM (
-         SELECT customer_part, po_folder FROM po_cert_files
+         SELECT customer_part, po_folder,
+                SUBSTRING_INDEX(
+                  GROUP_CONCAT(version_label ORDER BY version_rank DESC, file_mtime DESC SEPARATOR '||'),
+                  '||', 1) AS latest_version
+         FROM po_cert_files
          WHERE ${whereSql}
          GROUP BY customer_part, po_folder
-       ) g`, params
+         ${havingSql}
+       ) g`, [...params, ...havingParams]
     )
     const total = countRows?.[0]?.total ?? 0
 
@@ -98,9 +128,10 @@ export async function GET(request: NextRequest) {
        FROM po_cert_files
        WHERE ${whereSql}
        GROUP BY customer_part, po_folder
+       ${havingSql}
        ORDER BY ${orderCol} ${sortDir}
        LIMIT ? OFFSET ?`,
-      [...params, pageSize, offset]
+      [...params, ...havingParams, pageSize, offset]
     )
     return NextResponse.json({
       success: true, rows: rows || [], count: rows?.length ?? 0,

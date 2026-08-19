@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS contract_po_clauses (
   how_added     VARCHAR(60)  NOT NULL,            -- 'auto' or the username who added it
   source_file   VARCHAR(400) NOT NULL DEFAULT '', -- which version file it was found in (auto)
   confidence    VARCHAR(20)  NOT NULL DEFAULT '', -- 'catalog' | 'pattern' (auto scan basis)
+  found_pages   VARCHAR(120) NOT NULL DEFAULT '', -- page numbers the scan found it on, e.g. "1,4"
   created_by    VARCHAR(50)  NOT NULL,
   created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_po_clause (po_number, customer, clause_id),

@@ -83,7 +83,10 @@ export async function POST(request: NextRequest) {
 
     // Match detected clause numbers against the catalog. A number may match more
     // than one standard (e.g. FAR vs NGC listing) — return all, let the user pick.
-    const detected: { number: string; standard_hint: string }[] = scan.clauses || []
+    const detected: { number: string; standard_hint: string; pages?: number[] }[] = scan.clauses || []
+    // number -> pages it was found on, for display and for storing on accept.
+    const pagesByNum = new Map<string, number[]>()
+    for (const d of detected) pagesByNum.set(normNum(d.number), d.pages || [])
     const numbers = Array.from(new Set(detected.map(d => normNum(d.number)))).filter(Boolean)
 
     let matches: any[] = []
@@ -101,7 +104,7 @@ export async function POST(request: NextRequest) {
     const matchedNums = new Set(matches.map(m => normNum(m.clause_number)))
     const unmatched = detected
       .filter(d => !matchedNums.has(normNum(d.number)))
-      .map(d => ({ number: d.number, standard_hint: d.standard_hint }))
+      .map(d => ({ number: d.number, standard_hint: d.standard_hint, pages: d.pages || [] }))
 
     // Which of the matched clauses are ALREADY related to this PO.
     const existing = await queryPrimary<any[]>(
@@ -109,15 +112,22 @@ export async function POST(request: NextRequest) {
       [po_number, customer]
     )
     const existingIds = new Set((existing || []).map(e => e.clause_id))
-    const suggestions = matches.map(m => ({
-      ...m, confidence: 'catalog', already_related: existingIds.has(m.id),
-    }))
+    const suggestions = matches.map(m => {
+      const pages = pagesByNum.get(normNum(m.clause_number)) || []
+      return {
+        ...m, confidence: 'catalog',
+        already_related: existingIds.has(m.id),
+        pages,
+        found_pages: pages.join(','),
+      }
+    })
 
     await recordScan(po_number, customer, f, scan.pages, scan.ocr_pages, matches.length, 'ok', '', user)
 
     return NextResponse.json({
       success: true,
       scanned_file: f.file_name,
+      scanned_path: f.file_path,
       version: f.version_label,
       pages: scan.pages, ocr_pages: scan.ocr_pages,
       suggestions,     // catalog matches (accept to relate)

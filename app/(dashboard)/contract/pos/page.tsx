@@ -21,6 +21,7 @@ type POFile = {
 type PORelation = {
   id: number; clause_id: number; standard: string; clause_number: string
   how_added: string; title: string; classification: string
+  found_pages?: string; source_file?: string; confidence?: string
 }
 type Clause = { id: number; standard: string; clause_number: string; title: string; classification: string }
 
@@ -94,6 +95,18 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
   const [total, setTotal] = useState(0)
+  // Per-column filters (typed) and the debounced copy actually sent to the server.
+  const [colFilters, setColFilters] = useState<Record<string, string>>({})
+  const [appliedFilters, setAppliedFilters] = useState<Record<string, string>>({})
+
+  // Debounce filter typing so we aren't firing a query per keystroke.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      setAppliedFilters(colFilters)
+      setPage(1)
+    }, 350)
+    return () => clearTimeout(t)
+  }, [colFilters])
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -102,13 +115,20 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
         page: String(page), pageSize: '100', sort: sort.key, dir: sort.dir,
       })
       if (q.trim()) p.set('q', q.trim())
+      const PARAM: Record<string, string> = {
+        po_number: 'f_po', customer: 'f_customer', apc_part: 'f_apc', latest_version: 'f_version',
+      }
+      for (const [key, val] of Object.entries(appliedFilters)) {
+        const name = PARAM[key]
+        if (name && val.trim()) p.set(name, val.trim())
+      }
       const res = await fetch(getApiUrl(`/api/contract/pos?${p.toString()}`))
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to load')
       const r = await res.json()
       setRows(r.rows || []); setPages(r.pages || 1); setTotal(r.total || 0)
     } catch (e: any) { setError(e.message) }
     setLoading(false)
-  }, [page, sort, q])
+  }, [page, sort, q, appliedFilters])
   useEffect(() => { load() }, [load])
 
   const toggleSort = (key: string) => {
@@ -122,6 +142,10 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <p className="text-sm text-slate-500">
           {loading ? 'Loading…' : `${total.toLocaleString()} POs · page ${page} of ${pages}`}
+          {Object.values(appliedFilters).some(v => v.trim()) && (
+            <button onClick={() => setColFilters({})}
+              className="ml-2 text-blue-600 hover:underline">clear filters</button>
+          )}
         </p>
         <div className="flex items-center gap-2">
           <div className="relative">
@@ -154,6 +178,21 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
                       {c.label}
                       {active ? (sort.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : <ArrowUpDown size={10} className="text-slate-300" />}
                     </button>
+                  </th>
+                )
+              })}
+            </tr>
+            <tr>
+              {LIST_COLS.map(c => {
+                const filterable = ['po_number', 'customer', 'apc_part', 'latest_version'].includes(c.key)
+                return (
+                  <th key={c.key} className="px-1 py-1 border-b border-slate-200 bg-white">
+                    {filterable && (
+                      <input value={colFilters[c.key] || ''}
+                        onChange={e => setColFilters(f => ({ ...f, [c.key]: e.target.value }))}
+                        placeholder="filter"
+                        className="w-full min-w-[60px] text-xs font-normal border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                    )}
                   </th>
                 )
               })}
@@ -334,10 +373,13 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
     setScanning(false)
   }
 
-  const acceptSuggestion = async (clause_id: number) => {
+  const acceptSuggestion = async (clause_id: number, found_pages = '') => {
     await fetch(getApiUrl('/api/contract/pos/clauses'), {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ po_number: po.po_number, customer: po.customer, clause_id }),
+      body: JSON.stringify({
+        po_number: po.po_number, customer: po.customer, clause_id,
+        via: 'auto', found_pages, source_file: scanResult?.scanned_file || '',
+      }),
     })
     reload()
     setScanResult((sr: any) => sr ? { ...sr, suggestions: sr.suggestions.map((s: any) => s.id === clause_id ? { ...s, already_related: true } : s) } : sr)
@@ -395,6 +437,7 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
                   <th className="px-3 py-1.5 text-left text-xs text-slate-600">Standard</th>
                   <th className="px-3 py-1.5 text-left text-xs text-slate-600">Clause</th>
                   <th className="px-3 py-1.5 text-left text-xs text-slate-600">Title</th>
+                  <th className="px-3 py-1.5 text-left text-xs text-slate-600 w-20">Page</th>
                   <th className="px-3 py-1.5 text-right text-xs text-slate-600 w-24"></th>
                 </tr></thead>
                 <tbody>
@@ -403,9 +446,12 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
                       <td className="px-3 py-1.5 text-slate-700">{s.standard}</td>
                       <td className="px-3 py-1.5 font-mono text-slate-800">{s.clause_number}</td>
                       <td className="px-3 py-1.5 text-slate-600 truncate max-w-md">{s.title}</td>
+                      <td className="px-3 py-1.5">
+                        <PageLinks pages={s.pages || []} path={scanResult?.scanned_path || ''} />
+                      </td>
                       <td className="px-3 py-1.5 text-right">
                         {s.already_related ? <span className="text-xs text-green-600">✓ related</span>
-                          : <button onClick={() => acceptSuggestion(s.id)} className="text-xs text-blue-600 hover:underline">Accept</button>}
+                          : <button onClick={() => acceptSuggestion(s.id, s.found_pages || '')} className="text-xs text-blue-600 hover:underline">Accept</button>}
                       </td>
                     </tr>
                   ))}
@@ -427,19 +473,25 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Standard</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Clause</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Title</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-24">Page</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-32">How Added</th>
               <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-16"></th>
             </tr>
           </thead>
           <tbody>
             {relations.length === 0 ? (
-              <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400 text-sm">No clauses related yet. Use Auto Scan or Manually add.</td></tr>
+              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 text-sm">No clauses related yet. Use Auto Scan or Manually add.</td></tr>
             ) : relations.map(r => (
               <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
                 <td className="px-3 py-1.5 font-mono text-slate-600">{po.po_number}</td>
                 <td className="px-3 py-1.5 text-slate-700">{r.standard}</td>
                 <td className="px-3 py-1.5 font-mono text-slate-800">{r.clause_number}</td>
                 <td className="px-3 py-1.5 text-slate-600 truncate max-w-md">{r.title}</td>
+                <td className="px-3 py-1.5">
+                  <PageLinks
+                    pages={(r.found_pages || '').split(',').map(x => parseInt(x, 10)).filter(n => !isNaN(n))}
+                    path={pdfPathFor(r.source_file || '', files)} />
+                </td>
                 <td className="px-3 py-1.5">
                   {r.how_added === 'auto'
                     ? <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700">Auto Scan</span>
@@ -456,6 +508,38 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
 
       {manualOpen && <ManualAddModal po={po} onClose={() => setManualOpen(false)} onAdded={() => { setManualOpen(false); reload() }} />}
     </div>
+  )
+}
+
+/** Resolve a stored source file name back to its full path from the PO's file list. */
+function pdfPathFor(sourceFile: string, files: POFile[]): string {
+  if (!sourceFile) return ''
+  const hit = files.find(f => f.file_name === sourceFile)
+  return hit?.file_path || ''
+}
+
+/**
+ * Page numbers a clause was found on. Each links into the PDF at that page —
+ * browsers' built-in PDF viewers honour the #page=N fragment.
+ */
+function PageLinks({ pages, path }: { pages: number[]; path: string }) {
+  if (!pages?.length) return <span className="text-slate-300 text-xs">—</span>
+  return (
+    <span className="flex flex-wrap gap-1">
+      {pages.map(p => (
+        path ? (
+          <a key={p}
+            href={`${getApiUrl(`/api/files/serve?path=${encodeURIComponent(path)}`)}#page=${p}`}
+            target="_blank" rel="noopener noreferrer"
+            title={`Open the PDF at page ${p}`}
+            className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-blue-700 hover:bg-blue-100">
+            {p}
+          </a>
+        ) : (
+          <span key={p} className="text-xs px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">{p}</span>
+        )
+      ))}
+    </span>
   )
 }
 
