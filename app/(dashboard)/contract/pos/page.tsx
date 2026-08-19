@@ -1,8 +1,13 @@
 'use client'
 
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useSession } from 'next-auth/react'
-import { RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, ScanLine, Plus, X, Trash2, ArrowLeft, ClipboardList, ScrollText, Files } from 'lucide-react'
+import Tabs from '@/components/ui/Tabs'
+import FilePreviewModal from '@/components/products/FilePreviewModal'
+import {
+  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, ScanLine, Plus, X, Trash2,
+  ClipboardList, ScrollText, Files, Eye, Download, ChevronLeft, ChevronRight,
+} from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 type PORow = {
@@ -15,12 +20,11 @@ type POFile = {
 }
 type PORelation = {
   id: number; clause_id: number; standard: string; clause_number: string
-  how_added: string; source_file: string; confidence: string
-  created_by: string; created_at: string; title: string; classification: string
+  how_added: string; title: string; classification: string
 }
 type Clause = { id: number; standard: string; clause_number: string; title: string; classification: string }
 
-const LIST_COLS: { key: keyof PORow; label: string; w?: number }[] = [
+const LIST_COLS: { key: string; label: string; w?: number }[] = [
   { key: 'po_number', label: 'PO #', w: 150 },
   { key: 'customer', label: 'Customer', w: 150 },
   { key: 'apc_part', label: 'APC Part', w: 110 },
@@ -35,76 +39,100 @@ function fmtDate(v: any) {
   const d = new Date(v)
   return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString(undefined, { year: '2-digit', month: 'numeric', day: 'numeric' })
 }
+function ext(name: string) { const m = /\.([^.]+)$/.exec(name || ''); return m ? m[1].toLowerCase() : '' }
 
 export default function POsPage() {
   const { data: session } = useSession()
+  const [openPOs, setOpenPOs] = useState<PORow[]>([])
+  const [activeTab, setActiveTab] = useState('all')
+
+  const openPO = (po: PORow) => {
+    const id = `po-${po.po_number}-${po.customer}`
+    if (!openPOs.find(p => `po-${p.po_number}-${p.customer}` === id)) setOpenPOs(v => [...v, po])
+    setActiveTab(id)
+  }
+  const closePO = (po: PORow) => {
+    const id = `po-${po.po_number}-${po.customer}`
+    setOpenPOs(v => v.filter(p => `po-${p.po_number}-${p.customer}` !== id))
+    setActiveTab('all')
+  }
+
+  const tabs = [
+    { id: 'all', label: 'All POs', content: <POList onOpen={openPO} />, closeable: false },
+    ...openPOs.map(po => {
+      const id = `po-${po.po_number}-${po.customer}`
+      return {
+        id, label: po.po_number, closeable: true, onClose: () => closePO(po),
+        content: <PODetail key={id} po={po} session={session} />,
+      }
+    }),
+  ]
+
+  return (
+    <div className="p-6">
+      <div className="mb-4">
+        <h1 className="text-2xl font-bold text-slate-800">POs</h1>
+        <p className="text-sm text-slate-600">Purchase orders from the QC PO catalog · one row per PO # + customer</p>
+      </div>
+      <div className="bg-white rounded-lg shadow">
+        <div className="p-4">
+          <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} preserveState={true} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---- List tab (server-side paginated / filtered / sorted) ----
+function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
   const [rows, setRows] = useState<PORow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
-  const [globalFilter, setGlobalFilter] = useState('')
-  const [colFilters, setColFilters] = useState<Record<string, string>>({})
-  const [sort, setSort] = useState<{ key: keyof PORow; dir: 'asc' | 'desc' } | null>(null)
-  const [selected, setSelected] = useState<PORow | null>(null)
+  const [q, setQ] = useState('')
+  const [qInput, setQInput] = useState('')
+  const [sort, setSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'latest_mtime', dir: 'desc' })
+  const [page, setPage] = useState(1)
+  const [pages, setPages] = useState(1)
+  const [total, setTotal] = useState(0)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
     try {
-      const res = await fetch(getApiUrl('/api/contract/pos'))
+      const p = new URLSearchParams({
+        page: String(page), pageSize: '100', sort: sort.key, dir: sort.dir,
+      })
+      if (q.trim()) p.set('q', q.trim())
+      const res = await fetch(getApiUrl(`/api/contract/pos?${p.toString()}`))
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to load')
       const r = await res.json()
-      setRows(r.rows || [])
+      setRows(r.rows || []); setPages(r.pages || 1); setTotal(r.total || 0)
     } catch (e: any) { setError(e.message) }
     setLoading(false)
-  }, [])
+  }, [page, sort, q])
   useEffect(() => { load() }, [load])
 
-  const filtered = useMemo(() => {
-    const g = globalFilter.trim().toLowerCase()
-    return rows.filter(row => {
-      if (g) {
-        const hay = `${row.po_number} ${row.customer} ${row.apc_part} ${row.latest_version}`.toLowerCase()
-        if (!hay.includes(g)) return false
-      }
-      for (const [k, v] of Object.entries(colFilters)) {
-        if (!v) continue
-        if (!String((row as any)[k] ?? '').toLowerCase().includes(v.toLowerCase())) return false
-      }
-      return true
-    })
-  }, [rows, globalFilter, colFilters])
-
-  const sorted = useMemo(() => {
-    if (!sort) return filtered
-    const { key, dir } = sort
-    return [...filtered].sort((a, b) => {
-      const av = a[key] ?? '', bv = b[key] ?? ''
-      if (typeof av === 'number' && typeof bv === 'number') return dir === 'asc' ? av - bv : bv - av
-      return dir === 'asc' ? String(av).localeCompare(String(bv)) : String(bv).localeCompare(String(av))
-    })
-  }, [filtered, sort])
-
-  const toggleSort = (key: keyof PORow) =>
-    setSort(s => s?.key === key ? (s.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' })
-
-  if (selected) return <PODetail po={selected} onBack={() => setSelected(null)} session={session} />
+  const toggleSort = (key: string) => {
+    setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })
+    setPage(1)
+  }
+  const commitSearch = () => { setQ(qInput); setPage(1) }
 
   return (
-    <div className="p-6">
-      <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">POs</h1>
-          <p className="text-sm text-slate-600">
-            Purchase orders from the QC PO catalog · one row per PO # + customer
-            {!loading && <span className="text-slate-400"> · {sorted.length} of {rows.length}</span>}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
+    <div>
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <p className="text-sm text-slate-500">
+          {loading ? 'Loading…' : `${total.toLocaleString()} POs · page ${page} of ${pages}`}
+        </p>
+        <div className="flex items-center gap-2">
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
-            <input value={globalFilter} onChange={e => setGlobalFilter(e.target.value)}
-              placeholder="Search PO / customer…"
-              className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-56 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            <input value={qInput} onChange={e => setQInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') commitSearch() }}
+              placeholder="Search PO / customer / part…"
+              className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-64 focus:outline-none focus:ring-1 focus:ring-blue-400" />
           </div>
+          <button onClick={commitSearch} className="px-2.5 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">Go</button>
+          {q && <button onClick={() => { setQ(''); setQInput(''); setPage(1) }} className="px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg">✕</button>}
           <button onClick={load} disabled={loading}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
@@ -114,41 +142,32 @@ export default function POsPage() {
 
       {error && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
 
-      <div className="bg-white border border-slate-200 rounded-lg overflow-auto max-h-[calc(100vh-220px)]">
+      <div className="bg-white border border-slate-200 rounded-lg overflow-auto max-h-[calc(100vh-300px)]">
         <table className="w-full text-sm border-collapse">
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr>
               {LIST_COLS.map(c => {
-                const active = sort?.key === c.key
+                const active = sort.key === c.key
                 return (
                   <th key={c.key} style={{ width: c.w }} className="px-3 py-2 text-left font-medium text-slate-600 border-b border-slate-200">
                     <button onClick={() => toggleSort(c.key)} className="flex items-center gap-1 hover:text-slate-900">
                       {c.label}
-                      {active ? (sort!.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : <ArrowUpDown size={10} className="text-slate-300" />}
+                      {active ? (sort.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />) : <ArrowUpDown size={10} className="text-slate-300" />}
                     </button>
                   </th>
                 )
               })}
             </tr>
-            <tr>
-              {LIST_COLS.map(c => (
-                <th key={c.key} className="px-1 py-1 border-b border-slate-200 bg-white">
-                  <input value={colFilters[c.key] || ''} onChange={e => setColFilters(f => ({ ...f, [c.key]: e.target.value }))}
-                    placeholder="filter"
-                    className="w-full min-w-[60px] text-xs font-normal border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
-                </th>
-              ))}
-            </tr>
           </thead>
           <tbody>
             {loading ? (
               <tr><td colSpan={LIST_COLS.length} className="px-3 py-8 text-center text-slate-400"><RefreshCw size={18} className="animate-spin inline mr-2" /> Loading…</td></tr>
-            ) : sorted.length === 0 ? (
+            ) : rows.length === 0 ? (
               <tr><td colSpan={LIST_COLS.length} className="px-3 py-8 text-center text-slate-400">No POs match.</td></tr>
-            ) : sorted.map((r, i) => (
-              <tr key={`${r.po_number}|${r.customer}|${i}`} onClick={() => setSelected(r)}
+            ) : rows.map((r, i) => (
+              <tr key={`${r.po_number}|${r.customer}|${i}`} onClick={() => onOpen(r)}
                 className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer">
-                <td className="px-3 py-1.5 font-mono text-blue-600 font-medium">{r.po_number}</td>
+                <td className="px-3 py-1.5 font-mono text-blue-600 font-medium hover:underline">{r.po_number}</td>
                 <td className="px-3 py-1.5 text-slate-700">{r.customer}</td>
                 <td className="px-3 py-1.5 font-mono text-slate-800">{r.apc_part}</td>
                 <td className="px-3 py-1.5 text-slate-600">{r.latest_version || '—'}</td>
@@ -160,11 +179,23 @@ export default function POsPage() {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination */}
+      {pages > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-3 text-sm">
+          <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}
+            className="px-2 py-1 rounded border border-slate-200 disabled:opacity-40 flex items-center gap-1"><ChevronLeft size={14} /> Prev</button>
+          <span className="text-slate-500">Page {page} of {pages}</span>
+          <button disabled={page >= pages} onClick={() => setPage(p => Math.min(pages, p + 1))}
+            className="px-2 py-1 rounded border border-slate-200 disabled:opacity-40 flex items-center gap-1">Next <ChevronRight size={14} /></button>
+        </div>
+      )}
     </div>
   )
 }
 
-function PODetail({ po, onBack, session }: { po: PORow; onBack: () => void; session: any }) {
+// ---- PO detail (side-rail tabs) ----
+function PODetail({ po, session }: { po: PORow; session: any }) {
   const [tab, setTab] = useState<'general' | 'clauses' | 'files'>('general')
   const [files, setFiles] = useState<POFile[]>([])
   const [relations, setRelations] = useState<PORelation[]>([])
@@ -190,35 +221,20 @@ function PODetail({ po, onBack, session }: { po: PORow; onBack: () => void; sess
   ] as const
 
   return (
-    <div className="p-6">
-      <button onClick={onBack} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800 mb-3">
-        <ArrowLeft size={15} /> All POs
-      </button>
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-slate-800 font-mono">{po.po_number}</h1>
-        <p className="text-sm text-slate-600">{po.customer} · APC {po.apc_part} · latest {po.latest_version || '—'}</p>
-      </div>
-
+    <div>
       {error && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
-
       <div className="flex gap-0 min-h-[400px]">
-        {/* Left rail */}
-        <div className="w-52 flex-shrink-0 border-r border-slate-200 pr-0">
+        <div className="w-52 flex-shrink-0 border-r border-slate-200">
           {TABS.map(t => {
-            const Icon = t.icon
-            const active = tab === t.id
+            const Icon = t.icon; const active = tab === t.id
             return (
               <button key={t.id} onClick={() => setTab(t.id)}
-                className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left transition-colors ${
-                  active ? 'bg-blue-600 text-white font-medium rounded-lg' : 'text-slate-600 hover:bg-slate-100 rounded-lg'
-                }`}>
+                className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left rounded-lg transition-colors ${active ? 'bg-blue-600 text-white font-medium' : 'text-slate-600 hover:bg-slate-100'}`}>
                 <Icon size={16} /> {t.label}
               </button>
             )
           })}
         </div>
-
-        {/* Content */}
         <div className="flex-1 pl-6 min-w-0">
           {tab === 'general' && (
             <div>
@@ -237,7 +253,7 @@ function PODetail({ po, onBack, session }: { po: PORow; onBack: () => void; sess
               </div>
             </div>
           )}
-          {tab === 'clauses' && <ClausesTab po={po} relations={relations} reload={loadDetail} session={session} />}
+          {tab === 'clauses' && <ClausesTab po={po} relations={relations} files={files} reload={loadDetail} session={session} />}
           {tab === 'files' && <FilesTab files={files} loading={loading} />}
         </div>
       </div>
@@ -245,50 +261,74 @@ function PODetail({ po, onBack, session }: { po: PORow; onBack: () => void; sess
   )
 }
 
+// ---- Files tab: preview (eye) + download ----
 function FilesTab({ files, loading }: { files: POFile[]; loading: boolean }) {
+  const [preview, setPreview] = useState<{ files: any[]; index: number } | null>(null)
   if (loading) return <div className="text-slate-500 py-6 flex items-center gap-2"><RefreshCw size={16} className="animate-spin" /> Loading…</div>
   if (!files.length) return <div className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-4">No files for this PO.</div>
+
+  const previewList = files.map(f => ({ name: f.file_name, path: f.file_path, extension: ext(f.file_name) }))
+  const download = (f: POFile) => window.open(getApiUrl(`/api/files/serve?path=${encodeURIComponent(f.file_path)}&download=true`), '_blank')
+
   return (
-    <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50">
-          <tr>
-            <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Version</th>
-            <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">File</th>
-            <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Date</th>
-            <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-24">Size</th>
-          </tr>
-        </thead>
-        <tbody>
-          {files.map(f => (
-            <tr key={f.id} className="border-t border-slate-100">
-              <td className="px-3 py-1.5 text-slate-700">{f.version_label || '—'}</td>
-              <td className="px-3 py-1.5 text-slate-600">{f.file_name}</td>
-              <td className="px-3 py-1.5 text-slate-500 text-xs">{fmtDate(f.file_mtime)}</td>
-              <td className="px-3 py-1.5 text-right text-slate-500 text-xs tabular-nums">{f.file_size ? `${(f.file_size / 1024).toFixed(0)} KB` : ''}</td>
+    <div>
+      <h3 className="text-lg font-semibold text-slate-800 mb-4">Files</h3>
+      <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+        <table className="w-full text-sm">
+          <thead className="bg-slate-50">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Version</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">File</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Date</th>
+              <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-24">Size</th>
+              <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-24">View</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {files.map((f, i) => (
+              <tr key={f.id} className="border-t border-slate-100 hover:bg-slate-50">
+                <td className="px-3 py-1.5 text-slate-700">{f.version_label || '—'}</td>
+                <td className="px-3 py-1.5 text-slate-600">{f.file_name}</td>
+                <td className="px-3 py-1.5 text-slate-500 text-xs">{fmtDate(f.file_mtime)}</td>
+                <td className="px-3 py-1.5 text-right text-slate-500 text-xs tabular-nums">{f.file_size ? `${(f.file_size / 1024).toFixed(0)} KB` : ''}</td>
+                <td className="px-3 py-1.5 text-right">
+                  <div className="flex items-center justify-end gap-2">
+                    <button onClick={() => setPreview({ files: previewList, index: i })} className="text-slate-500 hover:text-blue-600" title="Preview"><Eye size={16} /></button>
+                    <button onClick={() => download(f)} className="text-slate-500 hover:text-blue-600" title="Download"><Download size={15} /></button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {preview && (
+        <FilePreviewModal files={preview.files} index={preview.index}
+          onIndexChange={(i: number) => setPreview(p => p ? { ...p, index: i } : p)}
+          onClose={() => setPreview(null)} />
+      )}
     </div>
   )
 }
 
-function ClausesTab({ po, relations, reload, session }: { po: PORow; relations: PORelation[]; reload: () => void; session: any }) {
+// ---- Clauses tab: relations + Auto Scan (with file select) + Manual add ----
+function ClausesTab({ po, relations, files, reload, session }: { po: PORow; relations: PORelation[]; files: POFile[]; reload: () => void; session: any }) {
   const [scanning, setScanning] = useState(false)
   const [scanResult, setScanResult] = useState<any>(null)
   const [scanError, setScanError] = useState('')
+  const [fileChoices, setFileChoices] = useState<any[] | null>(null)
   const [manualOpen, setManualOpen] = useState(false)
 
-  const runScan = async () => {
-    setScanning(true); setScanError(''); setScanResult(null)
+  const doScan = async (file_path?: string) => {
+    setScanning(true); setScanError(''); setScanResult(null); setFileChoices(null)
     try {
       const res = await fetch(getApiUrl('/api/contract/pos/scan'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ po_number: po.po_number, customer: po.customer }),
+        body: JSON.stringify({ po_number: po.po_number, customer: po.customer, ...(file_path ? { file_path } : {}) }),
       })
       const r = await res.json()
       if (!res.ok) throw new Error(r.error || r.details || 'Scan failed')
+      if (r.needsFileChoice) { setFileChoices(r.files); setScanning(false); return }
       setScanResult(r)
     } catch (e: any) { setScanError(e.message) }
     setScanning(false)
@@ -302,7 +342,6 @@ function ClausesTab({ po, relations, reload, session }: { po: PORow; relations: 
     reload()
     setScanResult((sr: any) => sr ? { ...sr, suggestions: sr.suggestions.map((s: any) => s.id === clause_id ? { ...s, already_related: true } : s) } : sr)
   }
-
   const removeRelation = async (id: number) => {
     await fetch(getApiUrl(`/api/contract/pos/clauses?id=${id}`), { method: 'DELETE' })
     reload()
@@ -310,11 +349,12 @@ function ClausesTab({ po, relations, reload, session }: { po: PORow; relations: 
 
   return (
     <div>
+      <h3 className="text-lg font-semibold text-slate-800 mb-4">Clauses</h3>
       <div className="flex items-center gap-2 mb-4 flex-wrap">
-        <button onClick={runScan} disabled={scanning}
+        <button onClick={() => doScan()} disabled={scanning}
           className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50">
           {scanning ? <RefreshCw size={14} className="animate-spin" /> : <ScanLine size={14} />}
-          {scanning ? 'Scanning latest version…' : 'Auto Scan'}
+          {scanning ? 'Scanning…' : 'Auto Scan'}
         </button>
         <button onClick={() => setManualOpen(true)}
           className="px-3 py-1.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-100 flex items-center gap-1.5">
@@ -324,13 +364,29 @@ function ClausesTab({ po, relations, reload, session }: { po: PORow; relations: 
 
       {scanError && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{scanError}</div>}
 
+      {/* File chooser when multiple PDFs */}
+      {fileChoices && (
+        <div className="mb-4 border border-amber-200 bg-amber-50 rounded-lg p-3">
+          <p className="text-sm text-slate-700 mb-2">This PO has multiple PDFs — pick the one to scan:</p>
+          <div className="space-y-1">
+            {fileChoices.map((f, i) => (
+              <button key={i} onClick={() => doScan(f.file_path)}
+                className="w-full text-left px-3 py-1.5 bg-white border border-slate-200 rounded hover:bg-blue-50 flex items-center gap-2 text-sm">
+                <span className="text-slate-500 w-16 shrink-0">{f.version_label || '—'}</span>
+                <span className="text-slate-700 truncate">{f.file_name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {scanResult && (
         <div className="mb-4 border border-blue-200 bg-blue-50/50 rounded-lg p-3">
           <div className="text-sm text-slate-700 mb-2">
             Scanned <span className="font-medium">{scanResult.scanned_file}</span> ({scanResult.version || 'latest'}) ·
             {' '}{scanResult.pages} pages{scanResult.ocr_pages ? `, ${scanResult.ocr_pages} via OCR` : ''} ·
             {' '}{scanResult.suggestions?.length || 0} catalog matches.
-            <span className="text-slate-500"> Review and accept the ones that apply — it’s your call.</span>
+            <span className="text-slate-500"> Accept the ones that apply — it’s your call.</span>
           </div>
           {scanResult.suggestions?.length > 0 && (
             <div className="bg-white border border-slate-200 rounded overflow-hidden mb-2">
@@ -348,8 +404,7 @@ function ClausesTab({ po, relations, reload, session }: { po: PORow; relations: 
                       <td className="px-3 py-1.5 font-mono text-slate-800">{s.clause_number}</td>
                       <td className="px-3 py-1.5 text-slate-600 truncate max-w-md">{s.title}</td>
                       <td className="px-3 py-1.5 text-right">
-                        {s.already_related
-                          ? <span className="text-xs text-green-600">✓ related</span>
+                        {s.already_related ? <span className="text-xs text-green-600">✓ related</span>
                           : <button onClick={() => acceptSuggestion(s.id)} className="text-xs text-blue-600 hover:underline">Accept</button>}
                       </td>
                     </tr>
@@ -359,9 +414,7 @@ function ClausesTab({ po, relations, reload, session }: { po: PORow; relations: 
             </div>
           )}
           {scanResult.unmatched?.length > 0 && (
-            <p className="text-xs text-slate-500">
-              Also found in text but not in the catalog: {scanResult.unmatched.map((u: any) => u.number).join(', ')}.
-            </p>
+            <p className="text-xs text-slate-500">Also found in text but not in the catalog: {scanResult.unmatched.map((u: any) => u.number).join(', ')}.</p>
           )}
         </div>
       )}
@@ -419,13 +472,10 @@ function ManualAddModal({ po, onClose, onAdded }: { po: PORow; onClose: () => vo
       .catch(() => {})
   }, [])
 
-  const matches = useMemo(() => {
-    const s = q.trim().toUpperCase()
-    if (!s) return []
-    return all.filter(c =>
-      c.clause_number.toUpperCase().includes(s) || c.title.toUpperCase().includes(s) || c.standard.toUpperCase().includes(s)
-    ).slice(0, 30)
-  }, [all, q])
+  const s = q.trim().toUpperCase()
+  const matches = !s ? [] : all.filter(c =>
+    c.clause_number.toUpperCase().includes(s) || c.title.toUpperCase().includes(s) || c.standard.toUpperCase().includes(s)
+  ).slice(0, 30)
 
   const add = async (clause_id: number) => {
     setBusy(true); setErr('')

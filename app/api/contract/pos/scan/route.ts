@@ -30,24 +30,39 @@ export async function POST(request: NextRequest) {
     const b = await request.json()
     const po_number = String(b?.po_number ?? '').trim()
     const customer = String(b?.customer ?? '').trim()
+    const chosenPath = String(b?.file_path ?? '').trim()
     if (!po_number || !customer) {
       return NextResponse.json({ error: 'po_number and customer required' }, { status: 400 })
     }
     const user = (session.user as any)?.username || 'unknown'
 
-    // Latest version file for this PO.
-    const files = await queryPrimary<any[]>(
+    // All PDF files for this PO, newest/highest-version first.
+    const allFiles = await queryPrimary<any[]>(
       `SELECT version_label, file_name, file_path
        FROM po_cert_files
        WHERE customer_part = ? AND po_folder = ?
-       ORDER BY version_rank DESC, file_mtime DESC
-       LIMIT 1`,
+       ORDER BY version_rank DESC, file_mtime DESC`,
       [po_number, customer]
     )
-    if (!files?.length) {
-      return NextResponse.json({ error: 'No files found for this PO' }, { status: 404 })
+    const pdfs = (allFiles || []).filter(f => /\.pdf$/i.test(f.file_name || f.file_path || ''))
+    if (!pdfs.length) {
+      return NextResponse.json({ error: 'No PDF files found for this PO' }, { status: 404 })
     }
-    const f = files[0]
+
+    // Pick the file: the chosen one if provided, else latest. If multiple PDFs
+    // exist and none chosen, ask the client to let the user select.
+    let f: any
+    if (chosenPath) {
+      f = pdfs.find(x => x.file_path === chosenPath)
+      if (!f) return NextResponse.json({ error: 'Chosen file not found for this PO' }, { status: 404 })
+    } else if (pdfs.length > 1) {
+      return NextResponse.json({
+        success: true, needsFileChoice: true,
+        files: pdfs.map(p => ({ file_name: p.file_name, file_path: p.file_path, version_label: p.version_label })),
+      })
+    } else {
+      f = pdfs[0]
+    }
 
     // Run the Python scanner (text-extract first, OCR image pages).
     let scan: any

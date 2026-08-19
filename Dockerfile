@@ -42,12 +42,20 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 # LibreOffice (headless) for Office->PDF preview conversion (doc/ppt/pptx/etc.)
+# Python + OCR stack for the Contract PO clause scanner (scripts/scan_po_clauses.py):
+#   poppler-utils -> pdf2image (pdftoppm/pdfinfo); tesseract-ocr -> pytesseract.
 # --no-install-recommends keeps the image lean; fonts-liberation gives sane fonts.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
        libreoffice-writer libreoffice-impress libreoffice-calc \
        fonts-liberation \
+       python3 python3-pip poppler-utils tesseract-ocr \
+  && pip3 install --no-cache-dir --break-system-packages \
+       pdfplumber pypdf pdf2image pytesseract \
   && rm -rf /var/lib/apt/lists/*
+
+# Copy the Python scanner scripts (not part of the Next standalone bundle)
+COPY --from=builder /app/scripts ./scripts
 
 # Copy standalone build
 COPY --from=builder /app/.next/standalone ./

@@ -38,6 +38,8 @@ const VERSION_PATTERNS: { re: RegExp; rank: (m: RegExpMatchArray) => number }[] 
   { re: /-\s*Original\b/i,          rank: () => 0 },
   { re: /\bCO\s*0*(\d+)\b/i,        rank: m => parseInt(m[1], 10) },
   { re: /\bCN\s*0*(\d+)\b/i,        rank: m => parseInt(m[1], 10) },
+  // Bare V-number marker (e.g. "V1", "V2") — common in customer PO filenames.
+  { re: /\bV\s*0*(\d+)\b/i,         rank: m => parseInt(m[1], 10) },
   { re: /\bRev\.?\s+([A-Za-z0-9]{1,3})\b/i, rank: m => {
       const v = m[1]
       return /^\d+$/.test(v) ? parseInt(v, 10) : (v.toUpperCase().charCodeAt(0) - 64)
