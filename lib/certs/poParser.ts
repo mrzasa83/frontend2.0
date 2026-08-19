@@ -19,10 +19,11 @@
  * APC part number; ~6.4k carry a recognizable version token.
  */
 
-// PO root under the S: drive mount. Overridable via env.
-export const PO_ROOT = () =>
-  process.env.PO_CERT_ROOT ||
-  `${process.env.DRIVE_MOUNT_S || '/mnt/sdrive'}/Quality/QCDept/PO`
+import { PO_CERT_PATH } from '@/lib/config/drives'
+
+// PO root under the S: drive mount. Defined centrally in lib/config/drives so
+// the file-serve whitelist and this parser can never drift apart.
+export const PO_ROOT = PO_CERT_PATH
 
 export type ParsedPoFile = {
   apcParts: string[]      // leading 5-digit APC part numbers (>=0)

@@ -5,10 +5,10 @@ import {
   ScatterChart, Scatter, LineChart, Line, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts'
-import { Upload, Download, RefreshCw, AlertTriangle, FileSpreadsheet, X } from 'lucide-react'
+import { Upload, Download, RefreshCw, FileSpreadsheet, X } from 'lucide-react'
 import {
   parseCmmSheet, computeStats, histogram, tpFrom,
-  type FeatureRow, type TPMode,
+  type FeatureRow,
 } from '@/lib/process/drillRoutCpk'
 
 type Meta = { part: string; machine: string; spindle: string; date: string }
@@ -21,16 +21,16 @@ export default function DrillRoutCpkPage() {
   const [error, setError] = useState('')
   const [warn, setWarn] = useState('')
   const [busy, setBusy] = useState(false)
-  const [mode, setMode] = useState<TPMode>('radial')
   const [usl, setUsl] = useState(0.003)
   const [meta, setMeta] = useState<Meta>({ part: '', machine: '', spindle: '', date: '' })
   const [tab, setTab] = useState<'charts' | 'data'>('charts')
   const inputRef = useRef<HTMLInputElement>(null)
 
   // Re-derive TP whenever the convention changes (parse once, recompute cheaply).
+  // TP is the vector of the X and Y location deviations: sqrt(dx^2 + dy^2).
   const view = useMemo(
-    () => rows.map(r => ({ ...r, tp: tpFrom(r.xDelta, r.yDelta, mode) })),
-    [rows, mode]
+    () => rows.map(r => ({ ...r, tp: tpFrom(r.xDelta, r.yDelta) })),
+    [rows]
   )
   const stats = useMemo(() => (view.length ? computeStats(view, usl) : null), [view, usl])
   const bins = useMemo(() => (view.length ? histogram(view, 12) : []), [view])
@@ -44,11 +44,11 @@ export default function DrillRoutCpkPage() {
       // Prefer a sheet that actually holds the CMM export.
       const names = wb.SheetNames
       const preferred = names.find(n => n.toLowerCase() === 'sheet1') || names[0]
-      let res = parseCmmSheet(XLSX.utils.sheet_to_json(wb.Sheets[preferred], { header: 1 }) as any[][], mode)
+      let res = parseCmmSheet(XLSX.utils.sheet_to_json(wb.Sheets[preferred], { header: 1 }) as any[][])
       if (!res.ok) {
         for (const n of names) {
           if (n === preferred) continue
-          const alt = parseCmmSheet(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1 }) as any[][], mode)
+          const alt = parseCmmSheet(XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1 }) as any[][])
           if (alt.ok) { res = alt; break }
         }
       }
@@ -80,17 +80,15 @@ export default function DrillRoutCpkPage() {
       Tol: 'X', 'X Actual': r.xActual, 'X Nominal': r.xNominal,
       'Tol ': 'Y', 'Y Actual': r.yActual, 'Y Nominal': r.yNominal,
       'X Delta': r.xDelta, 'Y Delta': r.yDelta, TP: r.tp,
-      'CMM TP': r.cmmTp ?? '',
     }))
     const ws = XLSX.utils.json_to_sheet(analysis)
-    ws['!cols'] = [{ wch: 12 }, { wch: 5 }, { wch: 12 }, { wch: 12 }, { wch: 5 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }]
+    ws['!cols'] = [{ wch: 12 }, { wch: 5 }, { wch: 12 }, { wch: 12 }, { wch: 5 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 14 }, { wch: 14 }]
     XLSX.utils.book_append_sheet(wb, ws, 'Analysis')
 
     // Summary sheet with the run identification and the statistics.
     const summary = [
       ['Test Part', meta.part], ['Machine', meta.machine], ['Spindle', meta.spindle],
       ['Date Acquired', meta.date], ['Source File', fileName],
-      ['TP Convention', mode === 'radial' ? 'Radial  SQRT(dx^2+dy^2)' : 'Diametric  2*SQRT(dx^2+dy^2)'],
       [],
       ['n', stats.n], ['Mean TP', stats.mean], ['Std Dev', stats.sd],
       ['Min TP', stats.min], ['Max TP', stats.max], ['Range', stats.range],
@@ -143,14 +141,6 @@ export default function DrillRoutCpkPage() {
               className="block text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-blue-600 file:text-white hover:file:bg-blue-700" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">TP convention</label>
-            <select value={mode} onChange={e => setMode(e.target.value as TPMode)}
-              className="px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
-              <option value="radial">Radial — √(dx²+dy²)</option>
-              <option value="diametric">Diametric — 2×√(dx²+dy²)</option>
-            </select>
-          </div>
-          <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">USL (tolerance)</label>
             <input type="number" step="0.0001" value={usl}
               onChange={e => setUsl(Number(e.target.value) || 0)}
@@ -165,16 +155,6 @@ export default function DrillRoutCpkPage() {
           )}
         </div>
 
-        {mode === 'radial' && rows.length > 0 && (
-          <p className="mt-3 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex gap-2">
-            <AlertTriangle size={14} className="mt-0.5 shrink-0" />
-            <span>
-              Radial matches the Analysis worksheet (column K). Note the CMM’s own TP column reports the
-              <strong> diametric</strong> value — twice this — and the {usl} tolerance is normally written against
-              that. Switch the convention above if you want Cpk on the diametric basis.
-            </span>
-          </p>
-        )}
       </div>
 
       {busy && <div className="text-sm text-slate-500 flex items-center gap-2 mb-4"><RefreshCw size={15} className="animate-spin" /> Reading file…</div>}
@@ -329,7 +309,7 @@ export default function DrillRoutCpkPage() {
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
-                    {['Feature', 'X Actual', 'X Nominal', 'Y Actual', 'Y Nominal', 'X Delta', 'Y Delta', 'TP', 'CMM TP'].map(h => (
+                    {['Feature', 'X Actual', 'X Nominal', 'Y Actual', 'Y Nominal', 'X Delta', 'Y Delta', 'TP'].map(h => (
                       <th key={h} className="px-3 py-2 text-left text-xs font-medium text-slate-600 border-b border-slate-200">{h}</th>
                     ))}
                   </tr>
@@ -345,7 +325,6 @@ export default function DrillRoutCpkPage() {
                       <td className="px-3 py-1.5 tabular-nums text-slate-600">{fmt(r.xDelta, 6)}</td>
                       <td className="px-3 py-1.5 tabular-nums text-slate-600">{fmt(r.yDelta, 6)}</td>
                       <td className={`px-3 py-1.5 tabular-nums font-medium ${r.tp > usl ? 'text-red-600' : 'text-slate-800'}`}>{fmt(r.tp, 6)}</td>
-                      <td className="px-3 py-1.5 tabular-nums text-slate-400">{r.cmmTp ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>

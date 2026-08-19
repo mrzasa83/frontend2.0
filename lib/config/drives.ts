@@ -32,12 +32,19 @@ export const QC_FOLDERS_PATH  = (site: string) => `${SDRIVE()}/FrontEndQCFolders
 export const ATTDOCS_PATH     = () => `${SDRIVE()}/AttDocs/MfgParts`
 export const PACKSHIP_PATH    = () => `${TDRIVE()}/Packaging and Shipping/$Pack & Ship by Part`
 
+// Purchase-order certificate root. Single source of truth — lib/certs/poParser
+// re-exports this as PO_ROOT, and it is whitelisted for the file-serve API below
+// so PO certs can be previewed/downloaded the same way as other documents.
+export const PO_CERT_PATH     = () =>
+  process.env.PO_CERT_ROOT || `${SDRIVE()}/Quality/QCDept/PO`
+
 // ---------------------------------------------------------------------------
 // Allowed base paths for the file-serve API (security whitelist)
 // ---------------------------------------------------------------------------
 export const FILE_SERVE_ALLOWED_BASES = () => [
   `${SDRIVE()}/FrontEndQCFolders`,
   `${SDRIVE()}/AttDocs`,
+  PO_CERT_PATH(),
   `${TDRIVE()}/Packaging and Shipping`,
   JDRIVE(),
 ]

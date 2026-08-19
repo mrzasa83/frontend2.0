@@ -15,14 +15,9 @@
  *   Y Delta = Y Nominal - Y Actual      (Analysis col J)
  *   TP      = SQRT(XDelta^2 + YDelta^2) (Analysis col K)
  *
- * TP CONVENTION — important:
- *   The Analysis sheet uses the RADIAL vector above. The CMM's own TP column
- *   reports the DIAMETRIC value, which is exactly 2x the radial figure, and it
- *   is that diametric number the tolerance (e.g. 0.003) is written against.
- *   Because Cpk depends on which one you use, the mode is selectable.
+ *   X and Y are simply the measured location of the point; TP is the vector
+ *   formed by their two deviations.
  */
-
-export type TPMode = 'radial' | 'diametric'
 
 export type FeatureRow = {
   feature: string
@@ -32,7 +27,7 @@ export type FeatureRow = {
   yNominal: number
   xDelta: number
   yDelta: number
-  tp: number          // per selected mode
+  tp: number          // vector of the X and Y deviations
   cmmTp: number | null // the CMM's own TP value, when present
 }
 
@@ -73,17 +68,16 @@ const asNum = (v: any): number | null => {
 }
 const asStr = (v: any) => (v === null || v === undefined ? '' : String(v).trim())
 
-/** Compute TP from deltas for the chosen convention. */
-export function tpFrom(xDelta: number, yDelta: number, mode: TPMode): number {
-  const radial = Math.sqrt(xDelta * xDelta + yDelta * yDelta)
-  return mode === 'diametric' ? radial * 2 : radial
+/** The vector of the X and Y deviations: sqrt(dx^2 + dy^2). */
+export function tpFrom(xDelta: number, yDelta: number): number {
+  return Math.sqrt(xDelta * xDelta + yDelta * yDelta)
 }
 
 /**
  * Parse the CMM sheet (array-of-arrays, first row = header) into feature rows.
  * Tolerant of the Feature column only being set on the group's first row.
  */
-export function parseCmmSheet(aoa: any[][], mode: TPMode): ParseResult {
+export function parseCmmSheet(aoa: any[][]): ParseResult {
   if (!aoa || aoa.length < 2) {
     return { ok: false, error: 'The sheet is empty.', rows: [], uslFromFile: null, skipped: 0 }
   }
@@ -168,7 +162,7 @@ export function parseCmmSheet(aoa: any[][], mode: TPMode): ParseResult {
       xActual: g.xActual, xNominal: g.xNominal,
       yActual: g.yActual, yNominal: g.yNominal,
       xDelta, yDelta,
-      tp: tpFrom(xDelta, yDelta, mode),
+      tp: tpFrom(xDelta, yDelta),
       cmmTp: g.cmmTp ?? null,
     })
   }
