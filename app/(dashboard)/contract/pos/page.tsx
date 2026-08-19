@@ -40,6 +40,16 @@ function fmtDate(v: any) {
   const d = new Date(v)
   return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString(undefined, { year: '2-digit', month: 'numeric', day: 'numeric' })
 }
+/** Classification badge colours — matches the Contract → Clauses catalog. */
+function classBadge(v: string) {
+  const s = (v || '').toUpperCase()
+  if (s === 'Y') return 'bg-green-100 text-green-700'
+  if (s === 'N') return 'bg-red-100 text-red-700'
+  if (s === 'N/A') return 'bg-slate-100 text-slate-500'
+  if (!s) return 'bg-amber-50 text-amber-600'
+  return 'bg-blue-50 text-blue-700'
+}
+
 function ext(name: string) { const m = /\.([^.]+)$/.exec(name || ''); return m ? m[1].toLowerCase() : '' }
 
 export default function POsPage() {
@@ -438,6 +448,7 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
                   <th className="px-3 py-1.5 text-left text-xs text-slate-600">Clause</th>
                   <th className="px-3 py-1.5 text-left text-xs text-slate-600">Title</th>
                   <th className="px-3 py-1.5 text-left text-xs text-slate-600 w-20">Page</th>
+                  <th className="px-3 py-1.5 text-left text-xs text-slate-600 w-28">Classification</th>
                   <th className="px-3 py-1.5 text-right text-xs text-slate-600 w-24"></th>
                 </tr></thead>
                 <tbody>
@@ -448,6 +459,11 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
                       <td className="px-3 py-1.5 text-slate-600 truncate max-w-md">{s.title}</td>
                       <td className="px-3 py-1.5">
                         <PageLinks pages={s.pages || []} path={scanResult?.scanned_path || ''} />
+                      </td>
+                      <td className="px-3 py-1.5">
+                        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${classBadge(s.classification)}`}>
+                          {s.classification || '—'}
+                        </span>
                       </td>
                       <td className="px-3 py-1.5 text-right">
                         {s.already_related ? <span className="text-xs text-green-600">✓ related</span>
@@ -474,13 +490,14 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Clause</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Title</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-24">Page</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Classification</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-32">How Added</th>
               <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-16"></th>
             </tr>
           </thead>
           <tbody>
             {relations.length === 0 ? (
-              <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 text-sm">No clauses related yet. Use Auto Scan or Manually add.</td></tr>
+              <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-400 text-sm">No clauses related yet. Use Auto Scan or Manually add.</td></tr>
             ) : relations.map(r => (
               <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
                 <td className="px-3 py-1.5 font-mono text-slate-600">{po.po_number}</td>
@@ -491,6 +508,11 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
                   <PageLinks
                     pages={(r.found_pages || '').split(',').map(x => parseInt(x, 10)).filter(n => !isNaN(n))}
                     path={pdfPathFor(r.source_file || '', files)} />
+                </td>
+                <td className="px-3 py-1.5">
+                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${classBadge(r.classification)}`}>
+                    {r.classification || '—'}
+                  </span>
                 </td>
                 <td className="px-3 py-1.5">
                   {r.how_added === 'auto'
