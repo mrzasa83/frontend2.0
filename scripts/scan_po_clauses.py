@@ -5,7 +5,18 @@ scan_po_clauses.py — extract FAR/DFAR-style clause references from a PO PDF.
 Strategy (per the module design):
   1. Text-extract every page first (fast, exact).
   2. OCR only pages that have little/no extractable text (image-based scans).
-  3. Find clause-number patterns in the combined text.
+
+IMPORTANT — no third-party Python packages are required. This uses the
+poppler-utils and tesseract-ocr *binaries* that the container installs via apt:
+
+    pdfinfo    page count
+    pdftotext  per-page text layer
+    pdftoppm   rasterize a page for OCR
+    tesseract  OCR the rasterized page
+
+Optional Python libraries (pdfplumber / pypdf) are used only as a fallback if
+the poppler binaries are missing. This keeps the Docker build independent of
+PyPI reachability, which matters behind a TLS-intercepting corporate proxy.
 
 Emits JSON on stdout:
   {
@@ -15,74 +26,129 @@ Emits JSON on stdout:
     "ocr_pages": <int>,
     "clauses": [ {"number": "52.204-21", "standard_hint": "FAR"}, ... ]
   }
-
-Clause-number detection is deliberately broad; the Node side matches these
-against the contract_clauses catalog and the user accepts/rejects. Patterns:
-  FAR      52.204-21         (2-3 digit part . 3 digit . 1-2 digit, opt alt)
-  DFARS   252.204-7012       (3 digit . 3 digit . 4 digit)
-  agency  C-204-H002, etc.   (letter-prefixed, kept as-is)
 """
-import sys, json, re
+import sys, os, json, re, shutil, subprocess, tempfile
+
+def emit(obj):
+    print(json.dumps(obj))
+    sys.exit(0)
 
 def log_err(msg):
-    print(json.dumps({"status": "error", "message": msg,
-                      "pages": 0, "ocr_pages": 0, "clauses": []}))
-    sys.exit(0)   # exit 0 so the Node side reads our JSON rather than a crash
+    emit({"status": "error", "message": msg, "pages": 0, "ocr_pages": 0, "clauses": []})
 
-# Clause-number regexes. Order matters: DFARS (7xxx) before FAR so the longer
-# tail wins. Case-insensitive; we normalize whitespace first.
-FAR_RE   = re.compile(r'\b(2?5\d)\.(\d{3})-(\d{1,4})\b')          # 52.xxx-xx / 252.xxx-xxxx
-ALT_RE   = re.compile(r'\b(2?5\d\.\d{3}-\d{1,4})\s*(?:ALT|ALTERNATE)\s*([IVX]+)\b', re.I)
-AGENCY_RE = re.compile(r'\b([A-Z]{1,4}-\d{2,4}-[A-Z]?\d{2,4})\b')  # e.g. C-204-H002, NAVSEA-ish
+# Clause-number regexes.
+FAR_RE    = re.compile(r'\b(2?5\d)\.(\d{3})-(\d{1,4})\b')          # 52.xxx-xx / 252.xxx-xxxx
+AGENCY_RE = re.compile(r'\b([A-Z]{1,4}-\d{2,4}-[A-Z]?\d{2,4})\b')  # e.g. C-204-H002
 
 def standard_hint(num: str) -> str:
     if num.startswith('252') or num.startswith('253'): return 'DFAR'
     if num.startswith('52') or num.startswith('53'): return 'FAR'
     return ''
 
-def extract(path: str):
-    pages_text = []
-    ocr_pages = 0
-    total_pages = 0
+def run(cmd, timeout=120):
+    """Run a command, return stdout text ('' on any failure)."""
+    try:
+        p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                           timeout=timeout)
+        return p.stdout.decode('utf-8', errors='replace')
+    except Exception:
+        return ''
 
-    # --- Pass 1: text layer via pdfplumber ---
+def have(binary):
+    return shutil.which(binary) is not None
+
+# ---------- page count ----------
+def page_count(path):
+    if have('pdfinfo'):
+        out = run(['pdfinfo', path], timeout=60)
+        m = re.search(r'^Pages:\s+(\d+)', out, re.M)
+        if m:
+            return int(m.group(1))
+    # fallback to python libs
+    try:
+        from pypdf import PdfReader
+        return len(PdfReader(path).pages)
+    except Exception:
+        pass
     try:
         import pdfplumber
         with pdfplumber.open(path) as pdf:
-            total_pages = len(pdf.pages)
-            for pg in pdf.pages:
-                t = pg.extract_text() or ''
-                pages_text.append(t)
-    except Exception as e:
-        # pdfplumber unavailable/failed — try pypdf as a lighter fallback
-        try:
-            from pypdf import PdfReader
-            r = PdfReader(path)
-            total_pages = len(r.pages)
-            pages_text = [(p.extract_text() or '') for p in r.pages]
-        except Exception as e2:
-            log_err(f"text extraction failed: {e}; {e2}")
+            return len(pdf.pages)
+    except Exception:
+        pass
+    return 0
 
-    # --- Pass 2: OCR pages that came back (near-)empty ---
+# ---------- text layer ----------
+def page_text_binary(path, page_no):
+    return run(['pdftotext', '-layout', '-f', str(page_no), '-l', str(page_no), path, '-'], timeout=120)
+
+def all_text_python(path):
+    """Fallback: whole-document page texts via python libs."""
+    try:
+        import pdfplumber
+        with pdfplumber.open(path) as pdf:
+            return [(pg.extract_text() or '') for pg in pdf.pages]
+    except Exception:
+        pass
+    try:
+        from pypdf import PdfReader
+        return [(p.extract_text() or '') for p in PdfReader(path).pages]
+    except Exception:
+        pass
+    return []
+
+# ---------- OCR ----------
+def ocr_page(path, page_no, workdir):
+    """Rasterize one page and OCR it. Returns text ('' if unavailable)."""
+    if not (have('pdftoppm') and have('tesseract')):
+        return ''
+    prefix = os.path.join(workdir, f'pg{page_no}')
+    run(['pdftoppm', '-f', str(page_no), '-l', str(page_no), '-r', '200', '-png', path, prefix], timeout=180)
+    # pdftoppm names files like prefix-1.png / prefix-01.png depending on page count
+    png = None
+    for name in sorted(os.listdir(workdir)):
+        if name.startswith(f'pg{page_no}-') and name.endswith('.png'):
+            png = os.path.join(workdir, name)
+            break
+    if not png:
+        return ''
+    txt = run(['tesseract', png, 'stdout'], timeout=240)
+    try:
+        os.remove(png)
+    except Exception:
+        pass
+    return txt
+
+def extract(path):
+    if not os.path.exists(path):
+        log_err(f"file not found: {path}")
+
+    total = page_count(path)
+    pages_text = []
+    ocr_pages = 0
+
+    if have('pdftotext') and total:
+        pages_text = [page_text_binary(path, i + 1) for i in range(total)]
+    else:
+        pages_text = all_text_python(path)
+        total = total or len(pages_text)
+
+    if not pages_text and not total:
+        log_err("could not read the PDF — no PDF text tooling available "
+                "(expected poppler-utils' pdftotext, or the pdfplumber/pypdf python packages)")
+
+    # OCR the pages that came back (near-)empty.
     need_ocr = [i for i, t in enumerate(pages_text) if len((t or '').strip()) < 20]
-    if need_ocr:
-        try:
-            from pdf2image import convert_from_path
-            import pytesseract
+    if need_ocr and have('pdftoppm') and have('tesseract'):
+        with tempfile.TemporaryDirectory() as wd:
             for i in need_ocr:
-                try:
-                    imgs = convert_from_path(path, first_page=i + 1, last_page=i + 1, dpi=200)
-                    if imgs:
-                        pages_text[i] = pytesseract.image_to_string(imgs[0]) or ''
-                        ocr_pages += 1
-                except Exception:
-                    continue  # skip a page that won't OCR
-        except Exception:
-            # OCR libs not installed — proceed with whatever text we have.
-            pass
+                t = ocr_page(path, i + 1, wd)
+                if t.strip():
+                    pages_text[i] = t
+                    ocr_pages += 1
 
     full = '\n'.join(pages_text)
-    # normalize spacing around dots/dashes that OCR sometimes mangles
+    # OCR/extraction sometimes spaces out the dots and dashes in a clause number.
     norm = re.sub(r'\s*([.\-])\s*', r'\1', full)
 
     found = {}
@@ -90,21 +156,18 @@ def extract(path: str):
         num = f"{m.group(1)}.{m.group(2)}-{m.group(3)}"
         found.setdefault(num, standard_hint(num))
     for m in AGENCY_RE.finditer(full):
-        num = m.group(1).strip()
-        found.setdefault(num, '')
+        found.setdefault(m.group(1).strip(), '')
 
-    clauses = [{"number": k, "standard_hint": v} for k, v in sorted(found.items())]
     return {
         "status": "ok", "message": "",
-        "pages": total_pages, "ocr_pages": ocr_pages,
-        "clauses": clauses,
+        "pages": total, "ocr_pages": ocr_pages,
+        "clauses": [{"number": k, "standard_hint": v} for k, v in sorted(found.items())],
     }
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         log_err("usage: scan_po_clauses.py <pdf_path>")
-    path = sys.argv[1]
     try:
-        print(json.dumps(extract(path)))
+        emit(extract(sys.argv[1]))
     except Exception as e:
         log_err(str(e))

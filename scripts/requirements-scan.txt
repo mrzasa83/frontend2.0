@@ -1,16 +1,19 @@
-# Python dependencies for scripts/scan_po_clauses.py (Contract → POs Auto Scan).
-# Install on the host that runs the Next.js server:
-#   pip install -r scripts/requirements-scan.txt
+# OPTIONAL for scripts/scan_po_clauses.py (Contract → POs Auto Scan).
 #
-# System packages also required for OCR of image-based PDF pages:
-#   - poppler-utils   (pdf2image needs pdftoppm/pdfinfo)
-#   - tesseract-ocr   (pytesseract needs the tesseract binary)
-# On RHEL/Rocky:  dnf install poppler-utils tesseract
+# The scanner does NOT need these. It shells out to binaries that the Docker
+# image installs via apt (no PyPI access required at build time):
 #
-# The scanner degrades gracefully: if the OCR libs are missing it still does
-# text-layer extraction; image-only pages just won't be read until OCR is set up.
+#   poppler-utils -> pdfinfo, pdftotext, pdftoppm
+#   tesseract-ocr -> tesseract
+#
+# On RHEL/Rocky, if running the app outside Docker:
+#   dnf install poppler-utils tesseract
+#
+# The packages below are only a FALLBACK used when the poppler binaries are
+# unavailable. Install them only if you can't install poppler-utils. Behind a
+# TLS-intercepting proxy, pip needs:
+#   pip install -r scripts/requirements-scan.txt \
+#     --trusted-host pypi.org --trusted-host files.pythonhosted.org
 
 pdfplumber>=0.11
 pypdf>=4.0
-pdf2image>=1.17
-pytesseract>=0.3.10
