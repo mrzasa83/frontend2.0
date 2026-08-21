@@ -1,0 +1,19 @@
+# OPTIONAL for scripts/scan_po_clauses.py (Contract → POs Auto Scan).
+#
+# The scanner does NOT need these. It shells out to binaries that the Docker
+# image installs via apt (no PyPI access required at build time):
+#
+#   poppler-utils -> pdfinfo, pdftotext, pdftoppm
+#   tesseract-ocr -> tesseract
+#
+# On RHEL/Rocky, if running the app outside Docker:
+#   dnf install poppler-utils tesseract
+#
+# The packages below are only a FALLBACK used when the poppler binaries are
+# unavailable. Install them only if you can't install poppler-utils. Behind a
+# TLS-intercepting proxy, pip needs:
+#   pip install -r scripts/requirements-scan.txt \
+#     --trusted-host pypi.org --trusted-host files.pythonhosted.org
+
+pdfplumber>=0.11
+pypdf>=4.0

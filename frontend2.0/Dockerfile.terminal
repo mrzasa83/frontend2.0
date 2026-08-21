@@ -1,0 +1,56 @@
+# Dockerfile.terminal — Xpra web desktop with xfce4-terminal
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Bypass SSL verification for corporate proxy
+RUN echo 'Acquire::https::Verify-Peer "false";' > /etc/apt/apt.conf.d/99no-ssl-verify && \
+    echo 'Acquire::https::Verify-Host "false";' >> /etc/apt/apt.conf.d/99no-ssl-verify
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    xpra \
+    xvfb \
+    xfce4-terminal \
+    dbus-x11 \
+    openssh-client \
+    vim-tiny \
+    less \
+    git \
+    procps \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Download Xpra HTML5 client (skip SSL for corporate proxy)
+RUN curl -kfsSL "https://github.com/Xpra-org/xpra-html5/archive/refs/tags/v19.tar.gz" \
+    -o /tmp/xpra-html5.tar.gz && \
+    mkdir -p /tmp/xpra-html5-extract && \
+    tar xzf /tmp/xpra-html5.tar.gz -C /tmp/xpra-html5-extract --strip-components=1 && \
+    rm -rf /usr/share/xpra/www && \
+    mkdir -p /usr/share/xpra/www && \
+    cp -r /tmp/xpra-html5-extract/html5/* /usr/share/xpra/www/ && \
+    rm -rf /tmp/xpra-html5*
+
+# Create non-root user matching the app container
+RUN useradd -m -u 2029 -s /bin/bash appuser
+
+# Xpra needs these dirs writable
+RUN mkdir -p /run/user/2029/xpra /run/xpra && \
+    chown -R appuser:appuser /run/user/2029 /run/xpra
+
+# Bashrc
+RUN echo 'PS1="\[\e[32m\]\u@terminal\[\e[0m\]:\[\e[34m\]\w\[\e[0m\]\$ "' >> /home/appuser/.bashrc && \
+    echo 'alias ll="ls -la"' >> /home/appuser/.bashrc && \
+    echo 'alias vi="vim.tiny"' >> /home/appuser/.bashrc
+
+# Startup script
+COPY terminal-start.sh /usr/local/bin/terminal-start.sh
+RUN chmod +x /usr/local/bin/terminal-start.sh
+
+USER appuser
+ENV XDG_RUNTIME_DIR=/run/user/2029
+WORKDIR /home/appuser
+
+EXPOSE 7681
+
+CMD ["/usr/local/bin/terminal-start.sh"]
