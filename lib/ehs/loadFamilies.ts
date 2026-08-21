@@ -9,7 +9,7 @@ import type { Family } from '@/lib/ehs/familyMatch'
 export async function loadFamilies(): Promise<Family[]> {
   const fams = await queryPrimary<any[]>(
     `SELECT id, family_name, description, reach_status, rohs_status, prop65_status,
-            sort_order, active
+            inherit_compliance, sort_order, active
      FROM ehs_part_families
      ORDER BY sort_order, family_name`
   )

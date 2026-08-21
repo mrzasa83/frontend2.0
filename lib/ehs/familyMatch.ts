@@ -28,6 +28,7 @@ export type Family = {
   reach_status: string
   rohs_status: string
   prop65_status: string
+  inherit_compliance?: number | boolean
   sort_order: number
   active: number | boolean
   criteria: Criterion[]

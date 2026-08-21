@@ -6,7 +6,7 @@ import Tabs from '@/components/ui/Tabs'
 import FilePreviewModal from '@/components/products/FilePreviewModal'
 import {
   RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Plus, X, Trash2, Download, Eye,
-  ShieldCheck, FileText, ListFilter, AlertTriangle, Upload, Save,
+  ShieldCheck, FileText, ListFilter, AlertTriangle, Upload, Save, Pencil,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import { CRITERIA_FIELDS, CRITERIA_OPERATORS, COMPLIANCE_VALUES, type Criterion } from '@/lib/ehs/familyMatch'
@@ -22,6 +22,7 @@ type Part = {
   reach_status: string
   rohs_status: string
   prop65_status: string
+  per_part_evidence?: boolean
   overlap: string[] | null
 }
 type Family = {
@@ -32,6 +33,7 @@ type Family = {
   rohs_status: string
   prop65_status: string
   classification_notes: string | null
+  inherit_compliance?: number
   sort_order: number
   active: number
   match_count?: number
@@ -118,6 +120,16 @@ function PartsTab() {
   const [filters, setFilters] = useState<Record<string, string>>({})
   const [applied, setApplied] = useState<Record<string, string>>({})
   const [unassignedOnly, setUnassignedOnly] = useState(false)
+  const [partMode, setPartMode] = useState<'contains' | 'starts'>('starts')
+  const [famOptions, setFamOptions] = useState<string[]>([])
+
+  // Family names for the Product Family dropdown.
+  useEffect(() => {
+    fetch(getApiUrl('/api/ehs/families'))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.families) setFamOptions(d.families.map((f: any) => f.family_name)) })
+      .catch(() => {})
+  }, [])
   const [sort, setSort] = useState({ key: 'INV_PART_NUMBER', dir: 'asc' as 'asc' | 'desc' })
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
@@ -136,6 +148,7 @@ function PartsTab() {
         page: String(page), pageSize: '100', sort: sort.key, dir: sort.dir,
       })
       for (const [k, v] of Object.entries(applied)) if (v.trim()) p.set(k, v.trim())
+      p.set('f_part_mode', partMode)
       if (unassignedOnly) p.set('unassigned', '1')
       const res = await fetch(getApiUrl(`/api/ehs/parts?${p.toString()}`))
       const r = await res.json()
@@ -144,7 +157,7 @@ function PartsTab() {
       setSummary({ totalParts: r.totalParts || 0, assigned: r.assigned || 0, unassigned: r.unassigned || 0 })
     } catch (e: any) { setError(e.message) }
     setLoading(false)
-  }, [page, sort, applied, unassignedOnly])
+  }, [page, sort, applied, unassignedOnly, partMode])
   useEffect(() => { load() }, [load])
 
   const toggleSort = (key: string) => {
@@ -214,8 +227,29 @@ function PartsTab() {
             </tr>
             <tr>
               {PART_COLS.map(c => (
-                <th key={c.key} className="px-1 py-1 border-b border-slate-200 bg-white">
-                  {c.filter ? (
+                <th key={c.key} className="px-1 py-1 border-b border-slate-200 bg-white align-top">
+                  {c.filter === 'f_part' ? (
+                    <div className="flex gap-1">
+                      <select value={partMode} onChange={e => { setPartMode(e.target.value as 'contains' | 'starts'); setPage(1) }}
+                        title="How the part-number filter matches"
+                        className="text-xs font-normal border border-slate-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-300">
+                        <option value="starts">starts</option>
+                        <option value="contains">has</option>
+                      </select>
+                      <input value={filters.f_part || ''}
+                        onChange={e => setFilters(f => ({ ...f, f_part: e.target.value }))}
+                        placeholder={partMode === 'starts' ? 'PPGLB' : 'filter'}
+                        className="w-full min-w-[50px] text-xs font-normal border border-slate-200 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
+                    </div>
+                  ) : c.filter === 'f_family' ? (
+                    <select value={filters.f_family || ''}
+                      onChange={e => { setFilters(f => ({ ...f, f_family: e.target.value })); setPage(1) }}
+                      className="w-full text-xs font-normal border border-slate-200 rounded px-1 py-0.5 bg-white focus:outline-none focus:ring-1 focus:ring-blue-300">
+                      <option value="">All</option>
+                      <option value="__unassigned__">— Unassigned —</option>
+                      {famOptions.map(n => <option key={n} value={n}>{n}</option>)}
+                    </select>
+                  ) : c.filter ? (
                     <input value={filters[c.filter] || ''}
                       onChange={e => setFilters(f => ({ ...f, [c.filter]: e.target.value }))}
                       placeholder="filter"
@@ -246,6 +280,12 @@ function PartsTab() {
                       )}
                     </span>
                   ) : <span className="text-amber-600 text-xs">unassigned</span>}
+                  {r.per_part_evidence && (
+                    <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-purple-100 text-purple-700"
+                      title="This family does not flow its classification down — this part needs its own evidence">
+                      per part
+                    </span>
+                  )}
                 </td>
                 <td className="px-3 py-1.5 text-slate-500 text-xs">{r.ACTIVE_FLAG}</td>
               </tr>
@@ -340,7 +380,13 @@ function FamiliesTab({ canEdit, onOpen, onChanged }: { canEdit: boolean; onOpen:
               </td></tr>
             ) : shown.map(f => (
               <tr key={f.id} onClick={() => onOpen(f)} className="border-t border-slate-100 hover:bg-blue-50 cursor-pointer">
-                <td className="px-3 py-1.5 font-medium text-blue-600">{f.family_name}</td>
+                <td className="px-3 py-1.5 font-medium text-blue-600">
+                  {f.family_name}
+                  {!(f.inherit_compliance ?? 1) && (
+                    <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-purple-100 text-purple-700 font-normal"
+                      title="Parts do not inherit this family's compliance level">per part</span>
+                  )}
+                </td>
                 <td className="px-3 py-1.5 text-slate-600 truncate max-w-md">{f.description}</td>
                 <td className="px-3 py-1.5 tabular-nums text-slate-700">{f.match_count ?? '—'}</td>
                 {[f.reach_status, f.rohs_status, f.prop65_status].map((v, i) => (
@@ -368,6 +414,7 @@ function NewFamilyModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [criteria, setCriteria] = useState<Criterion[]>([
     { field: 'INV_PART_NUMBER', operator: 'LIKE', pattern: '', seq: 0 },
   ])
+  const [inherit, setInherit] = useState(true)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
 
@@ -376,7 +423,7 @@ function NewFamilyModal({ onClose, onCreated }: { onClose: () => void; onCreated
     try {
       const res = await fetch(getApiUrl('/api/ehs/families'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ family_name: name, description, criteria }),
+        body: JSON.stringify({ family_name: name, description, criteria, inherit_compliance: inherit }),
       })
       const r = await res.json()
       if (!res.ok) throw new Error(r.error || 'Failed to create')
@@ -405,6 +452,15 @@ function NewFamilyModal({ onClose, onCreated }: { onClose: () => void; onCreated
           </div>
         </div>
         <CriteriaEditor criteria={criteria} onChange={setCriteria} />
+        <label className="flex items-start gap-2 mt-4 p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer">
+          <input type="checkbox" className="mt-0.5" checked={!inherit} onChange={e => setInherit(!e.target.checked)} />
+          <span className="text-sm text-slate-700">
+            Parts cannot inherit this family’s compliance level
+            <span className="block text-xs text-slate-500 mt-0.5">
+              Every part will need its own supporting documents.
+            </span>
+          </span>
+        </label>
         <div className="flex justify-end gap-2 mt-4">
           <button onClick={onClose} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
           <button onClick={save} disabled={busy || !name.trim()}
@@ -463,6 +519,7 @@ function FamilyDetail({ familyId, canEdit, onChanged }: { familyId: number; canE
   const [docs, setDocs] = useState<FamilyDoc[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [editing, setEditing] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -489,13 +546,32 @@ function FamilyDetail({ familyId, canEdit, onChanged }: { familyId: number; canE
 
   return (
     <div>
-      <div className="mb-4">
-        <h2 className="text-xl font-bold text-slate-800">{family.family_name}</h2>
-        <p className="text-sm text-slate-600">
-          {family.description || <span className="text-slate-400">No description</span>}
-          <span className="text-slate-400"> · {parts.length} parts</span>
-        </p>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            {family.family_name}
+            {!(family.inherit_compliance ?? 1) && (
+              <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-normal">
+                per-part evidence
+              </span>
+            )}
+          </h2>
+          <p className="text-sm text-slate-600">
+            {family.description || <span className="text-slate-400">No description</span>}
+            <span className="text-slate-400"> · {parts.length} parts</span>
+          </p>
+        </div>
+        {canEdit && (
+          <button onClick={() => setEditing(true)}
+            className="px-3 py-1.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-100 flex items-center gap-1.5">
+            <Pencil size={14} /> Edit details
+          </button>
+        )}
       </div>
+      {editing && (
+        <EditFamilyModal family={family} onClose={() => setEditing(false)}
+          onSaved={() => { setEditing(false); load(); onChanged() }} />
+      )}
       <div className="flex gap-0 min-h-[420px]">
         <div className="w-52 flex-shrink-0 border-r border-slate-200">
           {RAIL.map(t => {
@@ -512,6 +588,73 @@ function FamilyDetail({ familyId, canEdit, onChanged }: { familyId: number; canE
           {tab === 'classification' && <ClassificationTab family={family} canEdit={canEdit} reload={() => { load(); onChanged() }} />}
           {tab === 'documents' && <DocumentsTab family={family} docs={docs} canEdit={canEdit} reload={load} />}
           {tab === 'definition' && <DefinitionTab family={family} parts={parts} canEdit={canEdit} reload={() => { load(); onChanged() }} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function EditFamilyModal({ family, onClose, onSaved }:
+  { family: Family; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(family.family_name)
+  const [description, setDescription] = useState(family.description || '')
+  const [inherit, setInherit] = useState((family.inherit_compliance ?? 1) ? true : false)
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const save = async () => {
+    setBusy(true); setErr('')
+    try {
+      const res = await fetch(getApiUrl('/api/ehs/families'), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: family.id, family_name: name, description,
+          inherit_compliance: inherit,
+        }),
+      })
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.error || 'Failed to save')
+      onSaved()
+    } catch (e: any) { setErr(e.message); setBusy(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="font-semibold text-slate-800">Edit family</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
+        </div>
+        {err && <div className="p-2 mb-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{err}</div>}
+        <div className="space-y-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Family name</label>
+            <input value={name} onChange={e => setName(e.target.value)} autoFocus
+              className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Description</label>
+            <textarea value={description} onChange={e => setDescription(e.target.value)} rows={3}
+              className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <label className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-lg cursor-pointer">
+            <input type="checkbox" className="mt-0.5" checked={!inherit}
+              onChange={e => setInherit(!e.target.checked)} />
+            <span className="text-sm text-slate-700">
+              Parts cannot inherit this family’s compliance level
+              <span className="block text-xs text-slate-500 mt-0.5">
+                Every part in the family needs its own supporting documents. The family-level
+                REACH / RoHS / Prop 65 values stop flowing down to the parts list.
+              </span>
+            </span>
+          </label>
+        </div>
+        <div className="flex justify-end gap-2 mt-4">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+          <button onClick={save} disabled={busy || !name.trim()}
+            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+            {busy ? 'Saving…' : 'Save'}
+          </button>
         </div>
       </div>
     </div>
@@ -561,6 +704,16 @@ function ClassificationTab({ family, canEdit, reload }: { family: Family; canEdi
   return (
     <div className="max-w-2xl">
       <h3 className="text-lg font-semibold text-slate-800 mb-4">Classification</h3>
+      {!(family.inherit_compliance ?? 1) && (
+        <div className="p-3 mb-4 bg-purple-50 border border-purple-200 rounded-lg text-sm text-purple-900 flex gap-2">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <span>
+            This family does not flow its compliance level down. The values below describe the family
+            as a whole, but every part still needs its own supporting documents — the parts list shows
+            no inherited status for them.
+          </span>
+        </div>
+      )}
       {err && <div className="p-2 mb-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{err}</div>}
       {msg && <div className="p-2 mb-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">

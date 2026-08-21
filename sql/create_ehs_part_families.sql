@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS ehs_part_families (
   rohs_status    VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
   prop65_status  VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
   classification_notes TEXT   NULL,
+  -- 1 = parts inherit this family's classification.
+  -- 0 = the classification does NOT flow down; every part in the family needs
+  --     its own evidence on file.
+  inherit_compliance TINYINT(1) NOT NULL DEFAULT 1,
   sort_order     INT          NOT NULL DEFAULT 100,  -- lower wins when a part matches two families
   active         TINYINT(1)   NOT NULL DEFAULT 1,
   created_by     VARCHAR(50)  NOT NULL DEFAULT '',
