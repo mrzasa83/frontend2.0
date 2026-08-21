@@ -46,12 +46,16 @@ export type Stats = {
   min: number
   max: number
   range: number
+  lsl: number
   usl: number
   cpk: number | null
   cp: number | null
   cpu: number | null
+  cpl: number | null
   sigmaLevel: number | null
   outOfSpec: number
+  belowLsl: number
+  aboveUsl: number
   meanX: number
   meanY: number
   sdX: number
@@ -73,6 +77,35 @@ export function tpFrom(xDelta: number, yDelta: number): number {
   return Math.sqrt(xDelta * xDelta + yDelta * yDelta)
 }
 
+/** True when the column actually holds X/Y axis markers. */
+function columnLooksLikeCoef(aoa: any[][], headerIdx: number, idx: number): boolean {
+  if (idx < 0) return false
+  let x = 0, y = 0
+  for (let i = headerIdx + 1; i < Math.min(aoa.length, headerIdx + 60); i++) {
+    const v = String((aoa[i] || [])[idx] ?? '').trim().toUpperCase()
+    if (v === 'X') x++
+    else if (v === 'Y') y++
+  }
+  return x > 0 && y > 0
+}
+
+/** Find the coefficient column by content when the header isn't recognisable. */
+function detectCoefColumn(aoa: any[][], headerIdx: number): number {
+  const width = Math.max(...aoa.slice(0, 50).map(r => (r || []).length), 0)
+  let best = -1, bestScore = 0
+  for (let c = 0; c < width; c++) {
+    let score = 0, sawX = false, sawY = false
+    for (let i = headerIdx + 1; i < Math.min(aoa.length, headerIdx + 60); i++) {
+      const v = String((aoa[i] || [])[c] ?? '').trim().toUpperCase()
+      if (v === 'X') { score++; sawX = true }
+      else if (v === 'Y') { score++; sawY = true }
+      else if (v === 'TP' || v === 'R' || v === 'D') score++
+    }
+    if (sawX && sawY && score > bestScore) { bestScore = score; best = c }
+  }
+  return best
+}
+
 /**
  * Parse the CMM sheet (array-of-arrays, first row = header) into feature rows.
  * Tolerant of the Feature column only being set on the group's first row.
@@ -82,14 +115,15 @@ export function parseCmmSheet(aoa: any[][]): ParseResult {
     return { ok: false, error: 'The sheet is empty.', rows: [], uslFromFile: null, skipped: 0 }
   }
 
-  // Locate the header row (usually row 0) and the columns we need by name.
-  // Two export vintages exist: newer files label column B "Coef" and the
-  // tolerance "High Tol"; older ones use "Tol" and "Tol+".
+  // Locate the header row (usually row 0). Columns are found BY NAME, never by
+  // position, so the coefficient column can sit in B, C or anywhere else.
+  // Export vintages differ: newer files label it "Coef" with tolerance
+  // "High Tol"; older ones use "Tol" and "Tol+".
+  const COEF_NAMES = ['coef', 'coeff', 'coefficient', 'tol', 'axis', 'char', 'characteristic']
   let headerIdx = -1
   for (let i = 0; i < Math.min(aoa.length, 10); i++) {
     const cells = (aoa[i] || []).map(c => asStr(c).toLowerCase())
-    const hasCoef = cells.includes('coef') || cells.includes('tol')
-    if (cells.includes('feature') && hasCoef && cells.includes('actual')) {
+    if (cells.includes('feature') && cells.includes('actual')) {
       headerIdx = i
       break
     }
@@ -106,12 +140,22 @@ export function parseCmmSheet(aoa: any[][]): ParseResult {
     for (const n of names) { const i = header.indexOf(n); if (i >= 0) return i }
     return -1
   }
-  const cFeature = col('feature'), cCoef = col('coef', 'tol'), cActual = col('actual')
+  const cFeature = col('feature'), cActual = col('actual')
   const cNominal = col('nominal'), cHighTol = col('high tol', 'tol+')
+
+  // The coefficient column: prefer a recognised header, otherwise find the
+  // column whose values actually carry the X / Y / TP markers. This keeps the
+  // parser working when the column is unlabelled or named something new.
+  let cCoef = col(...COEF_NAMES)
+  if (cCoef < 0 || !columnLooksLikeCoef(aoa, headerIdx, cCoef)) {
+    const detected = detectCoefColumn(aoa, headerIdx)
+    if (detected >= 0) cCoef = detected
+  }
+
   if (cFeature < 0 || cCoef < 0 || cActual < 0 || cNominal < 0) {
     return {
       ok: false,
-      error: 'Missing one of the required columns: Feature, Coef (or Tol), Actual, Nominal.',
+      error: 'Missing a required column. Expected Feature, a coefficient column holding the X/Y markers, Actual and Nominal.',
       rows: [], uslFromFile: null, skipped: 0,
     }
   }
@@ -182,7 +226,7 @@ export function parseCmmSheet(aoa: any[][]): ParseResult {
  * TP is a one-sided characteristic bounded at zero, so Cpk = Cpu = (USL - mean)/(3s).
  * Cp is reported on the same one-sided basis for reference.
  */
-export function computeStats(rows: FeatureRow[], usl: number): Stats {
+export function computeStats(rows: FeatureRow[], usl: number, lsl = 0): Stats {
   const n = rows.length
   const tps = rows.map(r => r.tp)
   const mean = tps.reduce((a, b) => a + b, 0) / n
@@ -196,32 +240,44 @@ export function computeStats(rows: FeatureRow[], usl: number): Stats {
   const sdX = Math.sqrt(n > 1 ? xs.reduce((a, b) => a + (b - meanX) ** 2, 0) / (n - 1) : 0)
   const sdY = Math.sqrt(n > 1 ? ys.reduce((a, b) => a + (b - meanY) ** 2, 0) / (n - 1) : 0)
 
+  // Two-sided capability against the user's spec limits.
+  //   Cpu = (USL - mean) / 3s     Cpl = (mean - LSL) / 3s
+  //   Cpk = min(Cpu, Cpl)         Cp  = (USL - LSL) / 6s
   const cpu = sd > 0 ? (usl - mean) / (3 * sd) : null
+  const cpl = sd > 0 ? (mean - lsl) / (3 * sd) : null
+  const cpk = cpu !== null && cpl !== null ? Math.min(cpu, cpl) : (cpu ?? cpl)
+  const cp = sd > 0 ? (usl - lsl) / (6 * sd) : null
+
+  const belowLsl = tps.filter(t => t < lsl).length
+  const aboveUsl = tps.filter(t => t > usl).length
   return {
     n, mean, sd,
     min: Math.min(...tps), max: Math.max(...tps),
     range: Math.max(...tps) - Math.min(...tps),
-    usl,
-    cpk: cpu, cp: cpu, cpu,
-    sigmaLevel: cpu !== null ? cpu * 3 : null,
-    outOfSpec: tps.filter(t => t > usl).length,
+    lsl, usl,
+    cpk, cp, cpu, cpl,
+    sigmaLevel: cpk !== null ? cpk * 3 : null,
+    outOfSpec: belowLsl + aboveUsl,
+    belowLsl, aboveUsl,
     meanX, meanY, sdX, sdY,
   }
 }
 
-/** Histogram bins over the TP values. */
-export function histogram(rows: FeatureRow[], binCount = 12) {
+/** Histogram bins over the TP values, spanning the data and the spec limits. */
+export function histogram(rows: FeatureRow[], binCount = 12, lsl?: number, usl?: number) {
   const tps = rows.map(r => r.tp)
-  const min = Math.min(...tps)
-  const max = Math.max(...tps)
+  let min = Math.min(...tps)
+  let max = Math.max(...tps)
+  // Widen the axis so the spec limits are visible even when all data sits inside.
+  if (lsl !== undefined && isFinite(lsl)) min = Math.min(min, lsl)
+  if (usl !== undefined && isFinite(usl)) max = Math.max(max, usl)
   const span = max - min || 1
   const width = span / binCount
-  const bins = Array.from({ length: binCount }, (_, i) => ({
-    start: min + i * width,
-    end: min + (i + 1) * width,
-    label: (min + i * width).toFixed(5),
-    count: 0,
-  }))
+  const bins = Array.from({ length: binCount }, (_, i) => {
+    const start = min + i * width
+    const end = start + width
+    return { start, end, mid: (start + end) / 2, label: start.toFixed(5), count: 0 }
+  })
   for (const t of tps) {
     let idx = Math.floor((t - min) / width)
     if (idx >= binCount) idx = binCount - 1
@@ -229,4 +285,24 @@ export function histogram(rows: FeatureRow[], binCount = 12) {
     bins[idx].count++
   }
   return bins
+}
+
+/**
+ * Points for a normal curve fitted to the data, scaled to the histogram's counts
+ * so the two can share one axis. Height = pdf(x) * n * binWidth.
+ */
+export function normalCurve(
+  mean: number, sd: number, n: number, binWidth: number,
+  from: number, to: number, points = 80,
+) {
+  if (!(sd > 0) || !isFinite(sd)) return []
+  const step = (to - from) / (points - 1)
+  const out: { x: number; curve: number }[] = []
+  for (let i = 0; i < points; i++) {
+    const x = from + i * step
+    const z = (x - mean) / sd
+    const pdf = Math.exp(-0.5 * z * z) / (sd * Math.sqrt(2 * Math.PI))
+    out.push({ x, curve: pdf * n * binWidth })
+  }
+  return out
 }

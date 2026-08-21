@@ -2,12 +2,12 @@
 
 import { useState, useMemo, useRef } from 'react'
 import {
-  ScatterChart, Scatter, LineChart, Line, BarChart, Bar,
+  ScatterChart, Scatter, LineChart, Line, ComposedChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Cell,
 } from 'recharts'
 import { Upload, Download, RefreshCw, FileSpreadsheet, X } from 'lucide-react'
 import {
-  parseCmmSheet, computeStats, histogram, tpFrom,
+  parseCmmSheet, computeStats, histogram, normalCurve, tpFrom,
   type FeatureRow,
 } from '@/lib/process/drillRoutCpk'
 
@@ -21,7 +21,8 @@ export default function DrillRoutCpkPage() {
   const [error, setError] = useState('')
   const [warn, setWarn] = useState('')
   const [busy, setBusy] = useState(false)
-  const [usl, setUsl] = useState(0.003)
+  const [usl, setUsl] = useState(0.0014)
+  const [lsl, setLsl] = useState(0)
   const [meta, setMeta] = useState<Meta>({ part: '', machine: '', spindle: '', date: '' })
   const [tab, setTab] = useState<'charts' | 'data'>('charts')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -32,8 +33,21 @@ export default function DrillRoutCpkPage() {
     () => rows.map(r => ({ ...r, tp: tpFrom(r.xDelta, r.yDelta) })),
     [rows]
   )
-  const stats = useMemo(() => (view.length ? computeStats(view, usl) : null), [view, usl])
-  const bins = useMemo(() => (view.length ? histogram(view, 12) : []), [view])
+  const stats = useMemo(() => (view.length ? computeStats(view, usl, lsl) : null), [view, usl, lsl])
+  const bins = useMemo(() => (view.length ? histogram(view, 12, lsl, usl) : []), [view, lsl, usl])
+
+  // Histogram bars and the fitted normal curve share one numeric axis.
+  const histoData = useMemo(() => {
+    if (!bins.length || !stats) return []
+    const binWidth = bins[0].end - bins[0].start
+    const from = bins[0].start
+    const to = bins[bins.length - 1].end
+    const curve = normalCurve(stats.mean, stats.sd, stats.n, binWidth, from, to, 80)
+    const merged: { x: number; count?: number; curve?: number }[] =
+      curve.map(c => ({ x: c.x, curve: c.curve }))
+    for (const b of bins) merged.push({ x: b.mid, count: b.count })
+    return merged.sort((a, b) => a.x - b.x)
+  }, [bins, stats])
 
   const handleFile = async (file: File) => {
     setBusy(true); setError(''); setWarn(''); setRows([])
@@ -56,7 +70,6 @@ export default function DrillRoutCpkPage() {
 
       setRows(res.rows)
       setFileName(file.name)
-      if (res.uslFromFile) setUsl(res.uslFromFile)
       if (res.skipped) setWarn(`${res.skipped} feature${res.skipped === 1 ? '' : 's'} skipped — missing an X or Y row.`)
     } catch (e: any) {
       setError(e?.message || 'Failed to read the file.')
@@ -92,8 +105,11 @@ export default function DrillRoutCpkPage() {
       [],
       ['n', stats.n], ['Mean TP', stats.mean], ['Std Dev', stats.sd],
       ['Min TP', stats.min], ['Max TP', stats.max], ['Range', stats.range],
-      ['USL (tolerance)', stats.usl], ['Cpk', stats.cpk ?? ''], ['Cpu', stats.cpu ?? ''],
-      ['Sigma level', stats.sigmaLevel ?? ''], ['Out of spec', stats.outOfSpec],
+      ['LSL', stats.lsl], ['USL', stats.usl],
+      ['Cpk (min of Cpu/Cpl)', stats.cpk ?? ''], ['Cp', stats.cp ?? ''],
+      ['Cpu (to USL)', stats.cpu ?? ''], ['Cpl (to LSL)', stats.cpl ?? ''],
+      ['Sigma level', stats.sigmaLevel ?? ''],
+      ['Out of spec', stats.outOfSpec], ['Below LSL', stats.belowLsl], ['Above USL', stats.aboveUsl],
       [], ['Mean X Delta', stats.meanX], ['Std Dev X', stats.sdX],
       ['Mean Y Delta', stats.meanY], ['Std Dev Y', stats.sdY],
     ]
@@ -141,7 +157,13 @@ export default function DrillRoutCpkPage() {
               className="block text-sm text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:bg-blue-600 file:text-white hover:file:bg-blue-700" />
           </div>
           <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">USL (tolerance)</label>
+            <label className="block text-xs font-medium text-slate-500 mb-1">LSL</label>
+            <input type="number" step="0.0001" value={lsl}
+              onChange={e => setLsl(Number(e.target.value) || 0)}
+              className="w-28 px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">USL</label>
             <input type="number" step="0.0001" value={usl}
               onChange={e => setUsl(Number(e.target.value) || 0)}
               className="w-28 px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
@@ -233,30 +255,49 @@ export default function DrillRoutCpkPage() {
                   </ResponsiveContainer>
                 </Panel>
 
-                <Panel title="Histogram — true position (TP)" subtitle={`Distribution of the calculated vector against USL ${usl}`}>
-                  <ResponsiveContainer width="100%" height={280}>
-                    <BarChart data={bins} margin={{ top: 10, right: 20, bottom: 30, left: 10 }}>
+                <Panel title="Histogram — true position (TP)"
+                  subtitle={`Distribution with a fitted normal curve, against LSL ${lsl} and USL ${usl}`}>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <ComposedChart data={histoData} margin={{ top: 10, right: 20, bottom: 30, left: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis dataKey="label" tick={{ fontSize: 10 }} angle={-35} textAnchor="end" height={55} />
+                      <XAxis type="number" dataKey="x" domain={['dataMin', 'dataMax']}
+                        tick={{ fontSize: 10 }} tickFormatter={(v: number) => v.toFixed(4)}
+                        label={{ value: 'True position', position: 'insideBottom', offset: -15, fontSize: 12 }} />
                       <YAxis allowDecimals={false} tick={{ fontSize: 11 }}
                         label={{ value: 'Count', angle: -90, position: 'insideLeft', fontSize: 12 }} />
-                      <Tooltip labelFormatter={(l: any) => `TP ≥ ${l}`} />
-                      <Bar dataKey="count">
-                        {bins.map((b, i) => (
-                          <Cell key={i} fill={b.start >= usl ? '#dc2626' : '#2563eb'} />
+                      <Tooltip
+                        content={({ payload, label }) => {
+                          if (!payload?.length) return null
+                          const bar = payload.find(p => p.dataKey === 'count')
+                          const cur = payload.find(p => p.dataKey === 'curve')
+                          return (
+                            <div className="bg-white border border-slate-200 rounded px-2 py-1 text-xs shadow">
+                              <div className="font-medium">TP {Number(label).toFixed(5)}</div>
+                              {bar && <div>count: {bar.value as number}</div>}
+                              {cur && <div className="text-slate-500">expected: {Number(cur.value).toFixed(2)}</div>}
+                            </div>
+                          )
+                        }} />
+                      <Legend wrapperStyle={{ fontSize: 12 }} />
+                      <Bar dataKey="count" name="Measured" barSize={22}>
+                        {histoData.map((d, i) => (
+                          <Cell key={i} fill={(d.x > usl || d.x < lsl) ? '#dc2626' : '#2563eb'} />
                         ))}
                       </Bar>
-                      {usl >= (bins[0]?.start ?? 0) && usl <= (bins[bins.length - 1]?.end ?? 0) && (
-                        <ReferenceLine x={usl.toFixed(5)} stroke="#dc2626" strokeDasharray="4 3"
-                          label={{ value: 'USL', fill: '#dc2626', fontSize: 11 }} />
-                      )}
-                    </BarChart>
+                      <Line type="monotone" dataKey="curve" name="Normal fit" stroke="#0f766e"
+                        strokeWidth={2} dot={false} connectNulls />
+                      <ReferenceLine x={lsl} stroke="#dc2626" strokeDasharray="4 3"
+                        label={{ value: 'LSL', fill: '#dc2626', fontSize: 11, position: 'top' }} />
+                      <ReferenceLine x={usl} stroke="#dc2626" strokeDasharray="4 3"
+                        label={{ value: 'USL', fill: '#dc2626', fontSize: 11, position: 'top' }} />
+                      {stats && <ReferenceLine x={stats.mean} stroke="#64748b" strokeDasharray="2 2"
+                        label={{ value: 'x̄', fill: '#64748b', fontSize: 11, position: 'top' }} />}
+                    </ComposedChart>
                   </ResponsiveContainer>
-                  {usl > (bins[bins.length - 1]?.end ?? 0) && (
-                    <p className="text-xs text-slate-500 mt-1">
-                      USL ({usl}) sits beyond the data range, so it isn’t drawn on this axis — every value is well inside tolerance.
-                    </p>
-                  )}
+                  <p className="text-xs text-slate-500 mt-1">
+                    The curve is a normal distribution fitted to the measured mean and standard deviation —
+                    it shows how much of the predicted spread falls inside the spec limits.
+                  </p>
                 </Panel>
               </div>
 
@@ -272,7 +313,9 @@ export default function DrillRoutCpkPage() {
                     <div className="text-4xl font-bold tabular-nums text-slate-800">
                       {stats.cpk !== null ? stats.cpk.toFixed(2) : '—'}
                     </div>
-                    <div className="text-xs uppercase tracking-wide text-slate-400 mt-1">Cpk (one-sided, USL)</div>
+                    <div className="text-xs uppercase tracking-wide text-slate-400 mt-1">
+                      Cpk = min(Cpu, Cpl)
+                    </div>
                   </div>
                   <dl className="space-y-1.5 text-sm">
                     <Stat label="n" value={String(stats.n)} />
@@ -281,7 +324,11 @@ export default function DrillRoutCpkPage() {
                     <Stat label="Min TP" value={fmt(stats.min, 6)} />
                     <Stat label="Max TP" value={fmt(stats.max, 6)} />
                     <Stat label="Range" value={fmt(stats.range, 6)} />
+                    <Stat label="LSL" value={String(stats.lsl)} />
                     <Stat label="USL" value={String(stats.usl)} />
+                    <Stat label="Cp" value={stats.cp !== null ? stats.cp.toFixed(2) : '—'} />
+                    <Stat label="Cpu (to USL)" value={stats.cpu !== null ? stats.cpu.toFixed(2) : '—'} />
+                    <Stat label="Cpl (to LSL)" value={stats.cpl !== null ? stats.cpl.toFixed(2) : '—'} />
                     <Stat label="Sigma level" value={stats.sigmaLevel !== null ? stats.sigmaLevel.toFixed(2) : '—'} />
                     <Stat label="Out of spec" value={String(stats.outOfSpec)}
                       danger={stats.outOfSpec > 0} />
@@ -324,7 +371,7 @@ export default function DrillRoutCpkPage() {
                       <td className="px-3 py-1.5 tabular-nums text-slate-400">{r.yNominal}</td>
                       <td className="px-3 py-1.5 tabular-nums text-slate-600">{fmt(r.xDelta, 6)}</td>
                       <td className="px-3 py-1.5 tabular-nums text-slate-600">{fmt(r.yDelta, 6)}</td>
-                      <td className={`px-3 py-1.5 tabular-nums font-medium ${r.tp > usl ? 'text-red-600' : 'text-slate-800'}`}>{fmt(r.tp, 6)}</td>
+                      <td className={`px-3 py-1.5 tabular-nums font-medium ${(r.tp > usl || r.tp < lsl) ? 'text-red-600' : 'text-slate-800'}`}>{fmt(r.tp, 6)}</td>
                     </tr>
                   ))}
                 </tbody>
