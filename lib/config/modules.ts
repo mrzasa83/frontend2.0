@@ -156,9 +156,9 @@ export const MODULES: Module[] = [
         requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
       },
       {
-        id: 'drill-rout-cpk',
-        name: 'Drill/Rout Cpk Calc',
-        path: '/process/drill-rout-cpk',
+        id: 'drill-rout-ppk',
+        name: 'Drill/Rout Ppk Calc',
+        path: '/process/drill-rout-ppk',
         requiredRoles: ['Admin', 'ProductEng', 'ProcessEng', 'NPIEng']
       },
       { 
