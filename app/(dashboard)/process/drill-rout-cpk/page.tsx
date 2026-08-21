@@ -54,10 +54,29 @@ export default function DrillRoutCpkPage() {
     if (!bins.length || !stats) return []
     const binWidth = bins[0].end - bins[0].start
     const curve = normalCurve(stats.mean, stats.sd, stats.n, binWidth, domain[0], domain[1], 160)
-    const merged: { x: number; count?: number; curve?: number }[] =
-      curve.map(c => ({ x: c.x, curve: c.curve }))
+
+    // Bars and curve share one count axis. True position is a distance, so the
+    // data is more peaked than a normal, and the raw fitted curve would sit far
+    // below the bars. Scale the drawn curve so its peak matches the tallest
+    // bucket — the honest expected-count value is kept for the tooltip.
+    const peakBar = Math.max(...bins.map(b => b.count), 0)
+    const peakCurve = Math.max(...curve.map(c => c.curve), 0)
+    const scale = peakCurve > 0 && peakBar > 0 ? peakBar / peakCurve : 1
+
+    const merged: { x: number; count?: number; curve?: number; expected?: number }[] =
+      curve.map(c => ({ x: c.x, curve: c.curve * scale, expected: c.curve }))
     for (const b of bins) merged.push({ x: b.mid, count: b.count })
     return merged.sort((a, b) => a.x - b.x)
+  }, [bins, stats, domain])
+
+  // How much the drawn curve was stretched to sit on the bars' axis.
+  const curveScale = useMemo(() => {
+    if (!bins.length || !stats) return 1
+    const binWidth = bins[0].end - bins[0].start
+    const c = normalCurve(stats.mean, stats.sd, stats.n, binWidth, domain[0], domain[1], 160)
+    const peakBar = Math.max(...bins.map(b => b.count), 0)
+    const peakCurve = Math.max(...c.map(v => v.curve), 0)
+    return peakCurve > 0 && peakBar > 0 ? peakBar / peakCurve : 1
   }, [bins, stats, domain])
 
   // Bar pixel width = bucket width as a fraction of the plotted range.
@@ -310,12 +329,14 @@ export default function DrillRoutCpkPage() {
                         content={({ payload, label }) => {
                           if (!payload?.length) return null
                           const bar = payload.find(p => p.dataKey === 'count')
-                          const cur = payload.find(p => p.dataKey === 'curve')
+                          const row: any = payload[0]?.payload
                           return (
                             <div className="bg-white border border-slate-200 rounded px-2 py-1 text-xs shadow">
                               <div className="font-medium">TP {Number(label).toFixed(5)}</div>
-                              {bar && <div>count: {bar.value as number}</div>}
-                              {cur && <div className="text-slate-500">expected: {Number(cur.value).toFixed(2)}</div>}
+                              {bar && <div>measured: {bar.value as number}</div>}
+                              {row?.expected !== undefined && (
+                                <div className="text-slate-500">normal fit: {Number(row.expected).toFixed(2)} expected</div>
+                              )}
                             </div>
                           )
                         }} />
@@ -325,7 +346,7 @@ export default function DrillRoutCpkPage() {
                           <Cell key={i} fill={(d.x > usl || d.x < lsl) ? '#dc2626' : '#2563eb'} />
                         ))}
                       </Bar>
-                      <Line type="monotone" dataKey="curve" name="Normal fit" stroke="#0f766e"
+                      <Line type="monotone" dataKey="curve" name="Normal fit (scaled to peak)" stroke="#0f766e"
                         strokeWidth={2} dot={false} connectNulls />
                       <ReferenceLine x={lsl} stroke="#dc2626" strokeDasharray="4 3"
                         label={{ value: 'LSL', fill: '#dc2626', fontSize: 11, position: 'top' }} />
@@ -337,8 +358,10 @@ export default function DrillRoutCpkPage() {
                   </ResponsiveContainer>
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    Bars are the measured buckets; the curve is a normal distribution fitted to the mean and standard deviation, drawn across the LSL–USL span —
-                    it shows how much of the predicted spread falls inside the spec limits.
+                    Bars are the measured buckets; the curve is a normal distribution fitted to the mean and
+                    standard deviation, drawn across the LSL–USL span. Both sit on the same count axis, with the
+                    curve scaled ×{curveScale.toFixed(1)} so its shape is comparable to the bars — hover any point
+                    for the unscaled expected count.
                   </p>
                 </Panel>
               </div>
