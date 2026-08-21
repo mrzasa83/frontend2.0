@@ -103,6 +103,12 @@ export const MODULES: Module[] = [
         path: '/ehs/part-family-mgt',
         requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng']
       },
+      {
+        id: 'ehs-product-compliance',
+        name: 'Product Compliance',
+        path: '/ehs/product-compliance',
+        requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng']
+      },
     ]
   },
   { 
