@@ -40,13 +40,25 @@ export default function DrillRoutCpkPage() {
 
   // The plotted x-range stretches to include both spec limits so LSL/USL are
   // always visible, even when every measurement sits well inside them.
+  // Axis mode: 'data' gives the standard distribution view (the curve's own
+  // spread, ~mean +/- 4 sigma); 'spec' widens out to the spec limits, which can
+  // squeeze the bars badly when a limit sits many sigma from the mean.
+  const [axisMode, setAxisMode] = useState<'data' | 'spec'>('data')
+
   const domain = useMemo(() => {
-    if (!bins.length) return [0, 1] as [number, number]
-    const lo = Math.min(lsl, bins[0].start)
-    const hi = Math.max(usl, bins[bins.length - 1].end)
+    if (!bins.length || !stats) return [0, 1] as [number, number]
+    const dataLo = bins[0].start
+    const dataHi = bins[bins.length - 1].end
+    // Cover the visible tails of the fitted curve as well as the data itself.
+    let lo = Math.min(dataLo, stats.mean - 4 * stats.sd)
+    let hi = Math.max(dataHi, stats.mean + 4 * stats.sd)
+    if (axisMode === 'spec') {
+      lo = Math.min(lo, lsl)
+      hi = Math.max(hi, usl)
+    }
     const pad = (hi - lo) * 0.02
     return [lo - pad, hi + pad] as [number, number]
-  }, [bins, lsl, usl])
+  }, [bins, stats, lsl, usl, axisMode])
 
   // Bars are the measured buckets; the curve is the normal fit drawn across the
   // whole LSL→USL span from the measured mean and standard deviation.
@@ -93,8 +105,9 @@ export default function DrillRoutCpkPage() {
     if (!bins.length || !chartW) return 12
     const binWidth = bins[0].end - bins[0].start
     const span = domain[1] - domain[0] || 1
-    // ~60px of the container is axis/labels rather than plot area.
-    return Math.max(3, Math.floor(((chartW - 60) * binWidth) / span) - 1)
+    // ~60px of the container is axis/labels rather than plot area. No gap is
+    // subtracted — histogram bars should sit flush against each other.
+    return Math.max(3, Math.round(((chartW - 60) * binWidth) / span))
   }, [bins, chartW, domain])
 
   const handleFile = async (file: File) => {
@@ -315,6 +328,12 @@ export default function DrillRoutCpkPage() {
                         bucket width {(bins[0].end - bins[0].start).toFixed(6)}
                       </span>
                     )}
+                    <label className="text-xs text-slate-500 ml-3">Axis</label>
+                    <select value={axisMode} onChange={e => setAxisMode(e.target.value as 'data' | 'spec')}
+                      className="px-2 py-1 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      <option value="data">Fit distribution</option>
+                      <option value="spec">Show spec limits</option>
+                    </select>
                   </div>
                   <div ref={chartRef}>
                   <ResponsiveContainer width="100%" height={300}>
@@ -348,10 +367,14 @@ export default function DrillRoutCpkPage() {
                       </Bar>
                       <Line type="monotone" dataKey="curve" name="Normal fit (scaled to peak)" stroke="#0f766e"
                         strokeWidth={2} dot={false} connectNulls />
-                      <ReferenceLine x={lsl} stroke="#dc2626" strokeDasharray="4 3"
-                        label={{ value: 'LSL', fill: '#dc2626', fontSize: 11, position: 'top' }} />
-                      <ReferenceLine x={usl} stroke="#dc2626" strokeDasharray="4 3"
-                        label={{ value: 'USL', fill: '#dc2626', fontSize: 11, position: 'top' }} />
+                      {lsl >= domain[0] && lsl <= domain[1] && (
+                        <ReferenceLine x={lsl} stroke="#dc2626" strokeDasharray="4 3"
+                          label={{ value: 'LSL', fill: '#dc2626', fontSize: 11, position: 'top' }} />
+                      )}
+                      {usl >= domain[0] && usl <= domain[1] && (
+                        <ReferenceLine x={usl} stroke="#dc2626" strokeDasharray="4 3"
+                          label={{ value: 'USL', fill: '#dc2626', fontSize: 11, position: 'top' }} />
+                      )}
                       {stats && <ReferenceLine x={stats.mean} stroke="#64748b" strokeDasharray="2 2"
                         label={{ value: 'x̄', fill: '#64748b', fontSize: 11, position: 'top' }} />}
                     </ComposedChart>
@@ -359,9 +382,11 @@ export default function DrillRoutCpkPage() {
                   </div>
                   <p className="text-xs text-slate-500 mt-1">
                     Bars are the measured buckets; the curve is a normal distribution fitted to the mean and
-                    standard deviation, drawn across the LSL–USL span. Both sit on the same count axis, with the
-                    curve scaled ×{curveScale.toFixed(1)} so its shape is comparable to the bars — hover any point
-                    for the unscaled expected count.
+                    standard deviation. Both sit on the same count axis, with the curve scaled ×{curveScale.toFixed(1)}
+                    so its shape is comparable to the bars — hover any point for the unscaled expected count.
+                    {axisMode === 'data' && (usl > domain[1] || lsl < domain[0]) && (
+                      <> A spec limit sits outside this view; switch the axis to “Show spec limits” to bring it in.</>
+                    )}
                   </p>
                 </Panel>
               </div>
