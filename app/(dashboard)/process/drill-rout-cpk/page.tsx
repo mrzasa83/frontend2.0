@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef } from 'react'
+import { useState, useMemo, useRef, useEffect } from 'react'
 import {
   ScatterChart, Scatter, LineChart, Line, ComposedChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, ReferenceLine, Cell,
@@ -34,20 +34,49 @@ export default function DrillRoutCpkPage() {
     [rows]
   )
   const stats = useMemo(() => (view.length ? computeStats(view, usl, lsl) : null), [view, usl, lsl])
-  const bins = useMemo(() => (view.length ? histogram(view, 12, lsl, usl) : []), [view, lsl, usl])
+  const [binCount, setBinCount] = useState(12)
+  // Buckets come from the data range and the bucket count only.
+  const bins = useMemo(() => (view.length ? histogram(view, binCount) : []), [view, binCount])
 
-  // Histogram bars and the fitted normal curve share one numeric axis.
+  // The plotted x-range stretches to include both spec limits so LSL/USL are
+  // always visible, even when every measurement sits well inside them.
+  const domain = useMemo(() => {
+    if (!bins.length) return [0, 1] as [number, number]
+    const lo = Math.min(lsl, bins[0].start)
+    const hi = Math.max(usl, bins[bins.length - 1].end)
+    const pad = (hi - lo) * 0.02
+    return [lo - pad, hi + pad] as [number, number]
+  }, [bins, lsl, usl])
+
+  // Bars are the measured buckets; the curve is the normal fit drawn across the
+  // whole LSL→USL span from the measured mean and standard deviation.
   const histoData = useMemo(() => {
     if (!bins.length || !stats) return []
     const binWidth = bins[0].end - bins[0].start
-    const from = bins[0].start
-    const to = bins[bins.length - 1].end
-    const curve = normalCurve(stats.mean, stats.sd, stats.n, binWidth, from, to, 80)
+    const curve = normalCurve(stats.mean, stats.sd, stats.n, binWidth, domain[0], domain[1], 160)
     const merged: { x: number; count?: number; curve?: number }[] =
       curve.map(c => ({ x: c.x, curve: c.curve }))
     for (const b of bins) merged.push({ x: b.mid, count: b.count })
     return merged.sort((a, b) => a.x - b.x)
-  }, [bins, stats])
+  }, [bins, stats, domain])
+
+  // Bar pixel width = bucket width as a fraction of the plotted range.
+  const chartRef = useRef<HTMLDivElement>(null)
+  const [chartW, setChartW] = useState(0)
+  useEffect(() => {
+    const el = chartRef.current
+    if (!el) return
+    const ro = new ResizeObserver(entries => setChartW(entries[0].contentRect.width))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [rows.length, tab])
+  const barSize = useMemo(() => {
+    if (!bins.length || !chartW) return 12
+    const binWidth = bins[0].end - bins[0].start
+    const span = domain[1] - domain[0] || 1
+    // ~60px of the container is axis/labels rather than plot area.
+    return Math.max(3, Math.floor(((chartW - 60) * binWidth) / span) - 1)
+  }, [bins, chartW, domain])
 
   const handleFile = async (file: File) => {
     setBusy(true); setError(''); setWarn(''); setRows([])
@@ -256,11 +285,23 @@ export default function DrillRoutCpkPage() {
                 </Panel>
 
                 <Panel title="Histogram — true position (TP)"
-                  subtitle={`Distribution with a fitted normal curve, against LSL ${lsl} and USL ${usl}`}>
+                  subtitle={`${bins.length} buckets across the measured range · normal curve fitted between LSL ${lsl} and USL ${usl}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <label className="text-xs text-slate-500">Buckets</label>
+                    <input type="number" min={4} max={40} value={binCount}
+                      onChange={e => setBinCount(Math.min(40, Math.max(4, Number(e.target.value) || 12)))}
+                      className="w-16 px-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-400" />
+                    {bins.length > 0 && (
+                      <span className="text-xs text-slate-400">
+                        bucket width {(bins[0].end - bins[0].start).toFixed(6)}
+                      </span>
+                    )}
+                  </div>
+                  <div ref={chartRef}>
                   <ResponsiveContainer width="100%" height={300}>
                     <ComposedChart data={histoData} margin={{ top: 10, right: 20, bottom: 30, left: 10 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                      <XAxis type="number" dataKey="x" domain={['dataMin', 'dataMax']}
+                      <XAxis type="number" dataKey="x" domain={domain} allowDataOverflow
                         tick={{ fontSize: 10 }} tickFormatter={(v: number) => v.toFixed(4)}
                         label={{ value: 'True position', position: 'insideBottom', offset: -15, fontSize: 12 }} />
                       <YAxis allowDecimals={false} tick={{ fontSize: 11 }}
@@ -279,7 +320,7 @@ export default function DrillRoutCpkPage() {
                           )
                         }} />
                       <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="count" name="Measured" barSize={22}>
+                      <Bar dataKey="count" name="Measured" barSize={barSize} isAnimationActive={false}>
                         {histoData.map((d, i) => (
                           <Cell key={i} fill={(d.x > usl || d.x < lsl) ? '#dc2626' : '#2563eb'} />
                         ))}
@@ -294,8 +335,9 @@ export default function DrillRoutCpkPage() {
                         label={{ value: 'x̄', fill: '#64748b', fontSize: 11, position: 'top' }} />}
                     </ComposedChart>
                   </ResponsiveContainer>
+                  </div>
                   <p className="text-xs text-slate-500 mt-1">
-                    The curve is a normal distribution fitted to the measured mean and standard deviation —
+                    Bars are the measured buckets; the curve is a normal distribution fitted to the mean and standard deviation, drawn across the LSL–USL span —
                     it shows how much of the predicted spread falls inside the spec limits.
                   </p>
                 </Panel>

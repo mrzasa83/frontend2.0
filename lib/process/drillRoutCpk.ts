@@ -263,14 +263,16 @@ export function computeStats(rows: FeatureRow[], usl: number, lsl = 0): Stats {
   }
 }
 
-/** Histogram bins over the TP values, spanning the data and the spec limits. */
-export function histogram(rows: FeatureRow[], binCount = 12, lsl?: number, usl?: number) {
+/**
+ * Histogram bins over the TP values.
+ * Bins are built from the DATA range and the bucket count only — spec limits do
+ * not widen them, so the bars keep their natural width and shape. The chart
+ * widens its axis separately so LSL/USL still appear.
+ */
+export function histogram(rows: FeatureRow[], binCount = 12) {
   const tps = rows.map(r => r.tp)
-  let min = Math.min(...tps)
-  let max = Math.max(...tps)
-  // Widen the axis so the spec limits are visible even when all data sits inside.
-  if (lsl !== undefined && isFinite(lsl)) min = Math.min(min, lsl)
-  if (usl !== undefined && isFinite(usl)) max = Math.max(max, usl)
+  const min = Math.min(...tps)
+  const max = Math.max(...tps)
   const span = max - min || 1
   const width = span / binCount
   const bins = Array.from({ length: binCount }, (_, i) => {
