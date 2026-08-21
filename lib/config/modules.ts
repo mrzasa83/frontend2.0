@@ -1,4 +1,4 @@
-import { Home, Package, Users, Settings, Cog, ClipboardCheck, AppWindow, FileText } from 'lucide-react'
+import { Home, Package, Users, Settings, Cog, ClipboardCheck, AppWindow, FileText, ShieldCheck } from 'lucide-react'
 import { canReadModule, canReadSubmodule } from './access'
 
 export type SubModule = {
@@ -88,6 +88,20 @@ export const MODULES: Module[] = [
         name: 'POs',
         path: '/contract/pos',
         requiredRoles: ['Admin', 'Program']
+      },
+    ]
+  },
+  {
+    id: 'ehs',
+    name: 'EHS',
+    icon: ShieldCheck,
+    requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng'],
+    subModules: [
+      {
+        id: 'ehs-part-family',
+        name: 'Part Family Mgt',
+        path: '/ehs/part-family-mgt',
+        requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng']
       },
     ]
   },

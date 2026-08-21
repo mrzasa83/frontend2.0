@@ -32,6 +32,11 @@ export const QC_FOLDERS_PATH  = (site: string) => `${SDRIVE()}/FrontEndQCFolders
 export const ATTDOCS_PATH     = () => `${SDRIVE()}/AttDocs/MfgParts`
 export const PACKSHIP_PATH    = () => `${TDRIVE()}/Packaging and Shipping/$Pack & Ship by Part`
 
+// EHS material-compliance evidence archive:
+//   S:\FrontEndQCFolders\MtrlComp\{familyName}-{date}.pdf
+// Sits under FrontEndQCFolders, which is already whitelisted for file-serve.
+export const MTRL_COMP_PATH   = () => `${SDRIVE()}/FrontEndQCFolders/MtrlComp`
+
 // Purchase-order certificate root. Single source of truth — lib/certs/poParser
 // re-exports this as PO_ROOT, and it is whitelisted for the file-serve API below
 // so PO certs can be previewed/downloaded the same way as other documents.
