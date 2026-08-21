@@ -18,7 +18,7 @@ type Assessment = {
   notes?: string
 }
 type ProductDetail = {
-  apc_part: string; part_type: string
+  apc_part: string; customer_part?: string; part_type: string
   materials: MaterialLine[]
   bom_total: number; purchased_count: number
   rollup: { reach: string; rohs: string; prop65: string }
@@ -318,6 +318,8 @@ function ProductDetailView({ apcPart, customerPart, canEdit, onSaved }:
   if (error) return <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
   if (!data) return null
 
+  const custPart = data.customer_part || customerPart
+
   return (
     <div>
       <div className="mb-4">
@@ -329,22 +331,13 @@ function ProductDetailView({ apcPart, customerPart, canEdit, onSaved }:
         </h2>
         <p className="text-sm text-slate-600">
           {data.purchased_count} purchased materials of {data.bom_total} BOM lines
-          {customerPart && <span className="text-slate-400"> · customer {customerPart}</span>}
+          {custPart && <span className="text-slate-400"> · customer {custPart}</span>}
         </p>
       </div>
 
       {/* Content left, rail right */}
       <div className="flex gap-0 min-h-[420px]">
-        <div className="flex-1 pr-6 min-w-0">
-          {tab === 'compliance' && (
-            <ComplianceTab data={data} apcPart={apcPart} customerPart={customerPart}
-              canEdit={canEdit} onSaved={() => { load(); onSaved() }} />
-          )}
-          {tab === 'bom' && <BomTab materials={data.materials} />}
-          {tab === 'route' && <RouteTab route={data.route} />}
-          {tab === 'history' && <HistoryTab history={data.history} />}
-        </div>
-        <div className="w-52 flex-shrink-0 border-l border-slate-200 pl-0">
+        <div className="w-52 flex-shrink-0 border-r border-slate-200">
           {RAIL.map(t => {
             const Icon = t.icon; const active = tab === t.id
             return (
@@ -354,6 +347,15 @@ function ProductDetailView({ apcPart, customerPart, canEdit, onSaved }:
               </button>
             )
           })}
+        </div>
+        <div className="flex-1 pl-6 min-w-0">
+          {tab === 'compliance' && (
+            <ComplianceTab data={data} apcPart={apcPart} customerPart={custPart}
+              canEdit={canEdit} onSaved={() => { load(); onSaved() }} />
+          )}
+          {tab === 'bom' && <BomTab materials={data.materials} />}
+          {tab === 'route' && <RouteTab route={data.route} />}
+          {tab === 'history' && <HistoryTab history={data.history} />}
         </div>
       </div>
     </div>

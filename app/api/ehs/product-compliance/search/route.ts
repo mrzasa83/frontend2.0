@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic'
 // Customer parts that actually carry a BOM — the products worth assessing.
 const SEARCH_SQL = `
   SELECT TOP 50
-    d50.CUSTOMER_PART_NUMBER AS customer_part,
+    d50.CUSTOMER_PART_NUMBER AS apc_part,
+    d50.CUSTOMER_PART_DESC   AS customer_part,
     d10.ABBR_NAME            AS customer,
     d50.RKEY                 AS rkey
   FROM data0050 d50
@@ -35,10 +36,12 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       rows: (rows || []).map(r => ({
-        apc_part: String(r.customer_part || '').trim(),
+        // CUSTOMER_PART_NUMBER holds the APC part number; the customer's own
+        // number lives in CUSTOMER_PART_DESC.
+        apc_part: String(r.apc_part || '').trim(),
         customer_part: String(r.customer_part || '').trim(),
         customer: r.customer || '',
-        part_type: productTypeFromPart(String(r.customer_part || '')),
+        part_type: productTypeFromPart(String(r.apc_part || '')),
       })),
     })
   } catch (error) {

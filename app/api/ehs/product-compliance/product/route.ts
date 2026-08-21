@@ -32,6 +32,15 @@ const BOM_SQL = `
     AND (d25.EFF_END IS NULL OR d25.EFF_END > GETDATE())
   ORDER BY d17.INV_PART_NUMBER`
 
+/** The customer's own part number, held in DATA0050.CUSTOMER_PART_DESC. */
+const HEADER_SQL = `
+  SELECT TOP 1
+    d50.CUSTOMER_PART_NUMBER AS apc_part,
+    d50.CUSTOMER_PART_DESC   AS customer_part
+  FROM data0050 d50
+  WHERE d50.CUSTOMER_PART_NUMBER LIKE @partNumber
+  ORDER BY d50.CUSTOMER_PART_NUMBER`
+
 /** Released route with departments, instructions and parameters. */
 const ROUTE_SQL = `
   SELECT
@@ -100,6 +109,15 @@ export async function GET(request: NextRequest) {
       }
     })
 
+    // Customer part number, best-effort.
+    let customer_part = ''
+    try {
+      const hdr = await queryMSSQL<any[]>('1', HEADER_SQL, { partNumber: `${part}%` })
+      customer_part = String(hdr?.[0]?.customer_part ?? '').trim()
+    } catch (e) {
+      console.error('EHS header query failed for', part, e)
+    }
+
     // Route, best-effort: a product without a released route still assesses.
     let route: any[] = []
     try {
@@ -119,6 +137,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({
       success: true,
       apc_part: part,
+      customer_part,
       part_type: productTypeFromPart(part),
       materials,
       bom_total: bom?.length ?? 0,

@@ -98,15 +98,15 @@ export const MODULES: Module[] = [
     requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng'],
     subModules: [
       {
-        id: 'ehs-part-family',
-        name: 'Part Family Mgt',
-        path: '/ehs/part-family-mgt',
-        requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng']
-      },
-      {
         id: 'ehs-product-compliance',
         name: 'Product Compliance',
         path: '/ehs/product-compliance',
+        requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng']
+      },
+      {
+        id: 'ehs-material-mgt',
+        name: 'Material Mgt',
+        path: '/ehs/material-mgt',
         requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng']
       },
     ]
