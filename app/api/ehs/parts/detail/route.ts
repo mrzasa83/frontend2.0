@@ -6,7 +6,7 @@ import { queryPrimary } from '@/lib/db/mysql-primary'
 import { canReadModule } from '@/lib/config/access'
 import { loadFamilies } from '@/lib/ehs/loadFamilies'
 import { familyForPart, type PartRow } from '@/lib/ehs/familyMatch'
-import { windowsToLinuxPath } from '@/lib/config/drives'
+import { windowsToLinuxPath, FILE_SERVE_ALLOWED_BASES } from '@/lib/config/drives'
 import path from 'path'
 
 export const dynamic = 'force-dynamic'
@@ -132,10 +132,16 @@ export async function GET(request: NextRequest) {
           }
         : { reach_status: '', rohs_status: '', prop65_status: '' }
 
+    // Paradigm stores absolute Windows paths. Anything on a share we don't map
+    // comes back unconverted, and the file-serve whitelist would reject it with a
+    // bare "Access denied" — so flag it here instead of leaving the user guessing.
+    const bases = FILE_SERVE_ALLOWED_BASES()
     const attachments = (attachRows || []).map(a => {
       const win = clean(a.DOCUMENT_PATH)
       const linux = windowsToLinuxPath(win)
-      const name = path.basename(linux || win)
+      const name = path.basename((linux || win).replace(/\\\\/g, '/'))
+      const converted = !!linux && !/^\\\\|^[A-Za-z]:\\/.test(linux)
+      const allowed = converted && bases.some(b => linux.startsWith(b))
       return {
         name,
         description: clean(a.DOCUMENT_DESC),
@@ -143,6 +149,10 @@ export async function GET(request: NextRequest) {
         windows_path: win,
         extension: (path.extname(name) || '').replace(/^\./, '').toLowerCase(),
         print_on_traveller: Number(a.PRINT_ON_TRAVELLER) === 1,
+        servable: allowed,
+        reason: allowed ? '' : (converted
+          ? 'Resolved, but outside the paths the file server is allowed to read.'
+          : 'This share is not mapped to a mount point, so the file cannot be resolved.'),
       }
     })
 

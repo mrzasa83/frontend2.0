@@ -24,12 +24,47 @@ export const TDRIVE = () => process.env.DRIVE_MOUNT_T || '/mnt/tdrive'
 export const UNC_SERVER = () => process.env.UNC_SERVER_NAME || 'APCFS04'
 export const UNC_SHARE  = () => process.env.UNC_SHARE_NAME  || 'SHARED2'
 
+/**
+ * Additional UNC roots, for shares other than the primary one above.
+ * Paradigm stores absolute Windows paths, and not every one of them lives on
+ * \\APCFS04\SHARED2 — anything unmapped can't be resolved to a mount point and
+ * ends up rejected by the file-serve whitelist.
+ *
+ * Format: semicolon-separated  \\SERVER\SHARE=/mount/point
+ *   UNC_EXTRA_SHARES=\\APCFS04\SHARED=/mnt/sdrive;\\APCFS05\ENG=/mnt/jdrive
+ */
+const DEFAULT_EXTRA_SHARES = [
+  // DFS alias for the same S: tree. Paradigm stores both forms:
+  //   \\APCFS04\shared2\ItarAttDocs\...        (direct)
+  //   \\apc.local\APC\APCBT\S\ItarAttDocs\...  (DFS namespace)
+  { prefix: '\\\\apc.local\\APC\\APCBT\\S', mount: SDRIVE() },
+]
+
+export const UNC_EXTRA_SHARES = (): { prefix: string; mount: string }[] => [
+  ...DEFAULT_EXTRA_SHARES.map(e => ({ prefix: e.prefix, mount: SDRIVE() })),
+  ...(process.env.UNC_EXTRA_SHARES || '')
+    .split(';')
+    .map(pair => pair.trim())
+    .filter(Boolean)
+    .map(pair => {
+      const idx = pair.lastIndexOf('=')
+      if (idx < 0) return null
+      const prefix = pair.slice(0, idx).trim()
+      const mount = pair.slice(idx + 1).trim()
+      return prefix && mount ? { prefix, mount } : null
+    })
+    .filter((v): v is { prefix: string; mount: string } => v !== null),
+]
+
 // ---------------------------------------------------------------------------
 // Derived paths used by multiple features
 // ---------------------------------------------------------------------------
 export const ENGJOBS_PATH     = () => `${JDRIVE()}/APC EngJobs`
 export const QC_FOLDERS_PATH  = (site: string) => `${SDRIVE()}/FrontEndQCFolders/${site}`
 export const ATTDOCS_PATH     = () => `${SDRIVE()}/AttDocs/MfgParts`
+// Export-controlled attachment tree. Separate from AttDocs on purpose — see the
+// note on the file-serve whitelist below.
+export const ITAR_ATTDOCS_PATH = () => `${SDRIVE()}/ItarAttDocs`
 export const PACKSHIP_PATH    = () => `${TDRIVE()}/Packaging and Shipping/$Pack & Ship by Part`
 
 // EHS material-compliance evidence archive:
@@ -49,6 +84,11 @@ export const PO_CERT_PATH     = () =>
 export const FILE_SERVE_ALLOWED_BASES = () => [
   `${SDRIVE()}/FrontEndQCFolders`,
   `${SDRIVE()}/AttDocs`,
+  // ITAR-controlled attachments. Paradigm points at these from DATA0433 exactly
+  // as it does ordinary attachments, so they have to be readable for the
+  // Attachments tabs to work at all. NOTE: the file-serve API only checks that a
+  // caller is signed in — it does not gate on role or export-control status.
+  ITAR_ATTDOCS_PATH(),
   PO_CERT_PATH(),
   `${TDRIVE()}/Packaging and Shipping`,
   JDRIVE(),
@@ -90,6 +130,15 @@ export function windowsToLinuxPath(windowsPath: string): string {
   if (normalized.toLowerCase().startsWith(uncPrefix.toLowerCase())) {
     const rest = normalized.substring(uncPrefix.length).replace(/\\/g, '/')
     return `${SDRIVE()}${rest}`
+  }
+
+  // Any additional UNC roots configured via UNC_EXTRA_SHARES
+  for (const extra of UNC_EXTRA_SHARES()) {
+    const p = extra.prefix.replace(/\//g, '\\')
+    if (normalized.toLowerCase().startsWith(p.toLowerCase())) {
+      const rest = normalized.substring(p.length).replace(/\\/g, '/')
+      return `${extra.mount}${rest.startsWith('/') ? '' : '/'}${rest}`
+    }
   }
 
   // Drive letter  X:\rest  →  /mnt/xdrive/rest

@@ -539,7 +539,7 @@ type PartDetailData = {
   compliance: { reach_status: string; rohs_status: string; prop65_status: string }
   part_compliance: { reach_status: string; rohs_status: string; prop65_status: string; notes: string | null; updated_by: string; updated_at: string } | null
   notepad: string
-  attachments: { name: string; description: string; path: string; windows_path: string; extension: string; print_on_traveller: boolean }[]
+  attachments: { name: string; description: string; path: string; windows_path: string; extension: string; print_on_traveller: boolean; servable?: boolean; reason?: string }[]
 }
 
 function PartDetail({ partNumber, canEdit, onChanged }:
@@ -742,7 +742,12 @@ function PartGeneralTab({ data, canEdit, reload }:
 function PartAttachmentsTab({ attachments }:
   { attachments: PartDetailData['attachments'] }) {
   const [preview, setPreview] = useState<{ files: any[]; index: number } | null>(null)
-  const previewList = attachments.map(a => ({ name: a.name, path: a.path, extension: a.extension }))
+  // Only files the server can actually read go into the preview list, so the
+  // modal's prev/next never lands on one that 403s.
+  const servable = attachments.filter(a => a.servable !== false)
+  const previewList = servable.map(a => ({ name: a.name, path: a.path, extension: a.extension }))
+  const previewIndexOf = (a: PartDetailData['attachments'][number]) =>
+    servable.findIndex(s => s.path === a.path)
 
   return (
     <div>
@@ -773,19 +778,36 @@ function PartAttachmentsTab({ attachments }:
                       : <span className="text-xs text-slate-400">No</span>}
                   </td>
                   <td className="px-3 py-1.5 text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      <button onClick={() => setPreview({ files: previewList, index: i })}
-                        className="text-slate-500 hover:text-blue-600" title="Preview"><Eye size={16} /></button>
-                      <a href={getApiUrl(`/api/files/serve?path=${encodeURIComponent(a.path)}&download=true`)}
-                        target="_blank" rel="noopener noreferrer"
-                        className="text-slate-500 hover:text-blue-600" title="Download"><Download size={15} /></a>
-                    </div>
+                    {a.servable === false ? (
+                      <span className="inline-flex items-center gap-1 text-xs text-amber-600"
+                        title={`${a.reason}\n\n${a.windows_path}`}>
+                        <AlertTriangle size={13} /> unavailable
+                      </span>
+                    ) : (
+                      <div className="flex items-center justify-end gap-2">
+                        <button onClick={() => setPreview({ files: previewList, index: Math.max(0, previewIndexOf(a)) })}
+                          className="text-slate-500 hover:text-blue-600" title="Preview"><Eye size={16} /></button>
+                        <a href={getApiUrl(`/api/files/serve?path=${encodeURIComponent(a.path)}&download=true`)}
+                          target="_blank" rel="noopener noreferrer"
+                          className="text-slate-500 hover:text-blue-600" title="Download"><Download size={15} /></a>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      )}
+      {attachments.some(a => a.servable === false) && (
+        <p className="text-xs text-amber-700 mt-2 flex items-start gap-1.5">
+          <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+          <span>
+            Some attachments sit on a network share this server doesn’t have mapped, so they can’t be
+            opened from here. Hover “unavailable” to see the stored path — mapping that share (via the
+            UNC_EXTRA_SHARES setting) makes them viewable.
+          </span>
+        </p>
       )}
       {preview && (
         <FilePreviewModal files={preview.files} index={preview.index}
