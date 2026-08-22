@@ -6,7 +6,7 @@ import Tabs from '@/components/ui/Tabs'
 import FilePreviewModal from '@/components/products/FilePreviewModal'
 import {
   RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Plus, X, Trash2, Download, Eye,
-  ShieldCheck, FileText, ListFilter, AlertTriangle, Upload, Save, Pencil,
+  ShieldCheck, FileText, ListFilter, AlertTriangle, Upload, Save, Pencil, ClipboardList, Files,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import { CRITERIA_FIELDS, CRITERIA_OPERATORS, COMPLIANCE_VALUES, type Criterion } from '@/lib/ehs/familyMatch'
@@ -60,8 +60,18 @@ export default function MaterialMgtPage() {
   const canEdit = roles.includes('Admin') || roles.includes('EHSadmin')
 
   const [openFamilies, setOpenFamilies] = useState<Family[]>([])
+  const [openParts, setOpenParts] = useState<{ part: string; source: string }[]>([])
   const [activeTab, setActiveTab] = useState('parts')
   const [reloadKey, setReloadKey] = useState(0)
+
+  const openPart = (part: string, source: string) => {
+    if (!openParts.find(p => p.part === part)) setOpenParts(v => [...v, { part, source }])
+    setActiveTab(`part-${part}`)
+  }
+  const closePart = (part: string) => {
+    setOpenParts(v => v.filter(p => p.part !== part))
+    setActiveTab('parts')
+  }
 
   const openFamily = (f: Family) => {
     if (!openFamilies.find(x => x.id === f.id)) setOpenFamilies(v => [...v, f])
@@ -74,11 +84,28 @@ export default function MaterialMgtPage() {
   const refreshAll = () => setReloadKey(k => k + 1)
 
   const tabs = [
-    { id: 'parts', label: 'Parts', closeable: false, content: <PartsTab key={`parts-${reloadKey}`} /> },
+    { id: 'parts', label: 'Parts', closeable: false, content: <PartsTab key={`parts-${reloadKey}`} onOpenPart={openPart} /> },
     {
       id: 'families', label: 'Families', closeable: false,
       content: <FamiliesTab key={`fams-${reloadKey}`} canEdit={canEdit} onOpen={openFamily} onChanged={refreshAll} />,
     },
+    ...openParts.map(p => ({
+      id: `part-${p.part}`,
+      // The tab says which part it is and where its classification comes from.
+      label: (
+        <span className="flex items-center gap-1.5">
+          {p.part}
+          {p.source && (
+            <span className={`text-[10px] px-1 py-0.5 rounded ${p.source === 'Part' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+              {p.source}
+            </span>
+          )}
+        </span>
+      ),
+      closeable: true,
+      onClose: () => closePart(p.part),
+      content: <PartDetail key={`part-${p.part}`} partNumber={p.part} canEdit={canEdit} onChanged={refreshAll} />,
+    })),
     ...openFamilies.map(f => ({
       id: `fam-${f.id}`, label: f.family_name, closeable: true,
       onClose: () => closeFamily(f.id),
@@ -113,7 +140,7 @@ const PART_COLS = [
   { key: 'ACTIVE_FLAG', label: 'Active', filter: '', w: 70 },
 ]
 
-function PartsTab() {
+function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) => void }) {
   const [rows, setRows] = useState<Part[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -265,8 +292,10 @@ function PartsTab() {
             ) : rows.length === 0 ? (
               <tr><td colSpan={PART_COLS.length} className="px-3 py-8 text-center text-slate-400">No parts match.</td></tr>
             ) : rows.map((r, i) => (
-              <tr key={`${r.RKEY}-${i}`} className="border-b border-slate-100 hover:bg-slate-50">
-                <td className="px-3 py-1.5 font-mono text-slate-800">{r.INV_PART_NUMBER}</td>
+              <tr key={`${r.RKEY}-${i}`}
+                onClick={() => onOpenPart(r.INV_PART_NUMBER, r.PRODUCT_FAMILY ? (r.per_part_evidence ? 'Part' : 'Family') : '')}
+                className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer">
+                <td className="px-3 py-1.5 font-mono text-blue-600 font-medium">{r.INV_PART_NUMBER}</td>
                 <td className="px-3 py-1.5 text-slate-600">{r.INV_PART_DESCRIPTION}</td>
                 <td className="px-3 py-1.5 text-slate-600">{r.MANUFACTURER_NAME}</td>
                 <td className="px-3 py-1.5">
@@ -497,6 +526,271 @@ function FamiliesTab({ canEdit, onOpen, onChanged }: { canEdit: boolean; onOpen:
       {creating && (
         <NewFamilyModal onClose={() => setCreating(false)}
           onCreated={() => { setCreating(false); load(); onChanged() }} />
+      )}
+    </div>
+  )
+}
+
+// ---------------- Part detail (General + Attachments) ----------------
+type PartDetailData = {
+  part: { rkey: number; part_number: string; description: string; manufacturer: string; active_flag: string; pm: string }
+  family: { id: number; family_name: string; inherit_compliance: number; reach_status: string; rohs_status: string; prop65_status: string } | null
+  compliance_source: string
+  compliance: { reach_status: string; rohs_status: string; prop65_status: string }
+  part_compliance: { reach_status: string; rohs_status: string; prop65_status: string; notes: string | null; updated_by: string; updated_at: string } | null
+  notepad: string
+  attachments: { name: string; description: string; path: string; windows_path: string; extension: string; print_on_traveller: boolean }[]
+}
+
+function PartDetail({ partNumber, canEdit, onChanged }:
+  { partNumber: string; canEdit: boolean; onChanged: () => void }) {
+  const [tab, setTab] = useState<'general' | 'attachments'>('general')
+  const [data, setData] = useState<PartDetailData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('')
+    try {
+      const res = await fetch(getApiUrl(`/api/ehs/parts/detail?part=${encodeURIComponent(partNumber)}`))
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.error || r.details || 'Failed to load part')
+      setData(r)
+    } catch (e: any) { setError(e.message) }
+    setLoading(false)
+  }, [partNumber])
+  useEffect(() => { load() }, [load])
+
+  const RAIL = [
+    { id: 'general', label: 'General', icon: ClipboardList },
+    { id: 'attachments', label: 'Attachments', icon: Files },
+  ] as const
+
+  if (loading) return <div className="text-slate-500 py-8 flex items-center gap-2"><RefreshCw size={16} className="animate-spin" /> Loading…</div>
+  if (error) return <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>
+  if (!data) return null
+
+  return (
+    <div>
+      <div className="mb-4">
+        <h2 className="text-xl font-bold text-slate-800 font-mono flex items-center gap-2">
+          {data.part.part_number}
+          {data.compliance_source && (
+            <span className={`text-xs px-1.5 py-0.5 rounded font-sans font-normal ${data.compliance_source === 'Part' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+              class: {data.compliance_source}
+            </span>
+          )}
+        </h2>
+        <p className="text-sm text-slate-600">{data.part.description}</p>
+      </div>
+
+      <div className="flex gap-0 min-h-[420px]">
+        <div className="w-52 flex-shrink-0 border-r border-slate-200">
+          {RAIL.map(t => {
+            const Icon = t.icon; const active = tab === t.id
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className={`w-full flex items-center gap-2 px-4 py-2.5 text-sm text-left rounded-lg transition-colors ${active ? 'bg-blue-600 text-white font-medium' : 'text-slate-600 hover:bg-slate-100'}`}>
+                <Icon size={16} /> {t.label}
+                {t.id === 'attachments' && data.attachments.length > 0 && (
+                  <span className={`ml-auto text-xs ${active ? 'text-blue-100' : 'text-slate-400'}`}>{data.attachments.length}</span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+        <div className="flex-1 pl-6 min-w-0">
+          {tab === 'general' && <PartGeneralTab data={data} canEdit={canEdit} reload={() => { load(); onChanged() }} />}
+          {tab === 'attachments' && <PartAttachmentsTab attachments={data.attachments} />}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PartGeneralTab({ data, canEdit, reload }:
+  { data: PartDetailData; canEdit: boolean; reload: () => void }) {
+  const perPart = data.compliance_source === 'Part'
+  const [reach, setReach] = useState(data.compliance.reach_status || 'Unknown')
+  const [rohs, setRohs] = useState(data.compliance.rohs_status || 'Unknown')
+  const [prop65, setProp65] = useState(data.compliance.prop65_status || 'Unknown')
+  const [notes, setNotes] = useState(data.part_compliance?.notes || '')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [err, setErr] = useState('')
+
+  const save = async () => {
+    setBusy(true); setErr(''); setMsg('')
+    try {
+      const res = await fetch(getApiUrl('/api/ehs/parts/compliance'), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          part_number: data.part.part_number,
+          reach_status: reach, rohs_status: rohs, prop65_status: prop65, notes,
+        }),
+      })
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.error || 'Failed to save')
+      setMsg('Saved'); reload()
+    } catch (e: any) { setErr(e.message) }
+    setBusy(false)
+  }
+
+  const Field = ({ label, value }: { label: string; value: string }) => (
+    <div>
+      <dt className="text-xs uppercase text-slate-400">{label}</dt>
+      <dd className="text-slate-800">{value || <span className="text-slate-300">—</span>}</dd>
+    </div>
+  )
+
+  return (
+    <div className="max-w-3xl">
+      <h3 className="text-lg font-semibold text-slate-800 mb-4">General</h3>
+      {err && <div className="p-2 mb-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{err}</div>}
+      {msg && <div className="p-2 mb-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
+
+      <div className="bg-white border border-slate-200 rounded-lg p-5 mb-4">
+        <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-3 text-sm">
+          <Field label="Part Number" value={data.part.part_number} />
+          <Field label="Manufacturer" value={data.part.manufacturer} />
+          <div className="sm:col-span-2"><Field label="Description" value={data.part.description} /></div>
+          <Field label="Product Family" value={data.family?.family_name || ''} />
+          <Field label="Active" value={data.part.active_flag} />
+        </dl>
+      </div>
+
+      {/* Compliance — inherited from the family, unless the family is per-part */}
+      <div className="bg-white border border-slate-200 rounded-lg p-5 mb-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="font-semibold text-slate-800">Compliance</h4>
+          {data.compliance_source && (
+            <span className={`text-xs px-2 py-0.5 rounded ${perPart ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
+              from {perPart ? 'this part' : 'family'}
+            </span>
+          )}
+        </div>
+
+        {!data.family ? (
+          <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            This part isn’t in any family yet, so there is nothing to inherit and no classification to set.
+            Define a family whose criteria capture it.
+          </p>
+        ) : perPart ? (
+          <>
+            <p className="text-xs text-slate-500 mb-3">
+              “{data.family.family_name}” doesn’t pass its classification down, so this part carries its own.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3">
+              {([['REACH', reach, setReach], ['RoHS', rohs, setRohs], ['Prop 65', prop65, setProp65]] as const).map(([label, v, setter]) => (
+                <div key={label}>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">{label}</label>
+                  {canEdit ? (
+                    <select value={v} onChange={e => (setter as any)(e.target.value)}
+                      className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
+                      {COMPLIANCE_VALUES.map(o => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  ) : (
+                    <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusBadge(v)}`}>{v}</span>
+                  )}
+                </div>
+              ))}
+            </div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Why — evidence for this part</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} rows={3} readOnly={!canEdit}
+              className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg mb-3 focus:outline-none focus:ring-1 focus:ring-blue-400 read-only:bg-slate-50" />
+            {canEdit && (
+              <button onClick={save} disabled={busy}
+                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50">
+                <Save size={14} /> {busy ? 'Saving…' : 'Save classification'}
+              </button>
+            )}
+            {data.part_compliance?.updated_by && (
+              <p className="text-xs text-slate-400 mt-2">Last set by {data.part_compliance.updated_by}</p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-slate-500 mb-3">
+              Inherited from “{data.family.family_name}”. Change it on the family to change it here.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              {([['REACH', data.compliance.reach_status], ['RoHS', data.compliance.rohs_status], ['Prop 65', data.compliance.prop65_status]] as const).map(([label, v]) => (
+                <div key={label}>
+                  <div className="text-xs font-medium text-slate-500 mb-1">{label}</div>
+                  <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusBadge(v)}`}>{v || 'Unknown'}</span>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* Notepad straight from Paradigm */}
+      <div className="bg-white border border-slate-200 rounded-lg p-5">
+        <h4 className="font-semibold text-slate-800 mb-1">Notepad</h4>
+        <p className="text-xs text-slate-500 mb-2">From Paradigm — read-only.</p>
+        {data.notepad ? (
+          <pre className="text-sm text-slate-700 whitespace-pre-wrap font-mono bg-slate-50 border border-slate-200 rounded-lg p-3 max-h-72 overflow-auto">{data.notepad}</pre>
+        ) : (
+          <p className="text-sm text-slate-400">No notepad entries on this part.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function PartAttachmentsTab({ attachments }:
+  { attachments: PartDetailData['attachments'] }) {
+  const [preview, setPreview] = useState<{ files: any[]; index: number } | null>(null)
+  const previewList = attachments.map(a => ({ name: a.name, path: a.path, extension: a.extension }))
+
+  return (
+    <div>
+      <h3 className="text-lg font-semibold text-slate-800 mb-3">Attachments</h3>
+      {!attachments.length ? (
+        <div className="text-sm text-slate-500 bg-slate-50 border border-slate-200 rounded-lg p-4">
+          No attachments on this part.
+        </div>
+      ) : (
+        <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">File</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Description</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">On Traveller</th>
+                <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-24">View</th>
+              </tr>
+            </thead>
+            <tbody>
+              {attachments.map((a, i) => (
+                <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-3 py-1.5 text-slate-700">{a.name}</td>
+                  <td className="px-3 py-1.5 text-slate-500">{a.description}</td>
+                  <td className="px-3 py-1.5">
+                    {a.print_on_traveller
+                      ? <span className="text-xs px-1.5 py-0.5 rounded bg-green-100 text-green-700">Yes</span>
+                      : <span className="text-xs text-slate-400">No</span>}
+                  </td>
+                  <td className="px-3 py-1.5 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <button onClick={() => setPreview({ files: previewList, index: i })}
+                        className="text-slate-500 hover:text-blue-600" title="Preview"><Eye size={16} /></button>
+                      <a href={getApiUrl(`/api/files/serve?path=${encodeURIComponent(a.path)}&download=true`)}
+                        target="_blank" rel="noopener noreferrer"
+                        className="text-slate-500 hover:text-blue-600" title="Download"><Download size={15} /></a>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      {preview && (
+        <FilePreviewModal files={preview.files} index={preview.index}
+          onIndexChange={(i: number) => setPreview(p => p ? { ...p, index: i } : p)}
+          onClose={() => setPreview(null)} />
       )}
     </div>
   )
