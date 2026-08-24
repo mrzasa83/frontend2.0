@@ -84,7 +84,45 @@ export async function POST(request: NextRequest) {
     }
 
     const folderCache: Record<string, { name: string; po: string; batch: string; normName: string }[]> = {}
+
+    // Preferred source: the indexed C of C inventory (material_cert_pos). One
+    // query covers every part across all three site archives, instead of a
+    // per-part directory walk plus a `find` shell-out — which was slow enough on
+    // a large archive to hit the gateway timeout and come back as an HTML error
+    // page rather than JSON.
+    const normParts = Array.from(partMap.keys())
+    let indexed = 0
+    if (normParts.length) {
+      try {
+        const chunk = 400
+        for (let i = 0; i < normParts.length; i += chunk) {
+          const batch = normParts.slice(i, i + chunk)
+          const rows = await queryPrimary<any[]>(
+            `SELECT apc_part_norm, po_number, lot, file_name, file_path
+             FROM material_cert_pos
+             WHERE apc_part_norm IN (${batch.map(() => '?').join(',')})`,
+            batch
+          )
+          for (const r of rows || []) {
+            const np = String(r.apc_part_norm || '')
+            if (!folderCache[np]) folderCache[np] = []
+            folderCache[np].push({
+              name: r.file_path,
+              po: norm(r.po_number),
+              batch: norm(r.lot),
+              normName: norm(String(r.file_name || '').replace(/\.pdf$/i, '')),
+            })
+            indexed++
+          }
+        }
+      } catch {
+        // Inventory table missing or not yet built — fall through to the walk.
+      }
+    }
+
+    // Fallback for parts the inventory doesn't cover yet.
     for (const [np, rawPart] of partMap) {
+      if (folderCache[np]?.length) continue
       const dirs = await folderPaths(rawPart)
       const files: { name: string; po: string; batch: string; normName: string }[] = []
       for (const dir of dirs) {

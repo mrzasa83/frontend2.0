@@ -103,14 +103,37 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
     } catch (e) { /* surfaced via UI state if needed */ }
   }
 
+  /**
+   * Parse a response that is supposed to be JSON.
+   * A proxy timeout or server error returns an HTML page, and calling .json()
+   * on that throws "Unexpected token '<'" — which hides the real problem. Read
+   * the body once and report something meaningful instead.
+   */
+  const readJson = async (res: Response): Promise<any> => {
+    const text = await res.text()
+    try {
+      return JSON.parse(text)
+    } catch {
+      if (res.status === 504 || res.status === 502) {
+        throw new Error(`The server took too long to respond (${res.status}). The catalog build may still be running — give it a minute, then Refresh.`)
+      }
+      throw new Error(`Unexpected ${res.status} response from the server${text.trim() ? `: ${text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 160)}` : ''}`)
+    }
+  }
+
   const buildCatalog = async () => {
     setIndexing(true); setIndexMsg('')
     try {
-      // Index the C of C tree (sub-path keeps the walk scoped/fast)
-      const res = await fetch(getApiUrl('/api/operations/inspections/material-certs/index?subPath=NashuaScanDocStorage'), { method: 'POST' })
-      const r = await res.json()
+      // Build the file-level C of C inventory across all three site archives.
+      // This indexes the PDFs themselves (PO number, lot, part, material type,
+      // scan date), which is what the matching below actually needs.
+      const res = await fetch(getApiUrl('/api/operations/inspections/material-certs/po-index'), { method: 'POST' })
+      const r = await readJson(res)
       if (!res.ok) throw new Error(r.details || r.error || 'Failed')
-      setIndexMsg(`Catalog updated: ${r.indexed} folders indexed`)
+      const bits = [`${Number(r.found || 0).toLocaleString()} certificates indexed`]
+      if (r.removed) bits.push(`${Number(r.removed).toLocaleString()} stale removed`)
+      if (r.problems?.length) bits.push(r.problems.join('; '))
+      setIndexMsg(`Catalog updated: ${bits.join(' · ')}`)
       if (certsFetched) fetchCerts()
     } catch (e: any) { setIndexMsg(`Error: ${e.message}`) }
     setIndexing(false)
@@ -121,8 +144,8 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
     setCertsLoading(true); setCertsError(''); setCertsFetched(true)
     try {
       const res = await fetch(getApiUrl(`/api/operations/inspections/material-certs?workOrder=${encodeURIComponent(record.work_order)}`))
-      if (!res.ok) throw new Error((await res.json()).details || 'Failed')
-      const r = await res.json()
+      const r = await readJson(res)
+      if (!res.ok) throw new Error(r.details || r.error || 'Failed')
       const list = r.certs || []
       setCerts(list)
       // Match cert rows to PDF files on the L drive (separate fs route)
