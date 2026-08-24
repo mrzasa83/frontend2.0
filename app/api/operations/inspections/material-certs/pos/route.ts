@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { normalizePart } from '@/lib/certs/cocParser'
+import { refreshIfStale } from '@/lib/certs/indexRefresh'
+import { rebuildCocIndex } from '@/lib/certs/rebuildCoc'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,6 +24,11 @@ const SORTABLE: Record<string, string> = {
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Keep the inventory fresh without making anyone wait: if it hasn't been
+  // rebuilt in the last hour, start a walk in the background and answer now
+  // from what's already indexed.
+  refreshIfStale('supplier_cert_pos', rebuildCocIndex)
 
   const sp = new URL(request.url).searchParams
   const where: string[] = ['1=1']

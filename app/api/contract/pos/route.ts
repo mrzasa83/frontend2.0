@@ -3,6 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { canReadModule } from '@/lib/config/access'
+import { refreshIfStale } from '@/lib/certs/indexRefresh'
+import { rebuildCustomerPoIndex } from '@/lib/certs/rebuildCustomerPo'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,6 +17,10 @@ export async function GET(request: NextRequest) {
   if (!canReadModule(roles, 'contract')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
+
+  // Self-maintaining index: if the customer PO sweep hasn't run in the last
+  // hour, start it in the background and answer immediately from what's indexed.
+  refreshIfStale('customer_pos', rebuildCustomerPoIndex)
 
   const sp = new URL(request.url).searchParams
   const po = (sp.get('po') || '').trim()

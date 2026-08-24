@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { COC_ROOTS } from '@/lib/config/drives'
-import { parseCoCFileName, positionInTree, normalizePart } from '@/lib/certs/cocParser'
+import { rebuildCocIndex } from '@/lib/certs/rebuildCoc'
+import { claimRun, finishRun, getIndexState } from '@/lib/certs/indexRefresh'
 import { promises as fs } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -11,7 +12,7 @@ import crypto from 'crypto'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 300
 
-const MAX_DEPTH = 12
+const INDEX_NAME = 'supplier_cert_pos'
 
 type Found = {
   site: string
@@ -24,40 +25,6 @@ type Found = {
   relDir: string
   mtime: Date | null
   size: number | null
-}
-
-/** Recurse a root collecting every PDF, however deep it sits. */
-async function walk(root: string, dir: string, site: string, depth: number, out: Found[]) {
-  if (depth > MAX_DEPTH) return
-  let entries: any[]
-  try {
-    entries = await fs.readdir(dir, { withFileTypes: true })
-  } catch {
-    return  // unreadable folder — skip rather than abort the whole run
-  }
-  for (const e of entries) {
-    const full = path.join(dir, e.name)
-    if (e.isDirectory()) {
-      await walk(root, full, site, depth + 1, out)
-      continue
-    }
-    if (!e.isFile() || !e.name.toLowerCase().endsWith('.pdf')) continue
-
-    const { materialType, apcPart, relativeDir } = positionInTree(root, full)
-    const { poNumber, lot } = parseCoCFileName(e.name)
-    let mtime: Date | null = null
-    let size: number | null = null
-    try {
-      const st = await fs.stat(full)
-      mtime = st.mtime
-      size = st.size
-    } catch { /* keep the row even if stat fails */ }
-
-    out.push({
-      site, materialType, apcPart, poNumber, lot,
-      fileName: e.name, filePath: full, relDir: relativeDir, mtime, size,
-    })
-  }
 }
 
 // GET -> inventory status: counts and when it was last refreshed.
@@ -87,6 +54,7 @@ export async function GET() {
       lastIndexed: totals?.[0]?.last_indexed || null,
       bySite: bySite || [],
       lastRun: lastRun?.[0] || null,
+      indexState: await getIndexState(INDEX_NAME),
       roots: COC_ROOTS(),
     })
   } catch (error) {
@@ -107,8 +75,14 @@ export async function POST(request: NextRequest) {
   }
 
   const user = (session.user as any)?.username || 'unknown'
-  const sp = new URL(request.url).searchParams
-  const onlySite = (sp.get('site') || '').trim()   // optional: refresh one site
+  const onlySite = (new URL(request.url).searchParams.get('site') || '').trim()
+
+  if (!(await claimRun(INDEX_NAME))) {
+    return NextResponse.json({
+      success: true, alreadyRunning: true,
+      message: 'An index run is already in progress.',
+    })
+  }
 
   const runRes: any = await queryPrimary(
     'INSERT INTO material_cert_po_runs (status, run_by) VALUES (?, ?)', ['running', user]
@@ -116,101 +90,29 @@ export async function POST(request: NextRequest) {
   const runId = runRes?.insertId ?? null
 
   try {
-    const roots = COC_ROOTS().filter(r => !onlySite || r.site.toLowerCase() === onlySite.toLowerCase())
-    const found: Found[] = []
-    const problems: string[] = []
-
-    for (const r of roots) {
-      try {
-        await fs.access(r.path)
-      } catch {
-        // A site whose drive isn't mounted shouldn't wipe out its existing rows.
-        problems.push(`${r.site}: root not reachable (${r.path})`)
-        continue
-      }
-      await walk(r.path, r.path, r.site, 0, found)
-    }
-
-    let written = 0
-    const seen: string[] = []
-    for (const f of found) {
-      const filePath = f.filePath.substring(0, 700)
-      const hash = crypto.createHash('sha1').update(filePath).digest('hex')
-      seen.push(hash)
-      await queryPrimary(
-        `INSERT INTO material_cert_pos
-           (site, material_type, apc_part, apc_part_norm, po_number, lot,
-            file_name, file_path, rel_dir, file_mtime, file_size, path_hash)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-         ON DUPLICATE KEY UPDATE
-           site = VALUES(site), material_type = VALUES(material_type),
-           apc_part = VALUES(apc_part), apc_part_norm = VALUES(apc_part_norm),
-           po_number = VALUES(po_number), lot = VALUES(lot),
-           file_name = VALUES(file_name), rel_dir = VALUES(rel_dir),
-           file_mtime = VALUES(file_mtime), file_size = VALUES(file_size)`,
-        [f.site, f.materialType.substring(0, 190), f.apcPart.substring(0, 190),
-         normalizePart(f.apcPart).substring(0, 190), f.poNumber.substring(0, 60),
-         f.lot.substring(0, 120), f.fileName.substring(0, 300), filePath,
-         f.relDir.substring(0, 500), f.mtime, f.size, hash]
-      )
-      written++
-    }
-
-    // Drop rows for files that no longer exist — but only for the sites we
-    // actually managed to scan, so an unmounted drive never deletes its index.
-    let removed = 0
-    const scanned = roots
-      .filter(r => !problems.some(p => p.startsWith(`${r.site}:`)))
-      .map(r => r.site)
-    if (scanned.length && seen.length) {
-      const sitePlaceholders = scanned.map(() => '?').join(',')
-      // Chunk the hash list; the archive can run to tens of thousands of files.
-      const CHUNK = 500
-      const keep = new Set(seen)
-      const existing = await queryPrimary<any[]>(
-        `SELECT id, path_hash FROM material_cert_pos WHERE site IN (${sitePlaceholders})`, scanned
-      )
-      const stale = (existing || []).filter(r => !keep.has(r.path_hash)).map(r => r.id)
-      for (let i = 0; i < stale.length; i += CHUNK) {
-        const batch = stale.slice(i, i + CHUNK)
-        await queryPrimary(
-          `DELETE FROM material_cert_pos WHERE id IN (${batch.map(() => '?').join(',')})`, batch
-        )
-        removed += batch.length
-      }
-    }
-
+    // Same code path the hourly background refresh uses.
+    const r = await rebuildCocIndex(onlySite)
     if (runId) {
       await queryPrimary(
         `UPDATE material_cert_po_runs
          SET finished_at = NOW(), files_found = ?, files_written = ?, removed = ?,
              status = ?, message = ?
          WHERE id = ?`,
-        [found.length, written, removed, problems.length ? 'partial' : 'ok',
-         problems.join(' | ').substring(0, 1000), runId]
+        [r.found, r.written, r.removed, r.status, r.problems.join(' | ').slice(0, 1000), runId]
       ).catch(() => {})
     }
-
-    return NextResponse.json({
-      success: true,
-      found: found.length,
-      written,
-      removed,
-      sitesScanned: scanned,
-      problems,
-      unparsed: found.filter(f => !f.poNumber).length,
-    })
+    await finishRun(INDEX_NAME, r.written, r.status, r.problems.join(' | '))
+    return NextResponse.json({ success: true, ...r })
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
     if (runId) {
       await queryPrimary(
         `UPDATE material_cert_po_runs SET finished_at = NOW(), status = 'error', message = ? WHERE id = ?`,
-        [String(error instanceof Error ? error.message : error).substring(0, 1000), runId]
+        [msg.slice(0, 1000), runId]
       ).catch(() => {})
     }
+    await finishRun(INDEX_NAME, 0, 'error', msg)
     console.error('C of C indexer error:', error)
-    return NextResponse.json({
-      error: 'Index failed',
-      details: error instanceof Error ? error.message : String(error),
-    }, { status: 500 })
+    return NextResponse.json({ error: 'Index failed', details: msg }, { status: 500 })
   }
 }
