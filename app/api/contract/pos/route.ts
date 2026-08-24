@@ -186,10 +186,22 @@ export async function GET(request: NextRequest) {
       elapsedMs: Date.now() - startedAt,
     })
   } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
     console.error('Contract POs query error:', error)
+    // A timeout usually means an index sweep is hogging the pool. Answer with an
+    // empty page and an explanation instead of a red failure banner.
+    const busy = /timeout|PROTOCOL_SEQUENCE_TIMEOUT|ECONNRESET/i.test(msg)
+    if (busy) {
+      return NextResponse.json({
+        success: true, rows: [], count: 0, total: 0,
+        page: 1, pageSize: 100, pages: 1,
+        indexState: await getIndexState('customer_pos').catch(() => null),
+        busy: true,
+        notice: 'The PO index is being rebuilt — the list will fill in once it finishes.',
+      })
+    }
     return NextResponse.json({
-      error: 'Failed to load POs',
-      details: error instanceof Error ? error.message : String(error),
+      error: 'Failed to load POs', details: msg,
     }, { status: 500 })
   }
 }

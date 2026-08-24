@@ -102,6 +102,11 @@ export function refreshIfStale(
     try {
       const state = await getIndexState(name)
       if (!isStale(state, windowMs)) return
+      // Never start the FIRST build from a page read. That one walks the whole
+      // archive from cold and is far heavier than an incremental sync; kicking
+      // it off behind a user's request is what starves the connection pool.
+      // The initial build is an explicit action (the Rebuild button).
+      if (!state?.last_finished) return
       if (!(await claimRun(name))) return
       try {
         const r = await rebuild()

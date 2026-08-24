@@ -4,6 +4,7 @@ import { parseCoCFileName, positionInTree, normalizePart } from '@/lib/certs/coc
 import { promises as fs } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { bulkUpsert, bulkDeleteIds } from '@/lib/certs/bulkWrite'
 
 /**
  * Rebuild the supplier certificate-of-conformance inventory.
@@ -69,30 +70,29 @@ export async function rebuildCocIndex(onlySite = ''): Promise<{
     await walk(r.path, r.path, r.site, 0, found)
   }
 
-  let written = 0
+  // Accumulate then write in batches — a per-row await here saturates the
+  // connection pool and makes unrelated page queries time out.
   const seen: string[] = []
+  const rows: any[][] = []
   for (const f of found) {
     const filePath = f.filePath.slice(0, 700)
     const hash = crypto.createHash('sha1').update(filePath).digest('hex')
     seen.push(hash)
-    await queryPrimary(
-      `INSERT INTO material_cert_pos
-         (site, material_type, apc_part, apc_part_norm, po_number, lot,
-          file_name, file_path, rel_dir, file_mtime, file_size, path_hash)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-       ON DUPLICATE KEY UPDATE
-         site = VALUES(site), material_type = VALUES(material_type),
-         apc_part = VALUES(apc_part), apc_part_norm = VALUES(apc_part_norm),
-         po_number = VALUES(po_number), lot = VALUES(lot),
-         file_name = VALUES(file_name), rel_dir = VALUES(rel_dir),
-         file_mtime = VALUES(file_mtime), file_size = VALUES(file_size)`,
-      [f.site, f.materialType.slice(0, 190), f.apcPart.slice(0, 190),
-       normalizePart(f.apcPart).slice(0, 190), f.poNumber.slice(0, 60),
-       f.lot.slice(0, 120), f.fileName.slice(0, 300), filePath,
-       f.relDir.slice(0, 500), toMysqlDt(f.mtime), f.size, hash]
-    ).catch(() => {})
-    written++
+    rows.push([
+      f.site, f.materialType.slice(0, 190), f.apcPart.slice(0, 190),
+      normalizePart(f.apcPart).slice(0, 190), f.poNumber.slice(0, 60),
+      f.lot.slice(0, 120), f.fileName.slice(0, 300), filePath,
+      f.relDir.slice(0, 500), toMysqlDt(f.mtime), f.size, hash,
+    ])
   }
+  const written = await bulkUpsert(
+    'material_cert_pos',
+    ['site', 'material_type', 'apc_part', 'apc_part_norm', 'po_number', 'lot',
+     'file_name', 'file_path', 'rel_dir', 'file_mtime', 'file_size', 'path_hash'],
+    rows,
+    ['site', 'material_type', 'apc_part', 'apc_part_norm', 'po_number', 'lot',
+     'file_name', 'rel_dir', 'file_mtime', 'file_size'],
+  )
 
   // Prune only the sites we actually scanned.
   let removed = 0
@@ -106,13 +106,7 @@ export async function rebuildCocIndex(onlySite = ''): Promise<{
       scanned
     ).catch(() => [])
     const stale = (existing || []).filter(r => !keep.has(r.path_hash)).map(r => r.id)
-    for (let i = 0; i < stale.length; i += 500) {
-      const batch = stale.slice(i, i + 500)
-      await queryPrimary(
-        `DELETE FROM material_cert_pos WHERE id IN (${batch.map(() => '?').join(',')})`, batch
-      ).catch(() => {})
-      removed += batch.length
-    }
+    removed = await bulkDeleteIds('material_cert_pos', stale)
   }
 
   const unparsed = found.filter(f => !f.poNumber).length

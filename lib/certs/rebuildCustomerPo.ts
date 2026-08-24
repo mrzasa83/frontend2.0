@@ -4,6 +4,7 @@ import { parseCustomerPoFilename, revRankOf } from '@/lib/certs/customerPoParser
 import { promises as fs } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { bulkUpsert, bulkDeleteIds } from '@/lib/certs/bulkWrite'
 
 /**
  * Full sweep of the customer PO archive.
@@ -85,6 +86,10 @@ export async function rebuildCustomerPoIndex(purge = false): Promise<{
   let files = 0, rows = 0, skipped = 0
   const seenRows: string[] = []
   const seenSkips: string[] = []
+  // Rows are accumulated and written in batches; writing them one at a time
+  // starves the connection pool and makes ordinary page queries time out.
+  const fileRows: any[][] = []
+  const skipRows: any[][] = []
 
   for (const customer of customers) {
     const custDir = path.join(root, customer)
@@ -117,18 +122,12 @@ export async function rebuildCustomerPoIndex(purge = false): Promise<{
       }
 
       if (!parsed.parsed) {
-        const hash = crypto.createHash('sha1').update(filePath).digest('hex')
-        seenSkips.push(hash)
+        seenSkips.push(fileHash)
         skipped++
-        await queryPrimary(
-          `INSERT INTO customer_po_skipped
-             (customer, sub_group, file_name, file_path, reason, file_mtime, path_hash)
-           VALUES (?,?,?,?,?,?,?)
-           ON DUPLICATE KEY UPDATE customer = VALUES(customer), sub_group = VALUES(sub_group),
-             file_name = VALUES(file_name), reason = VALUES(reason), file_mtime = VALUES(file_mtime)`,
-          [customer.slice(0, 190), subGroup.slice(0, 190), fileName.slice(0, 300), filePath,
-           parsed.reason.slice(0, 200), toMysqlDt(f.mtime), hash]
-        ).catch(() => {})
+        skipRows.push([
+          customer.slice(0, 190), subGroup.slice(0, 190), fileName.slice(0, 300), filePath,
+          parsed.reason.slice(0, 200), toMysqlDt(f.mtime), fileHash,
+        ])
         continue
       }
 
@@ -136,25 +135,30 @@ export async function rebuildCustomerPoIndex(purge = false): Promise<{
       for (const part of parsed.apcParts) {
         const hash = crypto.createHash('sha1').update(`${filePath}|${part}`).digest('hex')
         seenRows.push(hash)
-        await queryPrimary(
-          `INSERT INTO customer_po_files
-             (customer, sub_group, apc_part, po_number, rev, rev_rank, version,
-              file_name, file_path, file_mtime, file_size, path_hash)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-           ON DUPLICATE KEY UPDATE
-             customer = VALUES(customer), sub_group = VALUES(sub_group),
-             apc_part = VALUES(apc_part), po_number = VALUES(po_number),
-             rev = VALUES(rev), rev_rank = VALUES(rev_rank), version = VALUES(version),
-             file_name = VALUES(file_name), file_mtime = VALUES(file_mtime),
-             file_size = VALUES(file_size)`,
-          [customer.slice(0, 190), subGroup.slice(0, 190), part, parsed.poNumber.slice(0, 60),
-           parsed.rev.slice(0, 10), parsed.revRank, parsed.version,
-           fileName.slice(0, 300), filePath, toMysqlDt(f.mtime), f.size, hash]
-        ).catch(() => {})
+        fileRows.push([
+          customer.slice(0, 190), subGroup.slice(0, 190), part, parsed.poNumber.slice(0, 60),
+          parsed.rev.slice(0, 10), parsed.revRank, parsed.version,
+          fileName.slice(0, 300), filePath, toMysqlDt(f.mtime), f.size, hash,
+        ])
         rows++
       }
     }
   }
+
+  await bulkUpsert(
+    'customer_po_files',
+    ['customer', 'sub_group', 'apc_part', 'po_number', 'rev', 'rev_rank', 'version',
+     'file_name', 'file_path', 'file_mtime', 'file_size', 'path_hash'],
+    fileRows,
+    ['customer', 'sub_group', 'apc_part', 'po_number', 'rev', 'rev_rank', 'version',
+     'file_name', 'file_mtime', 'file_size'],
+  )
+  await bulkUpsert(
+    'customer_po_skipped',
+    ['customer', 'sub_group', 'file_name', 'file_path', 'reason', 'file_mtime', 'path_hash'],
+    skipRows,
+    ['customer', 'sub_group', 'file_name', 'reason', 'file_mtime'],
+  )
 
   // Drop rows whose files have gone. Only safe because we just swept the whole
   // root — if the root had been unreachable we returned above without touching
@@ -163,13 +167,7 @@ export async function rebuildCustomerPoIndex(purge = false): Promise<{
     const existing = await queryPrimary<any[]>(`SELECT id, path_hash FROM ${table}`).catch(() => [])
     const keepSet = new Set(keep)
     const stale = (existing || []).filter(r => !keepSet.has(r.path_hash)).map(r => r.id)
-    for (let i = 0; i < stale.length; i += 500) {
-      const batch = stale.slice(i, i + 500)
-      await queryPrimary(
-        `DELETE FROM ${table} WHERE id IN (${batch.map(() => '?').join(',')})`, batch
-      ).catch(() => {})
-    }
-    return stale.length
+    return bulkDeleteIds(table, stale)
   }
   await prune('customer_po_files', seenRows)
   await prune('customer_po_skipped', seenSkips)
