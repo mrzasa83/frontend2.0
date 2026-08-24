@@ -55,6 +55,8 @@ export async function POST(request: NextRequest) {
   // ?mode=full empties the index first — use it after a parser change so rows
   // written by the old logic don't survive.
   const purge = (new URL(request.url).searchParams.get('mode') || '') === 'full'
+  // The sweep runs to completion here (this is the explicit Rebuild action),
+  // but the batched writes leave pool capacity so page reads keep working.
   try {
     const r = await rebuildCustomerPoIndex(purge)
     await finishRun(INDEX_NAME, r.count, r.status, r.message)

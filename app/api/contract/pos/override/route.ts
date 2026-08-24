@@ -89,6 +89,38 @@ export async function PUT(request: NextRequest) {
       }
     }
 
+    // Recompute the latest flags for just this PO, so the corrected row shows
+    // up (or drops out) under the Latest filters straight away.
+    try {
+      const scope = await queryPrimary<any[]>(
+        'SELECT DISTINCT po_number, customer FROM customer_po_files WHERE file_path = ?', [filePath]
+      )
+      for (const sc of scope || []) {
+        await queryPrimary(
+          `UPDATE customer_po_files f
+           JOIN (
+             SELECT po_number, customer, MAX(COALESCE(rev_rank, -1)) AS max_rank
+             FROM customer_po_files WHERE po_number = ? AND customer = ?
+             GROUP BY po_number, customer
+           ) t ON t.po_number = f.po_number AND t.customer = f.customer
+           SET f.is_latest_rev = (COALESCE(f.rev_rank, -1) = t.max_rank)
+           WHERE f.po_number = ? AND f.customer = ?`,
+          [sc.po_number, sc.customer, sc.po_number, sc.customer]
+        )
+        await queryPrimary(
+          `UPDATE customer_po_files f
+           JOIN (
+             SELECT po_number, customer, rev, MAX(version) AS max_ver
+             FROM customer_po_files WHERE po_number = ? AND customer = ?
+             GROUP BY po_number, customer, rev
+           ) t ON t.po_number = f.po_number AND t.customer = f.customer AND t.rev = f.rev
+           SET f.is_latest_version = (f.version = t.max_ver)
+           WHERE f.po_number = ? AND f.customer = ?`,
+          [sc.po_number, sc.customer, sc.po_number, sc.customer]
+        )
+      }
+    } catch { /* flags refresh on the next sweep regardless */ }
+
     return NextResponse.json({ success: true, updated_by: user })
   } catch (error) {
     console.error('PO override error:', error)

@@ -172,6 +172,35 @@ export async function rebuildCustomerPoIndex(purge = false): Promise<{
   await prune('customer_po_files', seenRows)
   await prune('customer_po_skipped', seenSkips)
 
+  // Work out the newest revision per PO, and the newest version within each
+  // revision, ONCE — so the list query doesn't have to derive it on every read.
+  // Generous timeouts: these are two full passes, but they run per index run
+  // rather than per page view.
+  const MAINT_TIMEOUT = 120000
+  try {
+    await queryPrimary(
+      `UPDATE customer_po_files f
+       JOIN (
+         SELECT po_number, customer, MAX(COALESCE(rev_rank, -1)) AS max_rank
+         FROM customer_po_files GROUP BY po_number, customer
+       ) t ON t.po_number = f.po_number AND t.customer = f.customer
+       SET f.is_latest_rev = (COALESCE(f.rev_rank, -1) = t.max_rank)`,
+      [], MAINT_TIMEOUT
+    )
+    await queryPrimary(
+      `UPDATE customer_po_files f
+       JOIN (
+         SELECT po_number, customer, rev, MAX(version) AS max_ver
+         FROM customer_po_files GROUP BY po_number, customer, rev
+       ) t ON t.po_number = f.po_number AND t.customer = f.customer AND t.rev = f.rev
+       SET f.is_latest_version = (f.version = t.max_ver)`,
+      [], MAINT_TIMEOUT
+    )
+  } catch (e) {
+    // Flags left as-is; the list still works, it just may show extra revisions.
+    console.error('customer PO latest-flag pass failed:', e)
+  }
+
   return {
     count: rows, status: 'ok',
     message: `${customers.length} customers · ${files} PDFs · ${rows} part rows · ${skipped} skipped`,

@@ -109,51 +109,30 @@ export async function GET(request: NextRequest) {
 
     const whereSql = whereParts.join(' AND ')
 
-    // Version filters compare against the aggregated latest version, so they
-    // belong in HAVING rather than WHERE.
-    const havingParts: string[] = []
-    const havingParams: any[] = []
+    // Revision / version column filters are plain column comparisons now that
+    // the flags are precomputed — no HAVING needed.
+    const fRev = (sp.get('f_rev') || '').trim()
+    if (fRev) { whereParts.push('f.rev LIKE ?'); params.push(`%${fRev}%`) }
     const fVersion = (sp.get('f_version') || '').trim()
-    if (fVersion) {
-      havingParts.push('latest_version LIKE ?')
-      havingParams.push(`%${fVersion}%`)
-    }
-    const havingSql = havingParts.length ? `HAVING ${havingParts.join(' AND ')}` : ''
+    if (fVersion) { whereParts.push('f.version LIKE ?'); params.push(`%${fVersion}%`) }
 
     // Count of distinct PO groups (for pagination).
-    // "Latest" filters. Rev moves often; Version (the "revised" marker) rarely.
-    // Both default on, so the list shows the current paperwork unless asked.
+    // "Latest" filters. Both default on, so the list shows current paperwork.
+    // These read PRECOMPUTED flags — the newest revision/version is worked out
+    // once per index run, not derived on every page load. Deriving it here was
+    // two full table scans per request, which blew the query timeout.
     const latestRev = (sp.get('latestRev') ?? '1') !== '0'
     const latestVersion = (sp.get('latestVersion') ?? '1') !== '0'
-
-    // Derived tables give the newest revision per PO, and the newest version
-    // within that revision. Written as joins rather than window functions so
-    // this doesn't depend on the MySQL version.
-    const latestJoins = `
-      ${latestRev ? `JOIN (
-        SELECT po_number, customer, MAX(COALESCE(rev_rank, -1)) AS max_rank
-        FROM customer_po_files GROUP BY po_number, customer
-      ) mr ON mr.po_number = f.po_number AND mr.customer = f.customer
-          AND COALESCE(f.rev_rank, -1) = mr.max_rank` : ''}
-      ${latestVersion ? `JOIN (
-        SELECT po_number, customer, rev, MAX(version) AS max_ver
-        FROM customer_po_files GROUP BY po_number, customer, rev
-      ) mv ON mv.po_number = f.po_number AND mv.customer = f.customer
-          AND mv.rev = f.rev AND f.version = mv.max_ver` : ''}`
+    if (latestRev) whereParts.push('f.is_latest_rev = 1')
+    if (latestVersion) whereParts.push('f.is_latest_version = 1')
+    const whereSql2 = whereParts.join(' AND ')
 
     const countRows = await queryPrimary<any[]>(
-      `SELECT COUNT(*) AS total FROM (
-         SELECT f.file_path,
-                TRIM(CONCAT_WS(' ', NULLIF(MAX(f.rev), ''), MAX(f.version))) AS latest_version
-         FROM customer_po_files f
-         ${latestJoins}
-         WHERE ${whereSql}
-         GROUP BY f.file_path
-         ${havingSql}
-       ) g`, [...params, ...havingParams]
+      `SELECT COUNT(DISTINCT f.file_path) AS total
+       FROM customer_po_files f
+       WHERE ${whereSql2}`, params
     )
     const total = countRows?.[0]?.total ?? 0
-
 
     const rows = await queryPrimary<any[]>(
       `SELECT f.po_number,
@@ -169,13 +148,11 @@ export async function GET(request: NextRequest) {
               f.file_path,
               MAX(f.file_mtime) AS latest_mtime
        FROM customer_po_files f
-       ${latestJoins}
-       WHERE ${whereSql}
+       WHERE ${whereSql2}
        GROUP BY f.file_path, f.file_name, f.po_number, f.customer
-       ${havingSql}
        ORDER BY ${orderCol} ${sortDir}
        LIMIT ? OFFSET ?`,
-      [...params, ...havingParams, pageSize, offset]
+      [...params, pageSize, offset]
     )
 
     const indexState = await getIndexState('customer_pos')

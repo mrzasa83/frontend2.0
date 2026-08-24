@@ -48,7 +48,8 @@ function isRetryable(err: any): boolean {
 
 export async function queryPrimary<T = any>(
   sql: string,
-  params?: any[]
+  params?: any[],
+  timeoutMs?: number,
 ): Promise<T> {
   const pool = getMySQLPrimaryPool()
 
@@ -56,7 +57,7 @@ export async function queryPrimary<T = any>(
   // not pool.execute (binary prepared protocol). Parameters are still bound and
   // escaped safely by mysql2, so injection safety is unchanged.
   const run = async (): Promise<T> => {
-    const [rows] = await pool.query({ sql, values: params, timeout: QUERY_TIMEOUT_MS } as any)
+    const [rows] = await pool.query({ sql, values: params, timeout: timeoutMs ?? QUERY_TIMEOUT_MS } as any)
     return rows as T
   }
 
