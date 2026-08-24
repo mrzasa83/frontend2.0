@@ -19,6 +19,7 @@
 export const JDRIVE = () => process.env.DRIVE_MOUNT_J || '/mnt/jdrive'
 export const SDRIVE = () => process.env.DRIVE_MOUNT_S || '/mnt/sdrive'
 export const TDRIVE = () => process.env.DRIVE_MOUNT_T || '/mnt/tdrive'
+export const LDRIVE = () => process.env.LDRIVE_ROOT || process.env.DRIVE_MOUNT_L || '/mnt/ldrive'
 
 // UNC mapping  (\\APCFS04\SHARED2  →  S: mount)
 export const UNC_SERVER = () => process.env.UNC_SERVER_NAME || 'APCFS04'
@@ -67,6 +68,19 @@ export const ATTDOCS_PATH     = () => `${SDRIVE()}/AttDocs/MfgParts`
 export const ITAR_ATTDOCS_PATH = () => `${SDRIVE()}/ItarAttDocs`
 export const PACKSHIP_PATH    = () => `${TDRIVE()}/Packaging and Shipping/$Pack & Ship by Part`
 
+/**
+ * Certificate-of-conformance roots, one per site, on the L: drive.
+ * Under each root the tree is:
+ *     <root>/<Material Type>/<APC Part Number>/<PUR number> - LOT <lot>.pdf
+ * e.g. L:\\NashuaScanDocStorage\\C_of_Cs_by_Part_Number\\Paradigm C of Cs\\
+ *          Copper\\AL0100CU1OZ2532\\PUR0133783 - LOT 2507410115.pdf
+ */
+export const COC_ROOTS = (): { site: string; path: string }[] => [
+  { site: 'Nashua', path: `${LDRIVE()}/NashuaScanDocStorage/C_of_Cs_by_Part_Number/Paradigm C of Cs` },
+  { site: 'Mesa',   path: `${LDRIVE()}/MesaScanDocStorage/C_of_Cs_by_Part_Number/Paradigm C of Cs` },
+  { site: 'Mexico', path: `${LDRIVE()}/MexicoDocStorage/C_of_Cs_by_Part_Number/Paradigm C of Cs` },
+]
+
 // EHS material-compliance evidence archive:
 //   S:\FrontEndQCFolders\MtrlComp\{familyName}-{date}.pdf
 // Sits under FrontEndQCFolders, which is already whitelisted for file-serve.
@@ -90,6 +104,10 @@ export const FILE_SERVE_ALLOWED_BASES = () => [
   // caller is signed in — it does not gate on role or export-control status.
   ITAR_ATTDOCS_PATH(),
   PO_CERT_PATH(),
+  // Certificate-of-conformance archives (one per site). Whitelisted so the
+  // shared preview modal — which always goes through /api/files/serve — can
+  // open them; only these roots are exposed, not the whole L drive.
+  ...COC_ROOTS().map(r => r.path),
   `${TDRIVE()}/Packaging and Shipping`,
   JDRIVE(),
 ]
