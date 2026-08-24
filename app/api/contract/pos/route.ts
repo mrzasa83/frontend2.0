@@ -31,15 +31,25 @@ export async function GET(request: NextRequest) {
   try {
     if (po && customer) {
       // Detail: all files for this PO#+customer, newest first, plus clause relations.
+      // One row per file. The index stores a row per APC part, so a PO file
+      // covering several parts would otherwise be listed once per part.
       const files = await queryPrimary<any[]>(
-        `SELECT id, apc_part, po_number, customer, sub_group,
-                rev, rev_rank, version,
-                CONCAT_WS(' ', NULLIF(rev, ''), version) AS version_label,
-                rev_rank AS version_rank,
-                file_name, file_path, file_mtime, file_size
+        `SELECT MIN(id) AS id,
+                GROUP_CONCAT(DISTINCT apc_part ORDER BY apc_part SEPARATOR ', ') AS apc_part,
+                po_number, customer,
+                MAX(sub_group)  AS sub_group,
+                MAX(rev)        AS rev,
+                MAX(version)    AS version,
+                MAX(rev_rank)   AS rev_rank,
+                TRIM(CONCAT_WS(' ', NULLIF(MAX(rev), ''), MAX(version))) AS version_label,
+                MAX(rev_rank)   AS version_rank,
+                file_name, file_path,
+                MAX(file_mtime) AS file_mtime,
+                MAX(file_size)  AS file_size
          FROM customer_po_files
          WHERE po_number = ? AND customer = ?
-         ORDER BY rev_rank DESC, version DESC, file_mtime DESC`,
+         GROUP BY file_path, file_name, po_number, customer
+         ORDER BY MAX(COALESCE(rev_rank, -1)) DESC, MAX(version) DESC, MAX(file_mtime) DESC`,
         [po, customer]
       )
       const clauses = await queryPrimary<any[]>(
@@ -67,20 +77,20 @@ export async function GET(request: NextRequest) {
 
     // Whitelist sortable columns to avoid injection.
     const SORTABLE: Record<string, string> = {
-      po_number: 'po_number', customer: 'customer', apc_part: 'apc_part',
+      po_number: 'f.po_number', customer: 'f.customer', apc_part: 'apc_part',
       sub_group: 'sub_group', latest_version: 'latest_version',
-      version_count: 'version_count', file_count: 'file_count',
+      version_count: 'version_count', file_name: 'f.file_name',
       latest_mtime: 'latest_mtime',
     }
     const orderCol = SORTABLE[sortKey] || 'latest_mtime'
 
     // Optional text filter across PO#, customer, APC part.
-    const whereParts = ["po_number <> ''"]
+    const whereParts = ["f.po_number <> ''"]
     const params: any[] = []
     if (q) {
-      whereParts.push('(po_number LIKE ? OR customer LIKE ? OR apc_part LIKE ? OR sub_group LIKE ?)')
+      whereParts.push('(f.po_number LIKE ? OR f.customer LIKE ? OR f.apc_part LIKE ? OR f.sub_group LIKE ? OR f.file_name LIKE ?)')
       const like = `%${q}%`
-      params.push(like, like, like, like)
+      params.push(like, like, like, like, like)
     }
 
     // Per-column filters. These run server-side so they filter the whole table,
@@ -89,7 +99,7 @@ export async function GET(request: NextRequest) {
     const colFilter = (param: string, column: string) => {
       const v = (sp.get(param) || '').trim()
       if (!v) return
-      whereParts.push(`${column} LIKE ?`)
+      whereParts.push(`f.${column} LIKE ?`)
       params.push(`%${v}%`)
     }
     colFilter('f_po', 'po_number')
@@ -111,39 +121,57 @@ export async function GET(request: NextRequest) {
     const havingSql = havingParts.length ? `HAVING ${havingParts.join(' AND ')}` : ''
 
     // Count of distinct PO groups (for pagination).
+    // "Latest" filters. Rev moves often; Version (the "revised" marker) rarely.
+    // Both default on, so the list shows the current paperwork unless asked.
+    const latestRev = (sp.get('latestRev') ?? '1') !== '0'
+    const latestVersion = (sp.get('latestVersion') ?? '1') !== '0'
+
+    // Derived tables give the newest revision per PO, and the newest version
+    // within that revision. Written as joins rather than window functions so
+    // this doesn't depend on the MySQL version.
+    const latestJoins = `
+      ${latestRev ? `JOIN (
+        SELECT po_number, customer, MAX(COALESCE(rev_rank, -1)) AS max_rank
+        FROM customer_po_files GROUP BY po_number, customer
+      ) mr ON mr.po_number = f.po_number AND mr.customer = f.customer
+          AND COALESCE(f.rev_rank, -1) = mr.max_rank` : ''}
+      ${latestVersion ? `JOIN (
+        SELECT po_number, customer, rev, MAX(version) AS max_ver
+        FROM customer_po_files GROUP BY po_number, customer, rev
+      ) mv ON mv.po_number = f.po_number AND mv.customer = f.customer
+          AND mv.rev = f.rev AND f.version = mv.max_ver` : ''}`
+
     const countRows = await queryPrimary<any[]>(
       `SELECT COUNT(*) AS total FROM (
-         SELECT po_number, customer,
-                SUBSTRING_INDEX(
-                  GROUP_CONCAT(CONCAT_WS(' ', NULLIF(rev, ''), version)
-                               ORDER BY rev_rank DESC, version DESC, file_mtime DESC SEPARATOR '||'),
-                  '||', 1) AS latest_version
-         FROM customer_po_files
+         SELECT f.file_path,
+                TRIM(CONCAT_WS(' ', NULLIF(MAX(f.rev), ''), MAX(f.version))) AS latest_version
+         FROM customer_po_files f
+         ${latestJoins}
          WHERE ${whereSql}
-         GROUP BY po_number, customer
+         GROUP BY f.file_path
          ${havingSql}
        ) g`, [...params, ...havingParams]
     )
     const total = countRows?.[0]?.total ?? 0
 
-    // One row per PO number + customer. latest_version is the highest revision
-    // seen for that PO (rev rank first, then V1 over V0).
+
     const rows = await queryPrimary<any[]>(
-      `SELECT po_number,
-              customer,
-              MAX(sub_group)  AS sub_group,
-              GROUP_CONCAT(DISTINCT apc_part ORDER BY apc_part SEPARATOR ', ') AS apc_part,
-              COUNT(*)        AS file_count,
-              COUNT(DISTINCT CONCAT(rev, '|', version)) AS version_count,
-              MAX(file_mtime) AS latest_mtime,
-              MAX(rev_rank)   AS latest_rank,
-              SUBSTRING_INDEX(
-                GROUP_CONCAT(CONCAT_WS(' ', NULLIF(rev, ''), version)
-                             ORDER BY rev_rank DESC, version DESC, file_mtime DESC SEPARATOR '||'),
-                '||', 1) AS latest_version
-       FROM customer_po_files
+      `SELECT f.po_number,
+              f.customer,
+              MAX(f.sub_group) AS sub_group,
+              GROUP_CONCAT(DISTINCT f.apc_part ORDER BY f.apc_part SEPARATOR ', ') AS apc_part,
+              MAX(f.rev)       AS rev,
+              MAX(f.version)   AS version,
+              MAX(f.rev_rank)  AS rev_rank,
+              TRIM(CONCAT_WS(' ', NULLIF(MAX(f.rev), ''), MAX(f.version))) AS latest_version,
+              COUNT(DISTINCT CONCAT(f.rev, '|', f.version)) AS version_count,
+              f.file_name,
+              f.file_path,
+              MAX(f.file_mtime) AS latest_mtime
+       FROM customer_po_files f
+       ${latestJoins}
        WHERE ${whereSql}
-       GROUP BY po_number, customer
+       GROUP BY f.file_path, f.file_name, f.po_number, f.customer
        ${havingSql}
        ORDER BY ${orderCol} ${sortDir}
        LIMIT ? OFFSET ?`,

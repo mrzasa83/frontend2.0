@@ -1,6 +1,6 @@
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { PO_CERT_PATH } from '@/lib/config/drives'
-import { parseCustomerPoFilename } from '@/lib/certs/customerPoParser'
+import { parseCustomerPoFilename, revRankOf } from '@/lib/certs/customerPoParser'
 import { promises as fs } from 'fs'
 import path from 'path'
 import crypto from 'crypto'
@@ -73,6 +73,15 @@ export async function rebuildCustomerPoIndex(purge = false): Promise<{
     await queryPrimary('DELETE FROM customer_po_skipped').catch(() => {})
   }
 
+  // Admin corrections, applied over whatever the parser produced.
+  const overrides = new Map<string, any>()
+  try {
+    const ov = await queryPrimary<any[]>(
+      'SELECT path_hash, po_number, rev, version, apc_parts FROM customer_po_overrides'
+    )
+    for (const o of ov || []) overrides.set(o.path_hash, o)
+  } catch { /* table may not exist yet */ }
+
   let files = 0, rows = 0, skipped = 0
   const seenRows: string[] = []
   const seenSkips: string[] = []
@@ -91,6 +100,21 @@ export async function rebuildCustomerPoIndex(purge = false): Promise<{
       const fileName = path.basename(f.full)
       const filePath = f.full.slice(0, 700)
       const parsed = parseCustomerPoFilename(fileName)
+      const fileHash = crypto.createHash('sha1').update(filePath).digest('hex')
+      const ov = overrides.get(fileHash)
+      if (ov) {
+        // An override can rescue a file the parser rejected outright.
+        if (ov.po_number) { parsed.poNumber = String(ov.po_number); parsed.parsed = true }
+        if (ov.rev !== null && ov.rev !== undefined) {
+          parsed.rev = String(ov.rev).toUpperCase()
+          parsed.revRank = revRankOf(parsed.rev)
+        }
+        if (ov.version) parsed.version = String(ov.version)
+        if (ov.apc_parts) {
+          parsed.apcParts = String(ov.apc_parts).split(',').map(p => p.trim()).filter(Boolean)
+          if (parsed.apcParts.length) parsed.parsed = true
+        }
+      }
 
       if (!parsed.parsed) {
         const hash = crypto.createHash('sha1').update(filePath).digest('hex')

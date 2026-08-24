@@ -12,7 +12,10 @@ import { getApiUrl } from '@/lib/api'
 
 type PORow = {
   po_number: string; customer: string; apc_part: string
-  file_count: number; version_count: number; latest_version: string; latest_mtime: string | null
+  sub_group?: string; rev?: string; version?: string; rev_rank?: number | null
+  file_name?: string; file_path?: string
+  file_count?: number; version_count?: number
+  latest_version: string; latest_mtime: string | null
 }
 type POFile = {
   id: number; version_label: string; version_rank: number | null
@@ -26,13 +29,14 @@ type PORelation = {
 type Clause = { id: number; standard: string; clause_number: string; title: string; classification: string }
 
 const LIST_COLS: { key: string; label: string; w?: number }[] = [
-  { key: 'po_number', label: 'PO #', w: 150 },
-  { key: 'customer', label: 'Customer', w: 150 },
-  { key: 'apc_part', label: 'APC Part', w: 110 },
-  { key: 'latest_version', label: 'Version', w: 100 },
-  { key: 'version_count', label: 'Versions', w: 90 },
-  { key: 'file_count', label: 'Files', w: 80 },
-  { key: 'latest_mtime', label: 'Latest', w: 120 },
+  { key: 'po_number', label: 'PO #', w: 140 },
+  { key: 'customer', label: 'Customer', w: 130 },
+  { key: 'sub_group', label: 'SubGroup', w: 120 },
+  { key: 'apc_part', label: 'APC Part', w: 130 },
+  { key: 'rev', label: 'Revision', w: 90 },
+  { key: 'version', label: 'Version', w: 80 },
+  { key: 'file_name', label: 'File', w: 300 },
+  { key: 'latest_mtime', label: 'Latest', w: 110 },
 ]
 
 function fmtDate(v: any) {
@@ -54,6 +58,7 @@ function ext(name: string) { const m = /\.([^.]+)$/.exec(name || ''); return m ?
 
 export default function POsPage() {
   const { data: session } = useSession()
+  const isAdmin = (((session?.user as any)?.roles) || []).includes('Admin')
   const [openPOs, setOpenPOs] = useState<PORow[]>([])
   const [activeTab, setActiveTab] = useState('all')
 
@@ -69,7 +74,7 @@ export default function POsPage() {
   }
 
   const tabs = [
-    { id: 'all', label: 'All POs', content: <POList onOpen={openPO} />, closeable: false },
+    { id: 'all', label: 'All POs', content: <POList onOpen={openPO} isAdmin={isAdmin} />, closeable: false },
     ...openPOs.map(po => {
       const id = `po-${po.po_number}-${po.customer}`
       return {
@@ -95,7 +100,7 @@ export default function POsPage() {
 }
 
 // ---- List tab (server-side paginated / filtered / sorted) ----
-function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
+function POList({ onOpen, isAdmin }: { onOpen: (po: PORow) => void; isAdmin: boolean }) {
   const [rows, setRows] = useState<PORow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -108,6 +113,9 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
   const [indexState, setIndexState] = useState<any>(null)
   const [elapsedMs, setElapsedMs] = useState<number | null>(null)
   const [fetchedAt, setFetchedAt] = useState<Date | null>(null)
+  const [latestRev, setLatestRev] = useState(true)
+  const [latestVersion, setLatestVersion] = useState(true)
+  const [editing, setEditing] = useState<any>(null)
   const [rebuilding, setRebuilding] = useState(false)
   const [rebuildMsg, setRebuildMsg] = useState('')
   // Per-column filters (typed) and the debounced copy actually sent to the server.
@@ -130,6 +138,8 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
         page: String(page), pageSize: '100', sort: sort.key, dir: sort.dir,
       })
       if (q.trim()) p.set('q', q.trim())
+      p.set('latestRev', latestRev ? '1' : '0')
+      p.set('latestVersion', latestVersion ? '1' : '0')
       const PARAM: Record<string, string> = {
         po_number: 'f_po', customer: 'f_customer', apc_part: 'f_apc', latest_version: 'f_version',
       }
@@ -146,7 +156,7 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
       setFetchedAt(new Date())
     } catch (e: any) { setError(e.message) }
     setLoading(false)
-  }, [page, sort, q, appliedFilters])
+  }, [page, sort, q, appliedFilters, latestRev, latestVersion])
   useEffect(() => { load() }, [load])
 
   const runIndex = async (full: boolean) => {
@@ -190,6 +200,16 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
           )}
         </p>
         <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-sm text-slate-600" title="Show only the newest revision of each PO">
+            <input type="checkbox" checked={latestRev}
+              onChange={e => { setLatestRev(e.target.checked); setPage(1) }} />
+            Latest Rev
+          </label>
+          <label className="flex items-center gap-1.5 text-sm text-slate-600" title="Show only the newest version (V1 over V0) of each revision">
+            <input type="checkbox" checked={latestVersion}
+              onChange={e => { setLatestVersion(e.target.checked); setPage(1) }} />
+            Latest Version
+          </label>
           <div className="relative">
             <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
             <input value={qInput} onChange={e => setQInput(e.target.value)}
@@ -264,15 +284,25 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
             ) : rows.length === 0 ? (
               <tr><td colSpan={LIST_COLS.length} className="px-3 py-8 text-center text-slate-400">No POs match.</td></tr>
             ) : rows.map((r, i) => (
-              <tr key={`${r.po_number}|${r.customer}|${i}`} onClick={() => onOpen(r)}
+              <tr key={`${r.file_path || r.po_number}|${i}`} onClick={() => onOpen(r)}
                 className="border-b border-slate-100 hover:bg-blue-50 cursor-pointer">
                 <td className="px-3 py-1.5 font-mono text-blue-600 font-medium hover:underline">{r.po_number}</td>
                 <td className="px-3 py-1.5 text-slate-700">{r.customer}</td>
+                <td className="px-3 py-1.5 text-slate-600 text-xs">{r.sub_group}</td>
                 <td className="px-3 py-1.5 font-mono text-slate-800">{r.apc_part}</td>
-                <td className="px-3 py-1.5 text-slate-600">{r.latest_version || '—'}</td>
-                <td className="px-3 py-1.5 text-slate-500 tabular-nums">{r.version_count}</td>
-                <td className="px-3 py-1.5 text-slate-500 tabular-nums">{r.file_count}</td>
-                <td className="px-3 py-1.5 text-slate-500 text-xs">{fmtDate(r.latest_mtime)}</td>
+                <td className="px-3 py-1.5 text-slate-600">{r.rev || <span className="text-slate-300">—</span>}</td>
+                <td className="px-3 py-1.5 text-slate-600">{r.version}</td>
+                <td className="px-3 py-1.5 text-slate-600 text-xs truncate max-w-sm" title={r.file_path}>{r.file_name}</td>
+                <td className="px-3 py-1.5 text-slate-500 text-xs">
+                  <span className="flex items-center justify-between gap-2">
+                    {fmtDate(r.latest_mtime)}
+                    {isAdmin && (
+                      <button onClick={e => { e.stopPropagation(); setEditing(r) }}
+                        title="Correct what was read from the file name"
+                        className="text-slate-400 hover:text-blue-600">edit</button>
+                    )}
+                  </span>
+                </td>
               </tr>
             ))}
           </tbody>
@@ -280,6 +310,11 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
       </div>
 
       {/* Pagination */}
+      {editing && (
+        <EditPoModal row={editing} onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load() }} />
+      )}
+
       {pages > 1 && (
         <div className="flex items-center justify-center gap-2 mt-3 text-sm">
           <button disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}
@@ -294,6 +329,96 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
 }
 
 // ---- PO detail (side-rail tabs) ----
+/**
+ * Correct what the parser read from a file name. Stored against the file, so it
+ * is re-applied on every index run and survives a rebuild.
+ */
+function EditPoModal({ row, onClose, onSaved }: { row: any; onClose: () => void; onSaved: () => void }) {
+  const [poNumber, setPoNumber] = useState(row.po_number || '')
+  const [rev, setRev] = useState(row.rev || '')
+  const [version, setVersion] = useState(row.version || 'V0')
+  const [parts, setParts] = useState(row.apc_part || '')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState('')
+
+  const save = async () => {
+    setBusy(true); setErr('')
+    try {
+      const res = await fetch(getApiUrl('/api/contract/pos/override'), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_path: row.file_path, po_number: poNumber, rev, version, apc_parts: parts,
+        }),
+      })
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.error || r.details || 'Failed to save')
+      onSaved()
+    } catch (e: any) { setErr(e.message); setBusy(false) }
+  }
+
+  const revert = async () => {
+    setBusy(true); setErr('')
+    try {
+      await fetch(getApiUrl(`/api/contract/pos/override?file_path=${encodeURIComponent(row.file_path)}`), { method: 'DELETE' })
+      onSaved()
+    } catch (e: any) { setErr(e.message); setBusy(false) }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-5" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-1">
+          <h3 className="font-semibold text-slate-800">Correct PO details</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
+        </div>
+        <p className="text-xs text-slate-500 mb-3 font-mono break-all">{row.file_name}</p>
+        {err && <div className="p-2 mb-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{err}</div>}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">PO Number</label>
+            <input value={poNumber} onChange={e => setPoNumber(e.target.value)}
+              className="w-full px-2.5 py-1.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Revision</label>
+            <input value={rev} onChange={e => setRev(e.target.value)} placeholder="9, E, …"
+              className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">Version</label>
+            <select value={version} onChange={e => setVersion(e.target.value)}
+              className="w-full px-2.5 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
+              <option value="V0">V0</option>
+              <option value="V1">V1 (revised)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-1">APC Parts</label>
+            <input value={parts} onChange={e => setParts(e.target.value)} placeholder="30844, 30845"
+              className="w-full px-2.5 py-1.5 text-sm font-mono border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+        </div>
+        <p className="text-xs text-slate-400 mt-2">
+          Comma-separate several parts. The correction is re-applied whenever the index rebuilds.
+        </p>
+        <div className="flex justify-between items-center mt-4">
+          <button onClick={revert} disabled={busy}
+            className="px-3 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg">
+            Revert to file name
+          </button>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
+            <button onClick={save} disabled={busy}
+              className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+              {busy ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function PODetail({ po, session }: { po: PORow; session: any }) {
   const [tab, setTab] = useState<'general' | 'clauses' | 'files'>('general')
   const [files, setFiles] = useState<POFile[]>([])
@@ -416,6 +541,7 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
   const [scanResult, setScanResult] = useState<any>(null)
   const [scanError, setScanError] = useState('')
   const [fileChoices, setFileChoices] = useState<any[] | null>(null)
+  const [useLatest, setUseLatest] = useState(true)
   const [manualOpen, setManualOpen] = useState(false)
 
   const doScan = async (file_path?: string) => {
@@ -423,7 +549,10 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
     try {
       const res = await fetch(getApiUrl('/api/contract/pos/scan'), {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ po_number: po.po_number, customer: po.customer, ...(file_path ? { file_path } : {}) }),
+        body: JSON.stringify({
+          po_number: po.po_number, customer: po.customer,
+          useLatest, ...(file_path ? { file_path } : {}),
+        }),
       })
       const r = await res.json()
       if (!res.ok) throw new Error(r.error || r.details || 'Scan failed')
@@ -462,6 +591,11 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
           className="px-3 py-1.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-100 flex items-center gap-1.5">
           <Plus size={14} /> Manually add
         </button>
+        <label className="flex items-center gap-1.5 text-sm text-slate-600 ml-1"
+          title="Scan the newest revision and version. Uncheck to choose a file from the Files tab.">
+          <input type="checkbox" checked={useLatest} onChange={e => setUseLatest(e.target.checked)} />
+          Use latest Rev / Version
+        </label>
       </div>
 
       {scanError && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{scanError}</div>}
@@ -469,12 +603,12 @@ function ClausesTab({ po, relations, files, reload, session }: { po: PORow; rela
       {/* File chooser when multiple PDFs */}
       {fileChoices && (
         <div className="mb-4 border border-amber-200 bg-amber-50 rounded-lg p-3">
-          <p className="text-sm text-slate-700 mb-2">This PO has multiple PDFs — pick the one to scan:</p>
+          <p className="text-sm text-slate-700 mb-2">Pick the file to scan (newest revision first):</p>
           <div className="space-y-1">
             {fileChoices.map((f, i) => (
               <button key={i} onClick={() => doScan(f.file_path)}
                 className="w-full text-left px-3 py-1.5 bg-white border border-slate-200 rounded hover:bg-blue-50 flex items-center gap-2 text-sm">
-                <span className="text-slate-500 w-16 shrink-0">{f.version_label || '—'}</span>
+                <span className="text-slate-500 w-20 shrink-0">{f.version_label || '—'}</span>
                 <span className="text-slate-700 truncate">{f.file_name}</span>
               </button>
             ))}

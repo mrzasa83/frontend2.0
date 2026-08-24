@@ -66,3 +66,24 @@ CREATE TABLE IF NOT EXISTS index_state (
 
 INSERT INTO index_state (index_name) VALUES ('customer_pos'), ('supplier_cert_pos')
 ON DUPLICATE KEY UPDATE index_name = VALUES(index_name);
+
+-- ---------------------------------------------------------------------------
+-- Admin corrections.
+-- The filename parser is good but not perfect, and the archive goes back years.
+-- An override is keyed on the file, wins over whatever the parser produced, and
+-- is re-applied on every index run — so a correction survives a rebuild.
+-- Setting apc_parts replaces the whole part list (comma separated).
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS customer_po_overrides (
+  id         INT AUTO_INCREMENT PRIMARY KEY,
+  path_hash  CHAR(40)     NOT NULL,          -- sha1(file_path)
+  file_path  VARCHAR(700) NOT NULL,
+  po_number  VARCHAR(60)  NULL,
+  rev        VARCHAR(10)  NULL,
+  version    VARCHAR(4)   NULL,
+  apc_parts  VARCHAR(300) NULL,
+  note       VARCHAR(300) NOT NULL DEFAULT '',
+  updated_by VARCHAR(50)  NOT NULL DEFAULT '',
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_path (path_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

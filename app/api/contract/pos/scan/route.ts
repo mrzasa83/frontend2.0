@@ -37,11 +37,20 @@ export async function POST(request: NextRequest) {
     const user = (session.user as any)?.username || 'unknown'
 
     // All PDF files for this PO, newest/highest-version first.
+    // Distinct files for this PO. The index holds one row per APC part, so a
+    // multi-part PO file appears several times — collapse on file_path.
+    // Ordered newest revision first, then V1 over V0, then by scan date.
     const allFiles = await queryPrimary<any[]>(
-      `SELECT version_label, file_name, file_path
-       FROM po_cert_files
-       WHERE customer_part = ? AND po_folder = ?
-       ORDER BY version_rank DESC, file_mtime DESC`,
+      `SELECT file_path, file_name,
+              MAX(CONCAT_WS(' ', NULLIF(rev, ''), version)) AS version_label,
+              MAX(rev)        AS rev,
+              MAX(version)    AS version,
+              MAX(rev_rank)   AS rev_rank,
+              MAX(file_mtime) AS file_mtime
+       FROM customer_po_files
+       WHERE po_number = ? AND customer = ?
+       GROUP BY file_path, file_name
+       ORDER BY MAX(COALESCE(rev_rank, -1)) DESC, MAX(version) DESC, MAX(file_mtime) DESC`,
       [po_number, customer]
     )
     const pdfs = (allFiles || []).filter(f => /\.pdf$/i.test(f.file_name || f.file_path || ''))
@@ -55,12 +64,17 @@ export async function POST(request: NextRequest) {
     if (chosenPath) {
       f = pdfs.find(x => x.file_path === chosenPath)
       if (!f) return NextResponse.json({ error: 'Chosen file not found for this PO' }, { status: 404 })
-    } else if (pdfs.length > 1) {
+    } else if (b?.useLatest === false && pdfs.length > 1) {
       return NextResponse.json({
         success: true, needsFileChoice: true,
-        files: pdfs.map(p => ({ file_name: p.file_name, file_path: p.file_path, version_label: p.version_label })),
+        files: pdfs.map(p => ({
+          file_name: p.file_name, file_path: p.file_path,
+          version_label: p.version_label, rev: p.rev, version: p.version,
+        })),
       })
     } else {
+      // Ordered newest revision first, then V1 over V0 — so this is the current
+      // paperwork for the PO.
       f = pdfs[0]
     }
 
