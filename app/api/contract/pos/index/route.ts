@@ -52,8 +52,11 @@ export async function POST(request: NextRequest) {
       message: 'An index run is already in progress.',
     })
   }
+  // ?mode=full empties the index first — use it after a parser change so rows
+  // written by the old logic don't survive.
+  const purge = (new URL(request.url).searchParams.get('mode') || '') === 'full'
   try {
-    const r = await rebuildCustomerPoIndex()
+    const r = await rebuildCustomerPoIndex(purge)
     await finishRun(INDEX_NAME, r.count, r.status, r.message)
     return NextResponse.json({ success: true, ...r })
   } catch (error) {

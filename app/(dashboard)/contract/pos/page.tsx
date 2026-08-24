@@ -105,6 +105,11 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
   const [total, setTotal] = useState(0)
+  const [indexState, setIndexState] = useState<any>(null)
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null)
+  const [fetchedAt, setFetchedAt] = useState<Date | null>(null)
+  const [rebuilding, setRebuilding] = useState(false)
+  const [rebuildMsg, setRebuildMsg] = useState('')
   // Per-column filters (typed) and the debounced copy actually sent to the server.
   const [colFilters, setColFilters] = useState<Record<string, string>>({})
   const [appliedFilters, setAppliedFilters] = useState<Record<string, string>>({})
@@ -136,10 +141,26 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
       if (!res.ok) throw new Error((await res.json()).error || 'Failed to load')
       const r = await res.json()
       setRows(r.rows || []); setPages(r.pages || 1); setTotal(r.total || 0)
+      setIndexState(r.indexState || null)
+      setElapsedMs(typeof r.elapsedMs === 'number' ? r.elapsedMs : null)
+      setFetchedAt(new Date())
     } catch (e: any) { setError(e.message) }
     setLoading(false)
   }, [page, sort, q, appliedFilters])
   useEffect(() => { load() }, [load])
+
+  const runIndex = async (full: boolean) => {
+    setRebuilding(true); setRebuildMsg('')
+    try {
+      const res = await fetch(getApiUrl(`/api/contract/pos/index${full ? '?mode=full' : ''}`), { method: 'POST' })
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.details || r.error || 'Index failed')
+      if (r.alreadyRunning) setRebuildMsg('An index run is already in progress — give it a moment.')
+      else setRebuildMsg(`${Number(r.customers || 0)} customers · ${Number(r.files || 0).toLocaleString()} PDFs · ${Number(r.rows || 0).toLocaleString()} part rows${r.skipped ? ` · ${Number(r.skipped).toLocaleString()} skipped` : ''}`)
+      await load()
+    } catch (e: any) { setRebuildMsg(`Error: ${e.message}`) }
+    setRebuilding(false)
+  }
 
   const toggleSort = (key: string) => {
     setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })
@@ -151,7 +172,18 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
     <div>
       <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
         <p className="text-sm text-slate-500">
-          {loading ? 'Loading…' : `${total.toLocaleString()} POs · page ${page} of ${pages}`}
+          {loading ? 'Loading…' : (
+            <>
+              {total.toLocaleString()} POs · page {page} of {pages}
+              {elapsedMs != null && <> · {(elapsedMs / 1000).toFixed(1)}s</>}
+              {fetchedAt && <> · {fetchedAt.toLocaleTimeString()}</>}
+              {indexState?.last_finished && (
+                <> · indexed {new Date(indexState.last_finished).toLocaleString()}</>
+              )}
+              {indexState?.running ? <span className="text-blue-600"> · refreshing…</span> : null}
+              {!indexState?.last_finished && <span className="text-amber-600"> · never indexed</span>}
+            </>
+          )}
           {Object.values(appliedFilters).some(v => v.trim()) && (
             <button onClick={() => setColFilters({})}
               className="ml-2 text-blue-600 hover:underline">clear filters</button>
@@ -167,14 +199,32 @@ function POList({ onOpen }: { onOpen: (po: PORow) => void }) {
           </div>
           <button onClick={commitSearch} className="px-2.5 py-1.5 text-sm bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200">Go</button>
           {q && <button onClick={() => { setQ(''); setQInput(''); setPage(1) }} className="px-2 py-1.5 text-sm text-slate-500 hover:bg-slate-100 rounded-lg">✕</button>}
+          <button onClick={() => runIndex(false)} disabled={rebuilding}
+            title="Walk the PO archive and sync any added, changed or deleted files"
+            className="px-3 py-1.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-100 flex items-center gap-1 disabled:opacity-50">
+            <RefreshCw size={14} className={rebuilding ? 'animate-spin' : ''} /> Sync files
+          </button>
+          <button onClick={() => runIndex(true)} disabled={rebuilding}
+            title="Empty the index and rebuild it from scratch — use after a parsing change"
+            className="px-3 py-1.5 text-sm border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-50 flex items-center gap-1 disabled:opacity-50">
+            Rebuild
+          </button>
           <button onClick={load} disabled={loading}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50">
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Reload
           </button>
         </div>
       </div>
 
       {error && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
+      {rebuilding && (
+        <div className="p-3 mb-3 bg-blue-50 border border-blue-200 text-blue-800 rounded-lg text-sm">
+          Walking the PO archive — this can take a minute on a large customer set.
+        </div>
+      )}
+      {rebuildMsg && !rebuilding && (
+        <div className="p-3 mb-3 bg-slate-50 border border-slate-200 text-slate-700 rounded-lg text-sm">{rebuildMsg}</div>
+      )}
 
       <div className="bg-white border border-slate-200 rounded-lg overflow-auto max-h-[calc(100vh-300px)]">
         <table className="w-full text-sm border-collapse">

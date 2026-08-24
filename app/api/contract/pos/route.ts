@@ -5,6 +5,7 @@ import { queryPrimary } from '@/lib/db/mysql-primary'
 import { canReadModule } from '@/lib/config/access'
 import { refreshIfStale } from '@/lib/certs/indexRefresh'
 import { rebuildCustomerPoIndex } from '@/lib/certs/rebuildCustomerPo'
+import { getIndexState } from '@/lib/certs/indexRefresh'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,6 +23,7 @@ export async function GET(request: NextRequest) {
   // hour, start it in the background and answer immediately from what's indexed.
   refreshIfStale('customer_pos', rebuildCustomerPoIndex)
 
+  const startedAt = Date.now()
   const sp = new URL(request.url).searchParams
   const po = (sp.get('po') || '').trim()
   const customer = (sp.get('customer') || '').trim()
@@ -30,11 +32,14 @@ export async function GET(request: NextRequest) {
     if (po && customer) {
       // Detail: all files for this PO#+customer, newest first, plus clause relations.
       const files = await queryPrimary<any[]>(
-        `SELECT id, apc_part, customer_part AS po_number, po_folder AS customer,
-                version_label, version_rank, file_name, file_path, file_mtime, file_size
-         FROM po_cert_files
-         WHERE customer_part = ? AND po_folder = ?
-         ORDER BY version_rank DESC, file_mtime DESC`,
+        `SELECT id, apc_part, po_number, customer, sub_group,
+                rev, rev_rank, version,
+                CONCAT_WS(' ', NULLIF(rev, ''), version) AS version_label,
+                rev_rank AS version_rank,
+                file_name, file_path, file_mtime, file_size
+         FROM customer_po_files
+         WHERE po_number = ? AND customer = ?
+         ORDER BY rev_rank DESC, version DESC, file_mtime DESC`,
         [po, customer]
       )
       const clauses = await queryPrimary<any[]>(
@@ -50,7 +55,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: true, po, customer, files: files || [], clauses: clauses || [] })
     }
 
-    // List: group po_cert_files into one row per (po_number, customer).
+    // List: group the customer PO index into one row per (po_number, customer).
     // Server-side filter + sort + pagination (100/page). Version defaults to the
     // latest (highest version_rank).
     const q = (sp.get('q') || '').trim()
@@ -63,18 +68,19 @@ export async function GET(request: NextRequest) {
     // Whitelist sortable columns to avoid injection.
     const SORTABLE: Record<string, string> = {
       po_number: 'po_number', customer: 'customer', apc_part: 'apc_part',
-      latest_version: 'latest_version', version_count: 'version_count',
-      file_count: 'file_count', latest_mtime: 'latest_mtime',
+      sub_group: 'sub_group', latest_version: 'latest_version',
+      version_count: 'version_count', file_count: 'file_count',
+      latest_mtime: 'latest_mtime',
     }
     const orderCol = SORTABLE[sortKey] || 'latest_mtime'
 
     // Optional text filter across PO#, customer, APC part.
-    const whereParts = ["customer_part <> ''"]
+    const whereParts = ["po_number <> ''"]
     const params: any[] = []
     if (q) {
-      whereParts.push('(customer_part LIKE ? OR po_folder LIKE ? OR apc_part LIKE ?)')
+      whereParts.push('(po_number LIKE ? OR customer LIKE ? OR apc_part LIKE ? OR sub_group LIKE ?)')
       const like = `%${q}%`
-      params.push(like, like, like)
+      params.push(like, like, like, like)
     }
 
     // Per-column filters. These run server-side so they filter the whole table,
@@ -86,9 +92,10 @@ export async function GET(request: NextRequest) {
       whereParts.push(`${column} LIKE ?`)
       params.push(`%${v}%`)
     }
-    colFilter('f_po', 'customer_part')
-    colFilter('f_customer', 'po_folder')
+    colFilter('f_po', 'po_number')
+    colFilter('f_customer', 'customer')
     colFilter('f_apc', 'apc_part')
+    colFilter('f_subgroup', 'sub_group')
 
     const whereSql = whereParts.join(' AND ')
 
@@ -106,42 +113,49 @@ export async function GET(request: NextRequest) {
     // Count of distinct PO groups (for pagination).
     const countRows = await queryPrimary<any[]>(
       `SELECT COUNT(*) AS total FROM (
-         SELECT customer_part, po_folder,
+         SELECT po_number, customer,
                 SUBSTRING_INDEX(
-                  GROUP_CONCAT(version_label ORDER BY version_rank DESC, file_mtime DESC SEPARATOR '||'),
+                  GROUP_CONCAT(CONCAT_WS(' ', NULLIF(rev, ''), version)
+                               ORDER BY rev_rank DESC, version DESC, file_mtime DESC SEPARATOR '||'),
                   '||', 1) AS latest_version
-         FROM po_cert_files
+         FROM customer_po_files
          WHERE ${whereSql}
-         GROUP BY customer_part, po_folder
+         GROUP BY po_number, customer
          ${havingSql}
        ) g`, [...params, ...havingParams]
     )
     const total = countRows?.[0]?.total ?? 0
 
-    // latest_version = the version_label of the row with the highest version_rank
-    // (ties broken by newest file). Uses GROUP_CONCAT ordered by rank DESC.
+    // One row per PO number + customer. latest_version is the highest revision
+    // seen for that PO (rev rank first, then V1 over V0).
     const rows = await queryPrimary<any[]>(
-      `SELECT customer_part AS po_number,
-              po_folder     AS customer,
-              MAX(apc_part)  AS apc_part,
-              COUNT(*)       AS file_count,
-              COUNT(DISTINCT version_label) AS version_count,
+      `SELECT po_number,
+              customer,
+              MAX(sub_group)  AS sub_group,
+              GROUP_CONCAT(DISTINCT apc_part ORDER BY apc_part SEPARATOR ', ') AS apc_part,
+              COUNT(*)        AS file_count,
+              COUNT(DISTINCT CONCAT(rev, '|', version)) AS version_count,
               MAX(file_mtime) AS latest_mtime,
-              MAX(version_rank) AS latest_rank,
+              MAX(rev_rank)   AS latest_rank,
               SUBSTRING_INDEX(
-                GROUP_CONCAT(version_label ORDER BY version_rank DESC, file_mtime DESC SEPARATOR '||'),
+                GROUP_CONCAT(CONCAT_WS(' ', NULLIF(rev, ''), version)
+                             ORDER BY rev_rank DESC, version DESC, file_mtime DESC SEPARATOR '||'),
                 '||', 1) AS latest_version
-       FROM po_cert_files
+       FROM customer_po_files
        WHERE ${whereSql}
-       GROUP BY customer_part, po_folder
+       GROUP BY po_number, customer
        ${havingSql}
        ORDER BY ${orderCol} ${sortDir}
        LIMIT ? OFFSET ?`,
       [...params, ...havingParams, pageSize, offset]
     )
+
+    const indexState = await getIndexState('customer_pos')
     return NextResponse.json({
       success: true, rows: rows || [], count: rows?.length ?? 0,
       total, page, pageSize, pages: Math.ceil(total / pageSize),
+      indexState,
+      elapsedMs: Date.now() - startedAt,
     })
   } catch (error) {
     console.error('Contract POs query error:', error)

@@ -45,7 +45,14 @@ async function walkPdfs(dir: string, depth: number, out: FoundFile[]) {
  * order's customer, so whole customer folders were never indexed unless someone
  * happened to trigger them. This walks the lot.
  */
-export async function rebuildCustomerPoIndex(): Promise<{
+/**
+ * @param purge  When true the index is emptied first, so rows written by an
+ *               older parser can't linger. Otherwise the sweep reconciles:
+ *               upsert everything found, then delete rows whose file is gone.
+ *               Reconcile is the normal mode — it never leaves the table empty,
+ *               and a failed run can't wipe the index.
+ */
+export async function rebuildCustomerPoIndex(purge = false): Promise<{
   count: number; status: 'ok' | 'partial'; message?: string
   files: number; rows: number; skipped: number; customers: number
 }> {
@@ -59,6 +66,11 @@ export async function rebuildCustomerPoIndex(): Promise<{
       count: 0, status: 'partial', message: `PO root not reachable (${root})`,
       files: 0, rows: 0, skipped: 0, customers: 0,
     }
+  }
+
+  if (purge) {
+    await queryPrimary('DELETE FROM customer_po_files').catch(() => {})
+    await queryPrimary('DELETE FROM customer_po_skipped').catch(() => {})
   }
 
   let files = 0, rows = 0, skipped = 0
