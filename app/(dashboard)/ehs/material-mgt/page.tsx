@@ -822,7 +822,7 @@ function NewFamilyModal({ onClose, onCreated }: { onClose: () => void; onCreated
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [criteria, setCriteria] = useState<Criterion[]>([
-    { field: 'INV_PART_NUMBER', operator: 'LIKE', pattern: '', seq: 0 },
+    { field: 'INV_PART_NUMBER', operator: 'LIKE', conjunction: 'AND', pattern: '', seq: 0 },
   ])
   const [inherit, setInherit] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -887,18 +887,30 @@ function NewFamilyModal({ onClose, onCreated }: { onClose: () => void; onCreated
 function CriteriaEditor({ criteria, onChange }: { criteria: Criterion[]; onChange: (c: Criterion[]) => void }) {
   const set = (i: number, patch: Partial<Criterion>) =>
     onChange(criteria.map((c, j) => j === i ? { ...c, ...patch } : c))
-  const add = () => onChange([...criteria, { field: 'INV_PART_NUMBER', operator: 'LIKE', pattern: '', seq: criteria.length }])
+  const add = () => onChange([...criteria,
+    { field: 'INV_PART_NUMBER', operator: 'LIKE', conjunction: 'AND', pattern: '', seq: criteria.length }])
   const remove = (i: number) => onChange(criteria.filter((_, j) => j !== i))
 
   return (
     <div>
       <div className="text-xs font-medium text-slate-500 mb-1">
-        Additional criteria — all are AND’d on top of the base search
+        Additional criteria, applied on top of the base search.
+        <span className="font-normal text-slate-400"> AND binds tighter than OR — “A and B or C” means “(A and B) or C”.</span>
       </div>
       <div className="space-y-2">
         {criteria.map((c, i) => (
           <div key={i} className="flex items-center gap-2">
-            <span className="text-xs text-slate-400 w-8">{i === 0 ? 'and' : 'and'}</span>
+            {i === 0 ? (
+              <span className="text-xs text-slate-400 w-14" title="The first criterion always narrows the base search">and</span>
+            ) : (
+              <select value={(c.conjunction || 'AND').toUpperCase()}
+                onChange={e => set(i, { conjunction: e.target.value })}
+                title="How this criterion joins to the one above. AND binds tighter than OR."
+                className="w-14 px-1 py-1 text-xs border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
+                <option value="AND">and</option>
+                <option value="OR">or</option>
+              </select>
+            )}
             <select value={c.field} onChange={e => set(i, { field: e.target.value })}
               className="px-2 py-1 text-sm border border-slate-200 rounded bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
               {CRITERIA_FIELDS.map(f => <option key={f} value={f}>{f}</option>)}
@@ -1321,7 +1333,9 @@ function DefinitionTab({ family, parts, canEdit, reload }: { family: Family; par
         ) : (
           <div className="text-sm text-slate-600 space-y-1">
             {(family.criteria || []).map((c, i) => (
-              <div key={i} className="font-mono text-xs">and {c.field} {c.operator.toLowerCase()} '{c.pattern}'</div>
+              <div key={i} className="font-mono text-xs">
+                {i === 0 ? 'and' : (c.conjunction || 'AND').toLowerCase()} {c.field} {c.operator.toLowerCase()} '{c.pattern}'
+              </div>
             ))}
             {!(family.criteria || []).length && <span className="text-slate-400">No criteria defined.</span>}
           </div>

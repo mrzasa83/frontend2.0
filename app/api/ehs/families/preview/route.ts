@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
       .map((c: any, i: number) => ({
         field: String(c?.field ?? 'INV_PART_NUMBER').toUpperCase(),
         operator: String(c?.operator ?? 'LIKE').toUpperCase(),
+        conjunction: String(c?.conjunction ?? 'AND').toUpperCase() === 'OR' ? 'OR' : 'AND',
         pattern: String(c?.pattern ?? '').trim(),
         seq: i,
       }))

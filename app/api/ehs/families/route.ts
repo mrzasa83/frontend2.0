@@ -25,6 +25,7 @@ const cleanCriteria = (raw: any): Criterion[] =>
     .map((c: any, i: number) => ({
       field: String(c?.field ?? '').toUpperCase(),
       operator: String(c?.operator ?? 'LIKE').toUpperCase(),
+      conjunction: String(c?.conjunction ?? 'AND').toUpperCase() === 'OR' ? 'OR' : 'AND',
       pattern: String(c?.pattern ?? '').trim().slice(0, 200),
       seq: Number.isFinite(Number(c?.seq)) ? Number(c.seq) : i,
     }))
@@ -60,7 +61,7 @@ export async function GET(request: NextRequest) {
     }
 
     const critRows = await queryPrimary<any[]>(
-      `SELECT id, family_id, field, operator, pattern, seq
+      `SELECT id, family_id, field, operator, conjunction, pattern, seq
        FROM ehs_family_criteria ${id ? 'WHERE family_id = ?' : ''}
        ORDER BY family_id, seq, id`,
       id ? [id] : []
@@ -131,8 +132,8 @@ export async function POST(request: NextRequest) {
     const newId = res?.insertId
     for (const c of criteria) {
       await queryPrimary(
-        'INSERT INTO ehs_family_criteria (family_id, field, operator, pattern, seq) VALUES (?, ?, ?, ?, ?)',
-        [newId, c.field, c.operator, c.pattern, c.seq]
+        'INSERT INTO ehs_family_criteria (family_id, field, operator, conjunction, pattern, seq) VALUES (?, ?, ?, ?, ?, ?)',
+        [newId, c.field, c.operator, c.conjunction, c.pattern, c.seq]
       )
     }
     return NextResponse.json({ success: true, id: newId })
@@ -189,8 +190,8 @@ export async function PUT(request: NextRequest) {
       await queryPrimary('DELETE FROM ehs_family_criteria WHERE family_id = ?', [id])
       for (const c of criteria) {
         await queryPrimary(
-          'INSERT INTO ehs_family_criteria (family_id, field, operator, pattern, seq) VALUES (?, ?, ?, ?, ?)',
-          [id, c.field, c.operator, c.pattern, c.seq]
+          'INSERT INTO ehs_family_criteria (family_id, field, operator, conjunction, pattern, seq) VALUES (?, ?, ?, ?, ?, ?)',
+          [id, c.field, c.operator, c.conjunction, c.pattern, c.seq]
         )
       }
     }

@@ -15,7 +15,7 @@ export async function loadFamilies(): Promise<Family[]> {
   )
   if (!fams?.length) return []
   const crits = await queryPrimary<any[]>(
-    'SELECT id, family_id, field, operator, pattern, seq FROM ehs_family_criteria ORDER BY family_id, seq, id'
+    'SELECT id, family_id, field, operator, conjunction, pattern, seq FROM ehs_family_criteria ORDER BY family_id, seq, id'
   )
   const byFamily = new Map<number, any[]>()
   for (const c of crits || []) {

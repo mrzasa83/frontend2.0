@@ -33,7 +33,6 @@ function PhaseBadge({ phase }: { phase: string }) {
 const TABS = [
   { id: 'general', label: 'General' },
   { id: 'material-certs', label: 'Material Certs' },
-  { id: 'cert-search', label: 'PO Cert Search' },
   { id: 'po-certs', label: 'PO Certs' },
   { id: 'final-inspection', label: 'Final Inspection' },
   { id: 'pack-ship', label: 'Pack & Ship' },
@@ -123,57 +122,10 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
     }
   }
 
-  const buildCatalog = async () => {
-    setIndexing(true); setIndexMsg('')
-    try {
-      // Build the file-level C of C inventory across all three site archives.
-      // This indexes the PDFs themselves (PO number, lot, part, material type,
-      // scan date), which is what the matching below actually needs.
-      const res = await fetch(getApiUrl('/api/operations/inspections/material-certs/po-index'), { method: 'POST' })
-      const r = await readJson(res)
-      if (!res.ok) throw new Error(r.details || r.error || 'Failed')
-      const bits = [`${Number(r.found || 0).toLocaleString()} certificates indexed`]
-      if (r.removed) bits.push(`${Number(r.removed).toLocaleString()} stale removed`)
-      if (r.problems?.length) bits.push(r.problems.join('; '))
-      setIndexMsg(`Catalog updated: ${bits.join(' · ')}`)
-      if (certsFetched) fetchCerts()
-    } catch (e: any) { setIndexMsg(`Error: ${e.message}`) }
-    setIndexing(false)
-  }
 
-  const fetchCerts = async () => {
-    if (!record?.work_order) { setCertsError('No work order on this inspection'); return }
-    setCertsLoading(true); setCertsError(''); setCertsFetched(true)
-    try {
-      const res = await fetch(getApiUrl(`/api/operations/inspections/material-certs?workOrder=${encodeURIComponent(record.work_order)}`))
-      const r = await readJson(res)
-      if (!res.ok) throw new Error(r.details || r.error || 'Failed')
-      const list = r.certs || []
-      setCerts(list)
-      // Match cert rows to PDF files on the L drive (separate fs route)
-      if (list.length) {
-        try {
-          const fr = await fetch(getApiUrl('/api/operations/inspections/material-certs/files'), {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              certs: list.map((c: any) => ({ purchasedPart: c.purchasedPart, poNumber: c.poNumber, batchSerial: c.batchSerial })),
-            }),
-          })
-          if (fr.ok) setCertFiles((await fr.json()).matches || {})
-        } catch { /* file matching is best-effort */ }
-        // Load any persisted reviewer selections
-        try {
-          const sr = await fetch(getApiUrl(`/api/operations/inspections/material-certs/selection?inspectionId=${inspectionId}`))
-          if (sr.ok) setCertSelections((await sr.json()).selections || {})
-        } catch { /* best-effort */ }
-      }
-    } catch (e: any) { setCertsError(e.message) }
-    setCertsLoading(false)
-  }
 
   // Lazy-load certs when the tab is first opened
   useEffect(() => {
-    if (activeTab === 'material-certs' && !certsFetched && record?.work_order) fetchCerts()
   }, [activeTab, record])
 
   // ─── PO Certs ──────────────────────────────────────────────
@@ -357,8 +309,8 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   if (!record) return <div className="p-6 text-red-600">Record not found</div>
 
   const renderTab = (tabId: string) => {
-    // Browse the whole cert archive and tie certs directly to this FAI.
-    if (tabId === 'cert-search') {
+    // Material Certs: browse the certificate archive and tie certs to this FAI.
+    if (tabId === 'material-certs') {
       return <CertInventoryTab inspectionId={inspectionId} />
     }
     if (tabId === 'general') {
@@ -517,205 +469,6 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
       return record.part_number
         ? <ReleasedFileSection partNumber={record.part_number} fileType="packShip" title="Pack & Ship" />
         : <p className="text-sm text-slate-400">No customer part on this inspection.</p>
-    }
-    if (tabId === 'material-certs') {
-      const fileFor = (c: any) => (certFiles[`${c.purchasedPart}|${c.poNumber}|${c.batchSerial}`] || [])
-      const keyOf = (c: any) => `${c.purchasedPart}|${c.poNumber}|${c.batchSerial}`
-      const effectiveFile = (c: any) => {
-        const sel = certSelections[keyOf(c)]
-        if (sel && sel.filePath) return sel.filePath
-        const cands = fileFor(c)
-        return cands.length ? cands[0].path : ''
-      }
-      const downloadUrl = (p: string) => getApiUrl(`/api/operations/inspections/material-certs/download?path=${encodeURIComponent(p)}`)
-
-      // Column definitions: display value + sort value
-      const cols: { key: string; label: string; disp: (c: any) => string }[] = [
-        { key: 'purchasedPart', label: 'Purchased Part', disp: c => c.purchasedPart || '' },
-        { key: 'description', label: 'Description', disp: c => c.description || '' },
-        { key: 'batchSerial', label: 'Batch/Serial', disp: c => c.batchSerial || '' },
-        { key: 'expDate', label: 'Exp Date', disp: c => c.expDate ? new Date(c.expDate).toLocaleDateString() : '' },
-        { key: 'poNumber', label: 'PO #', disp: c => c.poNumber || '' },
-        { key: 'poDate', label: 'PO Date', disp: c => c.poDate ? new Date(c.poDate).toLocaleDateString() : '' },
-        { key: 'supplier', label: 'Supplier', disp: c => `${c.supplierName || ''}${c.supplierCode ? ' (' + c.supplierCode + ')' : ''}` },
-        { key: 'status', label: 'Status', disp: c => (fileFor(c).length ? 'found' : 'missing') },
-      ]
-      const sortVal = (c: any, k: string): any => {
-        if (k === 'expDate') return c.expDate ? new Date(c.expDate).getTime() : 0
-        if (k === 'poDate') return c.poDate ? new Date(c.poDate).getTime() : 0
-        const col = cols.find(x => x.key === k)
-        return (col ? col.disp(c) : '').toLowerCase()
-      }
-
-      // Apply per-column filters then sort
-      let view = certs.filter(c =>
-        cols.every(col => {
-          const f = (colFilters[col.key] || '').trim().toLowerCase()
-          if (!f) return true
-          return col.disp(c).toLowerCase().includes(f)
-        })
-      )
-      view = [...view].sort((a, b) => {
-        const av = sortVal(a, certSort.key), bv = sortVal(b, certSort.key)
-        if (av < bv) return certSort.dir === 'asc' ? -1 : 1
-        if (av > bv) return certSort.dir === 'asc' ? 1 : -1
-        return 0
-      })
-
-      const toggleSort = (k: string) => setCertSort(s => s.key === k ? { key: k, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key: k, dir: 'asc' })
-      const selectedCount = certs.filter(c => certSelections[keyOf(c)]).length
-      const foundCount = certs.filter(c => fileFor(c).length).length
-      const allShownSelected = view.length > 0 && view.every(c => certSelections[keyOf(c)])
-      const toggleAllShown = () => {
-        if (!canSelect) return
-        if (allShownSelected) view.forEach(c => saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, null, true))
-        else view.forEach(c => { if (!certSelections[keyOf(c)]) saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, effectiveFile(c) || '') })
-      }
-
-      return (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h4 className="text-sm font-semibold text-slate-700">Material Certs ({certs.length})</h4>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {foundCount} of {certs.length} matched to a file · {selectedCount} selected for this inspection
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {isAdmin && (
-                <button onClick={buildCatalog} disabled={indexing}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50"
-                  title="Walk the L drive and (re)build the cert folder index. Slow — only needed when new cert folders/files have been added.">
-                  <Database size={14} className={indexing ? 'animate-pulse' : ''} /> {indexing ? 'Indexing...' : 'Build Catalog'}
-                </button>
-              )}
-              <button onClick={fetchCerts} disabled={certsLoading || !record.work_order}
-                className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 disabled:opacity-50"
-                title="Reload the BOM cert list from Paradigm and re-match files against the catalog. Fast.">
-                <RefreshCw size={14} className={certsLoading ? 'animate-spin' : ''} /> Refresh
-              </button>
-            </div>
-          </div>
-          {indexMsg && <p className="text-xs text-slate-500">{indexMsg}</p>}
-          <p className="text-xs text-slate-400">Purchased materials in the work order BOM (by lot / PO / supplier). Check the rows that apply to this inspection; click a found file to open it.</p>
-
-          {!record.work_order ? (
-            <p className="text-sm text-amber-600">No work order is associated with this inspection.</p>
-          ) : certsError ? (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{certsError}</div>
-          ) : certsLoading ? (
-            <div className="flex items-center gap-2 py-8 justify-center text-slate-500"><RefreshCw size={18} className="animate-spin" /> Loading material certs...</div>
-          ) : certs.length === 0 ? (
-            <p className="text-sm text-slate-400">{certsFetched ? 'No purchased materials found for this work order' : 'Loading...'}</p>
-          ) : (
-            <div className="bg-white border border-slate-200 rounded-lg overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr>
-                    <th className="px-3 py-2 w-8 text-center">
-                      <input type="checkbox" checked={allShownSelected} onChange={toggleAllShown} disabled={!canSelect}
-                        title="Select all shown rows" className="cursor-pointer" />
-                    </th>
-                    {cols.map(col => (
-                      <th key={col.key} onClick={() => toggleSort(col.key)}
-                        className="px-3 py-2 text-left text-xs font-medium text-slate-600 whitespace-nowrap cursor-pointer select-none hover:text-slate-900">
-                        {col.label}
-                        {certSort.key === col.key && <span className="ml-1">{certSort.dir === 'asc' ? '▲' : '▼'}</span>}
-                      </th>
-                    ))}
-                  </tr>
-                  <tr className="bg-white">
-                    <th className="px-2 py-1"></th>
-                    {cols.map(col => (
-                      <th key={col.key} className="px-2 py-1">
-                        <input value={colFilters[col.key] || ''}
-                          onChange={e => setColFilters(f => ({ ...f, [col.key]: e.target.value }))}
-                          placeholder="filter"
-                          className="w-full text-xs font-normal border border-slate-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-300" />
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {view.map((c, i) => {
-                    const key = keyOf(c)
-                    const candidates = fileFor(c)
-                    const selected = !!certSelections[key]
-                    const eff = effectiveFile(c)
-                    return (
-                      <tr key={`${c.purchasedPart}-${c.batchSerial}-${i}`} className={`border-t border-slate-100 hover:bg-slate-50 ${selected ? 'bg-blue-50/40' : ''}`}>
-                        <td className="px-3 py-2 text-center">
-                          <input type="checkbox" checked={selected} disabled={!canSelect}
-                            onChange={() => selected
-                              ? saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, null, true)
-                              : saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, eff || '')}
-                            className="cursor-pointer" />
-                        </td>
-                        <td className="px-3 py-2 font-mono text-slate-800 whitespace-nowrap">{c.purchasedPart || '—'}</td>
-                        <td className="px-3 py-2 text-slate-600 text-xs">{c.description || '—'}</td>
-                        <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.batchSerial || '—'}</td>
-                        <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{c.expDate ? new Date(c.expDate).toLocaleDateString() : '—'}</td>
-                        <td className="px-3 py-2 font-mono text-slate-600 text-xs">{c.poNumber || '—'}</td>
-                        <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap">{c.poDate ? new Date(c.poDate).toLocaleDateString() : '—'}</td>
-                        <td className="px-3 py-2 text-slate-600 text-xs">{c.supplierName || '—'}{c.supplierCode ? ` (${c.supplierCode})` : ''}</td>
-                        <td className="px-3 py-2 text-xs whitespace-nowrap">
-                          {candidates.length === 0 ? (
-                            <span className="inline-flex items-center gap-1 text-red-600"><span className="w-2 h-2 rounded-full bg-red-500" /> missing</span>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <span className="inline-flex items-center gap-1 text-green-700 font-medium">
-                                <span className="w-2 h-2 rounded-full bg-green-500" /> found
-                              </span>
-                              <button
-                                onClick={() => setPreviewPdf({ url: downloadUrl(eff || candidates[0].path), name: (eff || candidates[0].path).split('/').pop() || 'Certificate' })}
-                                className="text-slate-500 hover:text-blue-600" title="Preview in window">
-                                <Eye size={15} />
-                              </button>
-                              {candidates.length > 1 && (
-                                <select value={eff}
-                                  onChange={e => canSelect && saveSelection(c.purchasedPart, c.poNumber, c.batchSerial, e.target.value)}
-                                  className="text-xs border border-slate-200 rounded px-1 py-0.5 max-w-[150px]" disabled={!canSelect}
-                                  title="Multiple files matched — pick the correct one">
-                                  {candidates.map((f, fi) => <option key={fi} value={f.path}>{f.name}</option>)}
-                                </select>
-                              )}
-                            </div>
-                          )}
-                        </td>
-                      </tr>
-                    )
-                  })}
-                  {view.length === 0 && (
-                    <tr><td colSpan={cols.length + 1} className="px-3 py-6 text-center text-slate-400 text-sm">No rows match the current filters.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {previewPdf && (
-            <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4" onClick={() => setPreviewPdf(null)}>
-              <div
-                className={`bg-white rounded-xl shadow-2xl flex flex-col transition-all duration-150 ${previewMax ? 'w-[98vw] h-[96vh]' : 'w-[80vw] h-[90vh]'}`}
-                onClick={e => e.stopPropagation()}>
-                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200 flex-shrink-0">
-                  <h3 className="text-sm font-medium text-slate-700 truncate pr-4" title={previewPdf.name}>{previewPdf.name}</h3>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button onClick={() => setPreviewMax(m => !m)} className="text-slate-500 hover:text-blue-600 p-1"
-                      title={previewMax ? 'Restore size' : 'Maximize'}>
-                      {previewMax ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
-                    </button>
-                    <a href={`${previewPdf.url}&download=true`} target="_blank" rel="noopener noreferrer"
-                      className="text-slate-500 hover:text-green-600 p-1" title="Download"><Download size={16} /></a>
-                    <button onClick={() => setPreviewPdf(null)} className="text-slate-500 hover:text-slate-800 p-1" title="Close"><X size={18} /></button>
-                  </div>
-                </div>
-                <iframe src={previewPdf.url} title={previewPdf.name} className="flex-1 w-full rounded-b-xl" />
-              </div>
-            </div>
-          )}
-        </div>
-      )
     }
     if (tabId === 'po-certs') {
       const downloadUrl = (p: string) => getApiUrl(`/api/operations/inspections/po-certs/download?path=${encodeURIComponent(p)}`)

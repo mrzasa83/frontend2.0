@@ -17,9 +17,12 @@ export type Criterion = {
   id?: number
   field: string          // INV_PART_NUMBER | INV_PART_DESCRIPTION | MANUFACTURER_NAME
   operator: string       // LIKE | NOT LIKE
+  conjunction?: string   // AND | OR — how this joins to the criterion above it
   pattern: string        // SQL LIKE pattern, e.g. PPGLB%
   seq?: number
 }
+
+export const CONJUNCTIONS = ['AND', 'OR'] as const
 
 export type Family = {
   id: number
@@ -65,16 +68,34 @@ export function likeToRegExp(pattern: string): RegExp {
   return new RegExp(`^${body}$`, 'i')
 }
 
-/** Does a part satisfy every criterion of a family? */
+/** Evaluate one criterion against a part. */
+function criterionHits(part: PartRow, c: Criterion): boolean {
+  const value = String((part as any)[c.field] ?? '')
+  const hit = likeToRegExp(c.pattern).test(value)
+  return String(c.operator).toUpperCase() === 'NOT LIKE' ? !hit : hit
+}
+
+/**
+ * Does a part satisfy a family's criteria?
+ *
+ * Criteria are evaluated with SQL precedence: AND binds tighter than OR, so
+ * "A and B or C" reads as "(A and B) or C". Consecutive AND'd criteria form a
+ * group, and the groups are OR'd together. Without OR this behaves exactly as
+ * it did before — every criterion must hold.
+ */
 export function partMatchesFamily(part: PartRow, family: Family): boolean {
-  const crits = family.criteria || []
+  const crits = (family.criteria || []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
   if (!crits.length) return false          // an undefined family matches nothing
-  return crits.every(c => {
-    const value = String((part as any)[c.field] ?? '')
-    const re = likeToRegExp(c.pattern)
-    const hit = re.test(value)
-    return String(c.operator).toUpperCase() === 'NOT LIKE' ? !hit : hit
-  })
+
+  const groups: Criterion[][] = []
+  for (let i = 0; i < crits.length; i++) {
+    const c = crits[i]
+    const joinsWithOr = i > 0 && String(c.conjunction ?? 'AND').toUpperCase() === 'OR'
+    if (i === 0 || joinsWithOr) groups.push([c])
+    else groups[groups.length - 1].push(c)
+  }
+  // Any AND-group satisfied means the part matches.
+  return groups.some(g => g.every(c => criterionHits(part, c)))
 }
 
 /**
@@ -110,9 +131,22 @@ export function criteriaToSql(criteria: Criterion[]): string {
     "    ACTIVE_FLAG = 'Y' and",
     "    INV_PART_NUMBER not like 'Z%'",
   ]
-  const extra = (criteria || [])
-    .slice()
-    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
-    .map(c => `    and ${c.field} ${String(c.operator).toLowerCase()} '${c.pattern}'`)
-  return [...base, ...extra].join('\n')
+  const sorted = (criteria || []).slice().sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+  if (!sorted.length) return base.join('\n')
+
+  // Render the same OR-of-AND-groups the matcher evaluates, with explicit
+  // parentheses so the SQL can't be read any other way.
+  const groups: Criterion[][] = []
+  for (let i = 0; i < sorted.length; i++) {
+    const c = sorted[i]
+    const joinsWithOr = i > 0 && String(c.conjunction ?? 'AND').toUpperCase() === 'OR'
+    if (i === 0 || joinsWithOr) groups.push([c])
+    else groups[groups.length - 1].push(c)
+  }
+  const render = (c: Criterion) =>
+    `${c.field} ${String(c.operator).toLowerCase()} '${c.pattern}'`
+  const body = groups.length === 1
+    ? groups[0].map(render).join(' and ')
+    : groups.map(g => g.length > 1 ? `(${g.map(render).join(' and ')})` : render(g[0])).join(' or ')
+  return [...base, `    and (${body})`].join('\n')
 }
