@@ -14,6 +14,7 @@ const SORTABLE: Record<string, string> = {
   lot: 'lot',
   apc_part: 'apc_part',
   material_type: 'material_type',
+  part_description: 'part_description',
   site: 'site',
   file_name: 'file_name',
   file_mtime: 'file_mtime',
@@ -38,9 +39,9 @@ export async function GET(request: NextRequest) {
 
   const q = (sp.get('q') || '').trim()
   if (q) {
-    where.push('(po_number LIKE ? OR lot LIKE ? OR apc_part LIKE ? OR file_name LIKE ?)')
+    where.push('(po_number LIKE ? OR lot LIKE ? OR apc_part LIKE ? OR file_name LIKE ? OR part_description LIKE ?)')
     const l = `%${q}%`
-    params.push(l, l, l, l)
+    params.push(l, l, l, l, l)
   }
   const po = (sp.get('po') || '').trim()
   if (po) like('po_number', po.toUpperCase())
@@ -74,8 +75,8 @@ export async function GET(request: NextRequest) {
     const total = Number(countRows?.[0]?.total) || 0
 
     const rows = await queryPrimary<any[]>(
-      `SELECT id, site, material_type, apc_part, po_number, lot,
-              file_name, file_path, rel_dir, file_mtime, file_size
+      `SELECT id, site, material_type, apc_part, part_description, part_found,
+              po_number, lot, file_name, file_path, rel_dir, file_mtime, file_size
        FROM material_cert_pos
        WHERE ${whereSql}
        ORDER BY ${sortKey} ${dir}, po_number ASC

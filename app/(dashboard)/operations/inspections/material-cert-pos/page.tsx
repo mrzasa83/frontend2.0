@@ -11,6 +11,7 @@ import { getApiUrl } from '@/lib/api'
 
 type CertRow = {
   id: number; site: string; material_type: string; apc_part: string
+  part_description?: string; part_found?: number
   po_number: string; lot: string; file_name: string; file_path: string
   rel_dir: string; file_mtime: string | null; file_size: number | null
 }
@@ -25,6 +26,7 @@ const COLS = [
   { key: 'po_number', label: 'PO Number', filter: 'po', w: 140 },
   { key: 'lot', label: 'Lot', filter: 'lot', w: 140 },
   { key: 'apc_part', label: 'APC Part', filter: 'part', w: 170 },
+  { key: 'part_description', label: 'Description', filter: '', w: 240 },
   { key: 'material_type', label: 'Material Type', filter: 'type', w: 150 },
   { key: 'site', label: 'Site', filter: '', w: 90 },
   { key: 'file_name', label: 'File', filter: '' },
@@ -104,6 +106,7 @@ export default function MaterialCertPosPage() {
       const bits = [`${r.found.toLocaleString()} PDFs found`, `${r.written.toLocaleString()} indexed`]
       if (r.removed) bits.push(`${r.removed.toLocaleString()} removed`)
       if (r.unparsed) bits.push(`${r.unparsed.toLocaleString()} without a PUR number`)
+      if (r.unknownParts) bits.push(`${Number(r.unknownParts).toLocaleString()} folders with no Paradigm part`)
       setNotice(bits.join(' · ') + (r.problems?.length ? ` — ${r.problems.join('; ')}` : ''))
       await Promise.all([load(), loadStatus()])
     } catch (e: any) { setError(e.message) }
@@ -122,6 +125,7 @@ export default function MaterialCertPosPage() {
     const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(rows.map(r => ({
       'PO Number': r.po_number, Lot: r.lot, 'APC Part': r.apc_part,
+      Description: r.part_description || '',
       'Material Type': r.material_type, Site: r.site, File: r.file_name,
       Date: fmtDate(r.file_mtime), Path: r.file_path,
     })))
@@ -293,7 +297,16 @@ export default function MaterialCertPosPage() {
                   {r.po_number || <span className="text-amber-600 text-xs">no PUR#</span>}
                 </td>
                 <td className="px-3 py-1.5 font-mono text-slate-700">{r.lot || <span className="text-slate-300">—</span>}</td>
-                <td className="px-3 py-1.5 font-mono text-slate-700">{r.apc_part}</td>
+                <td className="px-3 py-1.5 font-mono text-slate-700">
+                  {r.apc_part}
+                  {r.part_found === 0 && (
+                    <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-amber-50 text-amber-600"
+                      title="This folder name doesn't match a Paradigm part number">?</span>
+                  )}
+                </td>
+                <td className="px-3 py-1.5 text-slate-600 text-xs truncate max-w-xs" title={r.part_description || ''}>
+                  {r.part_description || <span className="text-slate-300">—</span>}
+                </td>
                 <td className="px-3 py-1.5 text-slate-600">{r.material_type}</td>
                 <td className="px-3 py-1.5 text-slate-500 text-xs">{r.site}</td>
                 <td className="px-3 py-1.5 text-slate-600 truncate max-w-md" title={r.file_path}>{r.file_name}</td>

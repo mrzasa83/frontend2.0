@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { canReadModule } from '@/lib/config/access'
+import { queryMSSQL } from '@/lib/db/mssql'
 import { productTypeFromPart, type MaterialLine } from '@/lib/ehs/productCompliance'
 
 export const dynamic = 'force-dynamic'
@@ -40,7 +41,50 @@ export async function GET(request: NextRequest) {
            ) l ON l.latest_id = a.id
            ORDER BY a.assessed_at DESC`
     )
-    return NextResponse.json({ success: true, rows: rows || [], count: rows?.length ?? 0 })
+    // Part Number and Customer Part Number come from Paradigm (DATA0050), not
+    // from the values captured at signoff — so the list reflects the part as it
+    // stands today rather than a stale copy.
+    //   CUSTOMER_PART_NUMBER = the APC part number
+    //   CUSTOMER_PART_DESC   = the customer's own part number
+    const parts = Array.from(new Set(
+      (rows || []).map(r => String(r.apc_part || '').trim()).filter(Boolean)
+    ))
+    const live = new Map<string, { apc: string; customer: string }>()
+    for (let i = 0; i < parts.length; i += 200) {
+      const batch = parts.slice(i, i + 200)
+      const names = batch.map((_, j) => `@p${j}`)
+      const params: Record<string, any> = {}
+      batch.forEach((p, j) => { params[`p${j}`] = p })
+      try {
+        const found = await queryMSSQL<any[]>('1', `
+          SELECT CUSTOMER_PART_NUMBER, CUSTOMER_PART_DESC
+          FROM data0050 WITH (NOLOCK)
+          WHERE LTRIM(RTRIM(CUSTOMER_PART_NUMBER)) IN (${names.join(',')})`, params)
+        for (const f of found || []) {
+          const apc = String(f.CUSTOMER_PART_NUMBER || '').trim()
+          live.set(apc.toUpperCase(), {
+            apc,
+            customer: String(f.CUSTOMER_PART_DESC || '').trim(),
+          })
+        }
+      } catch (e) {
+        // Paradigm unreachable — fall back to the stored values below.
+        console.error('EHS assessed-list DATA0050 lookup failed:', e)
+      }
+    }
+
+    const merged = (rows || []).map(r => {
+      const hit = live.get(String(r.apc_part || '').trim().toUpperCase())
+      const apc = hit?.apc || r.apc_part
+      return {
+        ...r,
+        apc_part: apc,
+        customer_part: hit ? hit.customer : r.customer_part,
+        part_type: productTypeFromPart(apc),
+      }
+    })
+
+    return NextResponse.json({ success: true, rows: merged, count: merged.length })
   } catch (error) {
     console.error('EHS product assessments query error:', error)
     return NextResponse.json({
@@ -68,6 +112,23 @@ export async function POST(request: NextRequest) {
 
     const materials: MaterialLine[] = Array.isArray(b?.materials) ? b.materials : []
     const user = (session.user as any)?.username || 'unknown'
+
+    // Take the part numbers from Paradigm rather than the request body, so the
+    // signoff records what DATA0050 actually says at the moment it was made.
+    let apcResolved = apc_part
+    let customerResolved = String(b?.customer_part ?? '').slice(0, 120)
+    try {
+      const hdr = await queryMSSQL<any[]>('1', `
+        SELECT TOP 1 CUSTOMER_PART_NUMBER, CUSTOMER_PART_DESC
+        FROM data0050 WITH (NOLOCK)
+        WHERE LTRIM(RTRIM(CUSTOMER_PART_NUMBER)) = @part`, { part: apc_part })
+      if (hdr?.length) {
+        apcResolved = String(hdr[0].CUSTOMER_PART_NUMBER || '').trim() || apc_part
+        customerResolved = String(hdr[0].CUSTOMER_PART_DESC || '').trim() || customerResolved
+      }
+    } catch (e) {
+      console.error('EHS signoff DATA0050 lookup failed:', e)
+    }
     const verdict = (v: any) => (String(v).toLowerCase() === 'pass' ? 'Pass' : 'Fail')
 
     const res: any = await queryPrimary(
@@ -75,9 +136,9 @@ export async function POST(request: NextRequest) {
          (apc_part, customer_part, part_type, reach_status, rohs_status, prop65_status,
           material_count, covered_count, notes, assessed_by)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [apc_part,
-       String(b?.customer_part ?? '').slice(0, 120),
-       productTypeFromPart(apc_part),
+      [apcResolved,
+       customerResolved.slice(0, 120),
+       productTypeFromPart(apcResolved),
        verdict(b?.reach_status), verdict(b?.rohs_status), verdict(b?.prop65_status),
        materials.length,
        materials.filter(m => m.family_name).length,

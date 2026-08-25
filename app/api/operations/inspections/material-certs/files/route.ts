@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
+import { refreshIfStale } from '@/lib/certs/indexRefresh'
+import { rebuildCocIndex } from '@/lib/certs/rebuildCoc'
 import { promises as fs } from 'fs'
 import path from 'path'
 import { exec } from 'child_process'
@@ -66,6 +68,10 @@ function isUnderRoot(p: string): boolean {
 }
 
 export async function POST(request: NextRequest) {
+  // Keep the cert inventory fresh on the hour. Runs in the background — the
+  // match below answers immediately from whatever is already indexed.
+  refreshIfStale('supplier_cert_pos', rebuildCocIndex)
+
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
