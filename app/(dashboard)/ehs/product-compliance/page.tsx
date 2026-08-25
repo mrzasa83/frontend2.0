@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react'
 import Tabs from '@/components/ui/Tabs'
 import {
   RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Download, Plus, X,
-  ShieldCheck, Layers, Route as RouteIcon, History as HistoryIcon, Save, AlertTriangle, CheckCircle2,
+  ShieldCheck, Layers, Package, Route as RouteIcon, History as HistoryIcon, Save, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import { rollUpAll, materialPasses, type MaterialLine } from '@/lib/ehs/productCompliance'
@@ -17,10 +17,15 @@ type Assessment = {
   assessed_by: string; assessed_at: string
   notes?: string
 }
+type BomNode = {
+  part_number: string; description: string; manufacturer: string
+  pm: string; level: number; quantity: number | null; parent_part: string
+}
 type ProductDetail = {
   apc_part: string; customer_part?: string; part_type: string
   materials: MaterialLine[]
-  bom_total: number; purchased_count: number
+  bom?: BomNode[]
+  bom_total: number; purchased_count: number; manufactured_count?: number
   rollup: { reach: string; rohs: string; prop65: string }
   route: any[]
   history: Assessment[]
@@ -330,7 +335,9 @@ function ProductDetailView({ apcPart, customerPart, canEdit, onSaved }:
           </span>
         </h2>
         <p className="text-sm text-slate-600">
-          {data.purchased_count} purchased materials of {data.bom_total} BOM lines
+          {data.purchased_count} unique purchased materials
+          {data.manufactured_count ? <> · {data.manufactured_count} sub-assemblies expanded</> : null}
+          {' '}· {data.bom_total} BOM nodes
           {custPart && <span className="text-slate-400"> · customer {custPart}</span>}
         </p>
       </div>
@@ -353,7 +360,7 @@ function ProductDetailView({ apcPart, customerPart, canEdit, onSaved }:
             <ComplianceTab data={data} apcPart={apcPart} customerPart={custPart}
               canEdit={canEdit} onSaved={() => { load(); onSaved() }} />
           )}
-          {tab === 'bom' && <BomTab materials={data.materials} />}
+          {tab === 'bom' && <BomTab bom={data.bom || []} materials={data.materials} />}
           {tab === 'route' && <RouteTab route={data.route} />}
           {tab === 'history' && <HistoryTab history={data.history} />}
         </div>
@@ -499,19 +506,44 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
   )
 }
 
-function BomTab({ materials }: { materials: MaterialLine[] }) {
+function BomTab({ bom, materials }: { bom: BomNode[]; materials: MaterialLine[] }) {
   const [filter, setFilter] = useState('')
-  const shown = materials.filter(m =>
-    !filter.trim() ||
-    `${m.part_number} ${m.description} ${m.manufacturer}`.toLowerCase().includes(filter.toLowerCase()))
+  const [purchasedOnly, setPurchasedOnly] = useState(true)
+
+  // Family lookup, so purchased rows can show where they landed.
+  const familyOf = new Map(materials.map(m => [m.part_number.toUpperCase(), m]))
+
+  const rows = (bom.length ? bom : materials.map(m => ({
+    part_number: m.part_number, description: m.description, manufacturer: m.manufacturer,
+    pm: 'P', level: 1, quantity: m.quantity ?? null, parent_part: '',
+  }))) as BomNode[]
+
+  const shown = rows
+    .filter(r => !purchasedOnly || r.pm === 'P')
+    .filter(r => !filter.trim() ||
+      `${r.part_number} ${r.description} ${r.manufacturer}`.toLowerCase().includes(filter.toLowerCase()))
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold text-slate-800">BOM — purchased materials</h3>
-        <div className="relative">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
-          <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter…"
-            className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-56 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h3 className="text-lg font-semibold text-slate-800">BOM</h3>
+          <p className="text-xs text-slate-500">
+            Fully expanded through every sub-assembly · {shown.length} shown
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-sm text-slate-600"
+            title="Uncheck to see the manufactured sub-assemblies as well">
+            <input type="checkbox" checked={purchasedOnly}
+              onChange={e => setPurchasedOnly(e.target.checked)} />
+            Purchased only
+          </label>
+          <div className="relative">
+            <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+            <input value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter…"
+              className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-56 focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
         </div>
       </div>
       <div className="bg-white border border-slate-200 rounded-lg overflow-auto max-h-[460px]">
@@ -521,24 +553,43 @@ function BomTab({ materials }: { materials: MaterialLine[] }) {
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Part Number</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Description</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Manufacturer</th>
-              <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-24">Qty</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-16">Lvl</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-44">Family</th>
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 ? (
-              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400 text-sm">No purchased materials.</td></tr>
-            ) : shown.map((m, i) => (
-              <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
-                <td className="px-3 py-1.5 font-mono text-slate-800">{m.part_number}</td>
-                <td className="px-3 py-1.5 text-slate-600">{m.description}</td>
-                <td className="px-3 py-1.5 text-slate-600">{m.manufacturer}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{m.quantity ?? ''}</td>
-                <td className="px-3 py-1.5">
-                  {m.family_name || <span className="text-amber-600 text-xs">unassigned</span>}
-                </td>
-              </tr>
-            ))}
+              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400 text-sm">No materials.</td></tr>
+            ) : shown.map((r, i) => {
+              const m = familyOf.get(r.part_number.toUpperCase())
+              const manufactured = r.pm === 'M'
+              return (
+                <tr key={`${r.part_number}-${i}`} className="border-t border-slate-100 hover:bg-slate-50">
+                  <td className="px-3 py-1.5">
+                    <span className="flex items-center gap-1.5">
+                      {manufactured
+                        ? <Layers size={13} className="text-purple-500 shrink-0"
+                            aria-label="Manufactured sub-assembly" />
+                        : <Package size={13} className="text-cyan-600 shrink-0"
+                            aria-label="Purchased material" />}
+                      <span className={`font-mono ${manufactured ? 'text-purple-700' : 'text-slate-800'}`}>
+                        {r.part_number}
+                      </span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-1.5 text-slate-600">{r.description}</td>
+                  <td className="px-3 py-1.5 text-slate-600">{r.manufacturer}</td>
+                  <td className="px-3 py-1.5 text-slate-400 text-xs tabular-nums">{r.level}</td>
+                  <td className="px-3 py-1.5">
+                    {manufactured
+                      ? <span className="text-xs text-slate-400">sub-assembly</span>
+                      : m?.family_name
+                        ? <span className="text-slate-700">{m.family_name}</span>
+                        : <span className="text-amber-600 text-xs">unassigned</span>}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>

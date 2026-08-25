@@ -11,26 +11,71 @@ import { productTypeFromPart, rollUpAll, type MaterialLine } from '@/lib/ehs/pro
 export const dynamic = 'force-dynamic'
 
 /**
- * Purchased materials on a product's BOM.
- * Mirrors the existing BOM traversal: the customer part (DATA0050) points at a
- * BOM header (DATA0025), whose lines (DATA0026) reference inventory parts
- * (DATA0017). Only P_M = 'P' rows are material — 'M' rows are sub-assemblies.
+ * FULL recursive BOM for a product.
+ *
+ * Two different traversals are needed, which is why this is a recursive CTE
+ * rather than a single join:
+ *   - top level: the customer part (DATA0050) points at a BOM header through
+ *     BOM_PTR
+ *   - below that: a MANUFACTURED component (DATA0017, P_M = 'M') owns its BOM
+ *     header through DATA0025.INVENTORY_PTR
+ *
+ * Descends only into 'M' components — a purchased part is a leaf. Effectivity is
+ * honoured at every level, and a visited-path guard stops a self-referencing BOM
+ * from recursing forever.
+ *
+ * Returns every node with its level and type, so the BOM tab can show the tree
+ * and the Compliance tab can take the distinct purchased leaves.
  */
 const BOM_SQL = `
+  WITH BomTree AS (
+    -- Level 1: components of the customer part's BOM
+    SELECT
+      d17.RKEY                 AS component_rkey,
+      d17.INV_PART_NUMBER      AS part_number,
+      d17.INV_PART_DESCRIPTION AS description,
+      d17.MANUFACTURER_NAME    AS manufacturer,
+      d17.P_M                  AS pm,
+      d17.ACTIVE_FLAG          AS active_flag,
+      d26.QTY_BOM              AS quantity,
+      1                        AS lvl,
+      CAST(d50.CUSTOMER_PART_NUMBER AS NVARCHAR(400)) AS parent_part,
+      CAST('|' + CAST(d17.RKEY AS NVARCHAR(20)) + '|' AS NVARCHAR(4000)) AS visited
+    FROM data0050 d50
+    JOIN data0025 d25 ON d50.BOM_PTR = d25.RKEY
+    JOIN data0026 d26 ON d25.RKEY = d26.PARENT_NODE_INVENT
+    JOIN data0017 d17 ON d17.RKEY = d26.INVENTORY_PTR
+    WHERE d50.CUSTOMER_PART_NUMBER LIKE @partNumber
+      AND (d25.EFF_END IS NULL OR d25.EFF_END > GETDATE())
+
+    UNION ALL
+
+    -- Deeper levels: expand each manufactured sub-assembly
+    SELECT
+      c17.RKEY, c17.INV_PART_NUMBER, c17.INV_PART_DESCRIPTION,
+      c17.MANUFACTURER_NAME, c17.P_M, c17.ACTIVE_FLAG,
+      c26.QTY_BOM,
+      t.lvl + 1,
+      CAST(t.part_number AS NVARCHAR(400)),
+      CAST(t.visited + CAST(c17.RKEY AS NVARCHAR(20)) + '|' AS NVARCHAR(4000))
+    FROM BomTree t
+    JOIN data0025 c25 ON c25.INVENTORY_PTR = t.component_rkey
+    JOIN data0026 c26 ON c26.PARENT_NODE_INVENT = c25.RKEY
+    JOIN data0017 c17 ON c17.RKEY = c26.INVENTORY_PTR
+    WHERE t.pm = 'M'
+      AND t.lvl < 20
+      AND (c25.EFF_END IS NULL OR c25.EFF_END > GETDATE())
+      AND t.visited NOT LIKE '%|' + CAST(c17.RKEY AS NVARCHAR(20)) + '|%'
+  )
   SELECT
-    d17.INV_PART_NUMBER      AS part_number,
-    d17.INV_PART_DESCRIPTION AS description,
-    d17.MANUFACTURER_NAME    AS manufacturer,
-    d17.P_M                  AS pm,
-    d17.ACTIVE_FLAG          AS active_flag,
-    d26.QTY_BOM              AS quantity
-  FROM data0050 d50
-  JOIN data0025 d25 ON d50.BOM_PTR = d25.RKEY
-  JOIN data0026 d26 ON d25.RKEY = d26.PARENT_NODE_INVENT
-  JOIN data0017 d17 ON d17.RKEY = d26.INVENTORY_PTR
-  WHERE d50.CUSTOMER_PART_NUMBER LIKE @partNumber
-    AND (d25.EFF_END IS NULL OR d25.EFF_END > GETDATE())
-  ORDER BY d17.INV_PART_NUMBER`
+    component_rkey, part_number, description, manufacturer, pm, active_flag,
+    MIN(lvl)      AS lvl,
+    MAX(quantity) AS quantity,
+    MIN(parent_part) AS parent_part
+  FROM BomTree
+  GROUP BY component_rkey, part_number, description, manufacturer, pm, active_flag
+  ORDER BY pm DESC, part_number
+  OPTION (MAXRECURSION 32)`
 
 /** The customer's own part number, held in DATA0050.CUSTOMER_PART_DESC. */
 const HEADER_SQL = `
@@ -82,24 +127,37 @@ export async function GET(request: NextRequest) {
       loadFamilies(),
     ])
 
-    // Purchased items only — sub-assemblies are not material in themselves.
-    const purchased = (bom || []).filter(r => String(r.pm || '').trim().toUpperCase() === 'P')
+    // The tree carries both kinds. Purchased items are the material; a
+    // manufactured sub-assembly is a container whose own components were
+    // already expanded by the recursion, so it isn't material in itself.
+    // De-duplicate on part number: the same material often appears on several
+    // sub-assemblies, and for compliance we care about unique materials.
+    const seenParts = new Set<string>()
+    const purchased = (bom || [])
+      .filter(r => String(r.pm || '').trim().toUpperCase() === 'P')
+      .filter(r => {
+        const key = String(r.part_number || '').trim().toUpperCase()
+        if (!key || seenParts.has(key)) return false
+        seenParts.add(key)
+        return true
+      })
 
     const materials: MaterialLine[] = purchased.map(r => {
       const asPart: PartRow = {
-        RKEY: 0,
-        INV_PART_NUMBER: r.part_number,
-        INV_PART_DESCRIPTION: r.description,
-        MANUFACTURER_NAME: r.manufacturer,
-        ACTIVE_FLAG: r.active_flag,
+        RKEY: r.component_rkey ?? 0,
+        INV_PART_NUMBER: String(r.part_number || '').trim(),
+        INV_PART_DESCRIPTION: String(r.description || '').trim(),
+        MANUFACTURER_NAME: String(r.manufacturer || '').trim(),
+        ACTIVE_FLAG: String(r.active_flag || '').trim(),
       }
       const fam = familyForPart(asPart, families)
       const inherits = fam ? (fam.inherit_compliance ?? 1) : 1
       return {
-        part_number: r.part_number,
-        description: r.description,
-        manufacturer: r.manufacturer,
+        part_number: asPart.INV_PART_NUMBER,
+        description: asPart.INV_PART_DESCRIPTION,
+        manufacturer: asPart.MANUFACTURER_NAME,
         quantity: r.quantity ?? null,
+        level: r.lvl ?? 1,
         family_id: fam?.id ?? null,
         family_name: fam?.family_name || '',
         reach_status: inherits ? (fam?.reach_status || '') : '',
@@ -140,7 +198,18 @@ export async function GET(request: NextRequest) {
       customer_part,
       part_type: productTypeFromPart(part),
       materials,
+      // Full recursive tree, for the BOM tab: purchased and manufactured alike.
+      bom: (bom || []).map(r => ({
+        part_number: String(r.part_number || '').trim(),
+        description: String(r.description || '').trim(),
+        manufacturer: String(r.manufacturer || '').trim(),
+        pm: String(r.pm || '').trim().toUpperCase(),
+        level: r.lvl ?? 1,
+        quantity: r.quantity ?? null,
+        parent_part: String(r.parent_part || '').trim(),
+      })),
       bom_total: bom?.length ?? 0,
+      manufactured_count: (bom || []).filter(r => String(r.pm || '').trim().toUpperCase() === 'M').length,
       purchased_count: purchased.length,
       rollup: rollUpAll(materials),
       route,
