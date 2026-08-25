@@ -8,6 +8,7 @@ import { canWriteScope } from '@/lib/config/access'
 import ReviewsTab from './ReviewsTab'
 import SignoffTab from './SignoffTab'
 import ReleasedFileSection from './ReleasedFileSection'
+import CertInventoryTab from './CertInventoryTab'
 
 type Props = {
   inspectionId: number
@@ -32,6 +33,7 @@ function PhaseBadge({ phase }: { phase: string }) {
 const TABS = [
   { id: 'general', label: 'General' },
   { id: 'material-certs', label: 'Material Certs' },
+  { id: 'cert-search', label: 'PO Cert Search' },
   { id: 'po-certs', label: 'PO Certs' },
   { id: 'final-inspection', label: 'Final Inspection' },
   { id: 'pack-ship', label: 'Pack & Ship' },
@@ -355,6 +357,10 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   if (!record) return <div className="p-6 text-red-600">Record not found</div>
 
   const renderTab = (tabId: string) => {
+    // Browse the whole cert archive and tie certs directly to this FAI.
+    if (tabId === 'cert-search') {
+      return <CertInventoryTab inspectionId={inspectionId} />
+    }
     if (tabId === 'general') {
       const editable = canEditNow(record.phase)
       if (editing) {

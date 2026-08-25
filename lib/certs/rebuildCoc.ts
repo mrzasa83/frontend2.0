@@ -1,5 +1,5 @@
 import { queryPrimary } from '@/lib/db/mysql-primary'
-import { COC_ROOTS } from '@/lib/config/drives'
+import { COC_ROOTS, COC_EXCLUDED_TYPES } from '@/lib/config/drives'
 import { parseCoCFileName, positionInTree, normalizePart } from '@/lib/certs/cocParser'
 import { promises as fs } from 'fs'
 import path from 'path'
@@ -51,25 +51,38 @@ async function walk(root: string, dir: string, site: string, depth: number, out:
   }
 }
 
-export async function rebuildCocIndex(onlySite = ''): Promise<{
+export async function rebuildCocIndex(onlySite = '', purge = false): Promise<{
   count: number; status: 'ok' | 'partial'; message?: string
   found: number; written: number; removed: number; unparsed: number
   unknownParts?: number
   sitesScanned: string[]; problems: string[]
 }> {
   const roots = COC_ROOTS().filter(r => !onlySite || r.site.toLowerCase() === onlySite.toLowerCase())
+  const excluded = COC_EXCLUDED_TYPES()
   const found: Found[] = []
   const problems: string[] = []
 
+  if (purge) {
+    await queryPrimary('DELETE FROM material_cert_pos').catch(() => {})
+  }
+
   for (const r of roots) {
+    let types: string[] = []
     try {
-      await fs.access(r.path)
-    } catch {
+      const entries = await fs.readdir(r.path, { withFileTypes: true })
+      types = entries.filter(e => e.isDirectory()).map(e => e.name)
+    } catch (e) {
       // A site whose drive isn't mounted must not wipe its existing rows.
       problems.push(`${r.site}: root not reachable (${r.path})`)
       continue
     }
-    await walk(r.path, r.path, r.site, 0, found)
+    if (!types.length) problems.push(`${r.site}: no material-type folders under ${r.path}`)
+
+    // Walk each material type folder, skipping the ones that aren't materials.
+    for (const type of types) {
+      if (excluded.includes(type.trim().toLowerCase())) continue
+      await walk(r.path, path.join(r.path, type), r.site, 1, found)
+    }
   }
 
   // Look up the Paradigm description for each part folder. The folder name is

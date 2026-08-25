@@ -52,12 +52,6 @@ export const MODULES: Module[] = [
         requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations', 'Production Control', 'Quality Control']
       },
       {
-        id: 'material-cert-pos',
-        name: 'Material Cert POs',
-        path: '/operations/inspections/material-cert-pos',
-        requiredRoles: ['Admin', 'ProcessEng', 'ProductEng', 'NPIEng', 'Operations', 'Production Control', 'Quality Control']
-      },
-      {
         id: 'reworks',
         name: 'Reworks',
         path: '/operations/reworks',

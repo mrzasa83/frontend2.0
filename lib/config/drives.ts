@@ -75,6 +75,16 @@ export const PACKSHIP_PATH    = () => `${TDRIVE()}/Packaging and Shipping/$Pack 
  * e.g. L:\\NashuaScanDocStorage\\C_of_Cs_by_Part_Number\\Paradigm C of Cs\\
  *          Copper\\AL0100CU1OZ2532\\PUR0133783 - LOT 2507410115.pdf
  */
+/**
+ * First-level folders under a C of C root that are NOT material types.
+ * "CPK Data" sits alongside the material folders but holds process data, so it
+ * is skipped rather than showing up as a material type.
+ * Override with COC_EXCLUDED_TYPES (comma separated).
+ */
+export const COC_EXCLUDED_TYPES = (): string[] =>
+  (process.env.COC_EXCLUDED_TYPES || 'CPK Data')
+    .split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+
 export const COC_ROOTS = (): { site: string; path: string }[] => [
   { site: 'Nashua', path: `${LDRIVE()}/NashuaScanDocStorage/C_of_Cs_by_Part_Number/Paradigm C of Cs` },
   { site: 'Mesa',   path: `${LDRIVE()}/MesaScanDocStorage/C_of_Cs_by_Part_Number/Paradigm C of Cs` },

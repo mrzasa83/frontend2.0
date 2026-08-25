@@ -75,7 +75,20 @@ export async function POST(request: NextRequest) {
   }
 
   const user = (session.user as any)?.username || 'unknown'
-  const onlySite = (new URL(request.url).searchParams.get('site') || '').trim()
+  const sp = new URL(request.url).searchParams
+  const onlySite = (sp.get('site') || '').trim()
+  // ?mode=full empties the index first (use after a parser or scope change).
+  const purge = (sp.get('mode') || '') === 'full'
+  // ?force=1 clears a stuck "running" flag. A run that died mid-way leaves the
+  // flag set, and every later rebuild is then silently refused.
+  const force = sp.get('force') === '1'
+
+  if (force) {
+    await queryPrimary(
+      `UPDATE index_state SET running = 0, last_status = 'reset' WHERE index_name = ?`,
+      [INDEX_NAME]
+    ).catch(() => {})
+  }
 
   if (!(await claimRun(INDEX_NAME))) {
     return NextResponse.json({
@@ -91,7 +104,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // Same code path the hourly background refresh uses.
-    const r = await rebuildCocIndex(onlySite)
+    const r = await rebuildCocIndex(onlySite, purge)
     if (runId) {
       await queryPrimary(
         `UPDATE material_cert_po_runs

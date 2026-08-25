@@ -56,6 +56,10 @@ export async function GET(request: NextRequest) {
   const part = (sp.get('part') || '').trim()
   if (part) { where.push('apc_part_norm LIKE ?'); params.push(`%${normalizePart(part)}%`) }
 
+  // Folders whose name matched a Paradigm part. Unmatched folders are usually
+  // typos or obsolete numbers, so they're hidden by default.
+  if ((sp.get('apcOnly') ?? '1') !== '0') where.push('part_found = 1')
+
   const from = (sp.get('from') || '').trim()
   if (from) { where.push('file_mtime >= ?'); params.push(from) }
   const to = (sp.get('to') || '').trim()
