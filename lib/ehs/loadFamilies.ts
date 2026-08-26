@@ -1,4 +1,5 @@
 import { queryPrimary } from '@/lib/db/mysql-primary'
+import { hasColumn } from '@/lib/db/schemaProbe'
 import type { Family } from '@/lib/ehs/familyMatch'
 
 /**
@@ -14,8 +15,12 @@ export async function loadFamilies(): Promise<Family[]> {
      ORDER BY sort_order, family_name`
   )
   if (!fams?.length) return []
+  // The conjunction column arrives with a migration that may not have run yet;
+  // fall back to the old shape rather than failing the whole page.
+  const withConj = await hasColumn('ehs_family_criteria', 'conjunction')
   const crits = await queryPrimary<any[]>(
-    'SELECT id, family_id, field, operator, conjunction, pattern, seq FROM ehs_family_criteria ORDER BY family_id, seq, id'
+    `SELECT id, family_id, field, operator, ${withConj ? 'conjunction,' : "'AND' AS conjunction,"} pattern, seq
+     FROM ehs_family_criteria ORDER BY family_id, seq, id`
   )
   const byFamily = new Map<number, any[]>()
   for (const c of crits || []) {

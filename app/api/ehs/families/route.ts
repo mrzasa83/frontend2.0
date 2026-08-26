@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { queryMSSQL } from '@/lib/db/mssql'
 import { canReadModule } from '@/lib/config/access'
+import { hasColumn } from '@/lib/db/schemaProbe'
 import {
   partMatchesFamily, CRITERIA_FIELDS, CRITERIA_OPERATORS, COMPLIANCE_VALUES,
   type Criterion, type PartRow,
@@ -60,8 +61,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Family not found' }, { status: 404 })
     }
 
+    const withConj = await hasColumn('ehs_family_criteria', 'conjunction')
     const critRows = await queryPrimary<any[]>(
-      `SELECT id, family_id, field, operator, conjunction, pattern, seq
+      `SELECT id, family_id, field, operator,
+              ${withConj ? 'conjunction,' : "'AND' AS conjunction,"} pattern, seq
        FROM ehs_family_criteria ${id ? 'WHERE family_id = ?' : ''}
        ORDER BY family_id, seq, id`,
       id ? [id] : []
@@ -113,6 +116,7 @@ export async function POST(request: NextRequest) {
     if (!family_name) return NextResponse.json({ error: 'family_name required' }, { status: 400 })
     const user = (session.user as any)?.username || 'unknown'
     const criteria = cleanCriteria(b?.criteria)
+    const withConjIns = await hasColumn('ehs_family_criteria', 'conjunction')
 
     const res: any = await queryPrimary(
       `INSERT INTO ehs_part_families
@@ -132,8 +136,12 @@ export async function POST(request: NextRequest) {
     const newId = res?.insertId
     for (const c of criteria) {
       await queryPrimary(
-        'INSERT INTO ehs_family_criteria (family_id, field, operator, conjunction, pattern, seq) VALUES (?, ?, ?, ?, ?, ?)',
-        [newId, c.field, c.operator, c.conjunction, c.pattern, c.seq]
+        withConjIns
+          ? 'INSERT INTO ehs_family_criteria (family_id, field, operator, conjunction, pattern, seq) VALUES (?, ?, ?, ?, ?, ?)'
+          : 'INSERT INTO ehs_family_criteria (family_id, field, operator, pattern, seq) VALUES (?, ?, ?, ?, ?)',
+        withConjIns
+          ? [newId, c.field, c.operator, c.conjunction, c.pattern, c.seq]
+          : [newId, c.field, c.operator, c.pattern, c.seq]
       )
     }
     return NextResponse.json({ success: true, id: newId })
@@ -187,11 +195,16 @@ export async function PUT(request: NextRequest) {
     // for an editable rule list.
     if (b.criteria !== undefined) {
       const criteria = cleanCriteria(b.criteria)
+      const withConjIns = await hasColumn('ehs_family_criteria', 'conjunction')
       await queryPrimary('DELETE FROM ehs_family_criteria WHERE family_id = ?', [id])
       for (const c of criteria) {
         await queryPrimary(
-          'INSERT INTO ehs_family_criteria (family_id, field, operator, conjunction, pattern, seq) VALUES (?, ?, ?, ?, ?, ?)',
-          [id, c.field, c.operator, c.conjunction, c.pattern, c.seq]
+          withConjIns
+            ? 'INSERT INTO ehs_family_criteria (family_id, field, operator, conjunction, pattern, seq) VALUES (?, ?, ?, ?, ?, ?)'
+            : 'INSERT INTO ehs_family_criteria (family_id, field, operator, pattern, seq) VALUES (?, ?, ?, ?, ?)',
+          withConjIns
+            ? [id, c.field, c.operator, c.conjunction, c.pattern, c.seq]
+            : [id, c.field, c.operator, c.pattern, c.seq]
         )
       }
     }
