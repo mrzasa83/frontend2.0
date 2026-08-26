@@ -29,9 +29,28 @@ RUN cp next.config.docker.js next.config.js
 RUN mkdir -p public
 
 # NEXT_PUBLIC_ vars must exist at build time to be baked into client bundle
-ENV NEXT_PUBLIC_BASE_PATH=/frontend2.0
+# Which nginx location this instance is served under. Must match the deploy
+# target: /frontend2.0 for production, /fe2dev for the dev instance.
+ARG BASE_PATH=/frontend2.0
+ENV NEXT_PUBLIC_BASE_PATH=${BASE_PATH}
 ARG APP_VERSION=unknown
 ENV NEXT_PUBLIC_APP_VERSION=${APP_VERSION}
+
+# Which system this image is: DEV or PROD. Baked in at build so the running
+# container can't be mistaken for the other one, and surfaced in the footer.
+ARG APP_ENV=PROD
+ENV NEXT_PUBLIC_APP_ENV=${APP_ENV}
+
+# Git provenance, supplied by deploy.sh. Answers "what exactly is running?"
+# without shelling into the container — the .git directory isn't in the image.
+ARG GIT_SHA=unknown
+ARG GIT_BRANCH=unknown
+ARG GIT_DESCRIBE=
+ARG BUILD_TIME=
+ENV NEXT_PUBLIC_GIT_SHA=${GIT_SHA}
+ENV NEXT_PUBLIC_GIT_BRANCH=${GIT_BRANCH}
+ENV NEXT_PUBLIC_GIT_DESCRIBE=${GIT_DESCRIBE}
+ENV NEXT_PUBLIC_BUILD_TIME=${BUILD_TIME}
 
 RUN npm run build
 
@@ -68,6 +87,24 @@ RUN chmod -R 755 /app
 EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
+
+# Repeat the provenance in the runtime stage: NEXT_PUBLIC_* values are inlined
+# into the client bundle at build time, but the server-side /api/system/info
+# route reads them from the environment at request time.
+ARG APP_VERSION=unknown
+ARG APP_ENV=PROD
+ARG BASE_PATH=/frontend2.0
+ENV NEXT_PUBLIC_BASE_PATH=${BASE_PATH}
+ARG GIT_SHA=unknown
+ARG GIT_BRANCH=unknown
+ARG GIT_DESCRIBE=
+ARG BUILD_TIME=
+ENV NEXT_PUBLIC_APP_VERSION=${APP_VERSION}
+ENV NEXT_PUBLIC_APP_ENV=${APP_ENV}
+ENV NEXT_PUBLIC_GIT_SHA=${GIT_SHA}
+ENV NEXT_PUBLIC_GIT_BRANCH=${GIT_BRANCH}
+ENV NEXT_PUBLIC_GIT_DESCRIBE=${GIT_DESCRIBE}
+ENV NEXT_PUBLIC_BUILD_TIME=${BUILD_TIME}
 
 # =====================================================================
 # Required runtime env vars (set via docker-compose.yml or docker run):

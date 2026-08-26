@@ -1,6 +1,11 @@
 /** @type {import('next').NextConfig} */
+// basePath must match the nginx location this instance is served under.
+// Hardcoding it means a second instance (e.g. /fe2dev) serves its assets from
+// /frontend2.0 and 404s everything, so it comes from the build environment.
+const basePath = process.env.NEXT_PUBLIC_BASE_PATH || '/frontend2.0'
+
 const nextConfig = {
-  basePath: '/frontend2.0',
+  basePath,
   output: 'standalone',
   async headers() {
     return [

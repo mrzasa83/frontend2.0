@@ -12,7 +12,15 @@ services:
     build:
       context: .
       args:
-        APP_VERSION: "2.4.0"
+        APP_VERSION: "${APP_VERSION:-2.4.0}"
+        # DEV or PROD. Set APP_ENV in .env.local (or export it before deploy.sh)
+        # so the footer can't misreport which system you're looking at.
+        APP_ENV: "${APP_ENV:-PROD}"
+        # Git provenance, filled in by deploy.sh
+        GIT_SHA: "${GIT_SHA:-unknown}"
+        GIT_BRANCH: "${GIT_BRANCH:-unknown}"
+        GIT_DESCRIBE: "${GIT_DESCRIBE:-}"
+        BUILD_TIME: "${BUILD_TIME:-}"
     container_name: frontend2
     restart: unless-stopped
     ports:
