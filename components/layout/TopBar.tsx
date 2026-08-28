@@ -1,7 +1,8 @@
 'use client'
 
 
-import { useState, useEffect } from 'react'
+import { useState, useRef, useLayoutEffect, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { useSession, signOut } from 'next-auth/react'
 import { User, Settings, LogOut, KeyRound } from 'lucide-react'
 import ProfileModal from './ProfileModal'
@@ -24,6 +25,31 @@ type UserProfile = {
 export default function TopBar() {
   const { data: session } = useSession()
   const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const avatarRef = useRef<HTMLButtonElement>(null)
+  const [menuPos, setMenuPos] = useState({ top: 64, right: 24 })
+  // createPortal needs document, which doesn't exist during SSR.
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+
+  // Measure the avatar each time the menu opens so the panel lines up with it,
+  // and follow the window if it's resized while open.
+  useLayoutEffect(() => {
+    if (!userMenuOpen) return
+    const place = () => {
+      const r = avatarRef.current?.getBoundingClientRect()
+      if (!r) return
+      setMenuPos({ top: r.bottom + 8, right: Math.max(8, window.innerWidth - r.right) })
+    }
+    place()
+    window.addEventListener('resize', place)
+    // A scroll under an open menu would leave it stranded; close instead.
+    const close = () => setUserMenuOpen(false)
+    window.addEventListener('scroll', close, true)
+    return () => {
+      window.removeEventListener('resize', place)
+      window.removeEventListener('scroll', close, true)
+    }
+  }, [userMenuOpen])
   const [profileOpen, setProfileOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null)
@@ -113,21 +139,30 @@ export default function TopBar() {
 
         <div className="relative">
           <button
+            ref={avatarRef}
             onClick={() => setUserMenuOpen(!userMenuOpen)}
             className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-700 flex items-center justify-center font-semibold transition-colors"
           >
             {session?.user?.initials || 'U'}
           </button>
 
-          {userMenuOpen && (
+          {userMenuOpen && mounted && createPortal(
             <>
               <div
-                className="fixed inset-0 z-[55]"
+                className="fixed inset-0 z-[9998]"
                 onClick={() => setUserMenuOpen(false)}
               />
-              {/* Above sticky table headers, which sit at z-10 and z-40 —
-                  at z-20 the menu was being covered by them. */}
-              <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl z-[60] py-2 text-slate-800">
+              {/*
+                Rendered on document.body rather than in place.
+                Raising the z-index alone wasn't reliable: a sticky table header
+                only has to sit in a different stacking context to win whatever
+                number we pick. Portalling out of the layout removes the contest
+                entirely, and fixed positioning off the avatar's own rect means
+                no ancestor can clip it either.
+              */}
+              <div
+                style={{ position: 'fixed', top: menuPos.top, right: menuPos.right, zIndex: 9999 }}
+                className="w-56 bg-white rounded-lg shadow-xl py-2 text-slate-800">
                 <div className="px-4 py-2 border-b border-slate-200">
                   <p className="font-semibold">{session?.user?.name}</p>
                   <p className="text-xs text-slate-500">@{session?.user?.username}</p>
@@ -167,7 +202,8 @@ export default function TopBar() {
                   Logout
                 </button>
               </div>
-            </>
+            </>,
+            document.body
           )}
         </div>
       </div>
