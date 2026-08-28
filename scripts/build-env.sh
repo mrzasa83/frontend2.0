@@ -38,7 +38,14 @@ esac
 # ── What code ────────────────────────────────────────────────────────────────
 if git rev-parse --git-dir >/dev/null 2>&1; then
   GIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
-  GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  # Prefer the UPSTREAM branch name over the local one. `git reset --hard
+  # origin/main` leaves content from main while the local HEAD may still be
+  # called master, and reporting the local name would be simply wrong about
+  # what's deployed.
+  GIT_BRANCH="$(git rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null | sed 's#^[^/]*/##' || true)"
+  if [[ -z "$GIT_BRANCH" || "$GIT_BRANCH" == "@{u}" ]]; then
+    GIT_BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+  fi
   # --dirty appends "-dirty" when the working tree has uncommitted changes,
   # which the footer shows in red. Deploying a dirty tree isn't forbidden, but
   # it should be visible.
