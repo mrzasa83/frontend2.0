@@ -8,6 +8,7 @@ import {
   Database, AlertTriangle,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import { hasRole } from '@/lib/config/access'
 
 type CertRow = {
   id: number; site: string; material_type: string; apc_part: string
@@ -42,7 +43,7 @@ const fmtDate = (v: any) => {
 export default function MaterialCertPosPage() {
   const { data: session } = useSession()
   const roles: string[] = ((session?.user as any)?.roles) || []
-  const canIndex = roles.includes('Admin') || roles.includes('Quality') || roles.includes('EHSadmin')
+  const canIndex = hasRole(roles, 'Admin', 'Quality', 'EHSadmin')
 
   const [rows, setRows] = useState<CertRow[]>([])
   const [status, setStatus] = useState<Status | null>(null)

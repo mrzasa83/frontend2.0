@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
-import { canReadModule } from '@/lib/config/access'
+import { canReadModule, hasRole } from '@/lib/config/access'
 import { MTRL_COMP_PATH } from '@/lib/config/drives'
 import fs from 'fs/promises'
 import path from 'path'
@@ -10,7 +10,7 @@ import path from 'path'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
-const canWriteEhs = (roles: string[]) => roles.includes('Admin') || roles.includes('EHSadmin')
+const canWriteEhs = (roles: string[]) => hasRole(roles, 'Admin', 'EHSadmin')
 
 /** Filesystem-safe version of a family name for use in a file name. */
 const safeName = (s: string) => String(s || 'family').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')

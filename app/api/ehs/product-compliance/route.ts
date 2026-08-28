@@ -2,13 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
-import { canReadModule } from '@/lib/config/access'
+import { canReadModule, hasRole } from '@/lib/config/access'
 import { queryMSSQL } from '@/lib/db/mssql'
 import { productTypeFromPart, type MaterialLine } from '@/lib/ehs/productCompliance'
 
 export const dynamic = 'force-dynamic'
 
-const canWriteEhs = (roles: string[]) => roles.includes('Admin') || roles.includes('EHSadmin')
+const canWriteEhs = (roles: string[]) => hasRole(roles, 'Admin', 'EHSadmin')
 
 // GET -> every product assessed, most recent signoff first.
 // ?all=1 returns the full history rather than just the latest per part.

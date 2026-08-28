@@ -84,16 +84,40 @@ export const SUBMODULE_READ_OVERRIDES: Record<string, string[]> = {
   audits: ['ProcessEng', 'ProductEng', 'NPIeng', 'NPIEng', 'Operations', 'OpsRo', 'OpsCreate'],
 }
 
-const has = (roles: string[] | undefined, name: string) => !!roles && roles.includes(name)
+const has = (roles: string[] | undefined, name: string) =>
+  !!roles && roles.some(r => String(r).toLowerCase() === name.toLowerCase())
 const isAdmin = (roles: string[] | undefined) => has(roles, 'Admin')
 
 /** Can any of the user's roles VIEW this top-level module? */
+/**
+ * Role names are compared case-insensitively.
+ *
+ * Roles are typed by hand when they're assigned, so the same role turns up as
+ * "EHSadmin", "ehsAdmin" or "EHSAdmin". An exact-match lookup silently grants
+ * nothing in that case — the user sees a read-only page and no error, which is
+ * a miserable thing to debug. Matching loosely is the safer failure mode here:
+ * the alternative isn't stricter security, it's an admin who can't do their job.
+ */
+export function hasRole(roles: string[] | undefined, ...names: string[]): boolean {
+  if (!roles?.length) return false
+  const want = names.map(n => n.toLowerCase())
+  return roles.some(r => want.includes(String(r).toLowerCase()))
+}
+
+/** The ROLE_ACCESS entry for a role name, matched case-insensitively. */
+function accessFor(role: string) {
+  const direct = ROLE_ACCESS[role]
+  if (direct) return direct
+  const key = Object.keys(ROLE_ACCESS).find(k => k.toLowerCase() === String(role).toLowerCase())
+  return key ? ROLE_ACCESS[key] : undefined
+}
+
 export function canReadModule(roles: string[] | undefined, moduleId: string): boolean {
   if (moduleId === 'dashboard') return true
   if (isAdmin(roles)) return true
   if (!roles?.length) return false
   return roles.some(r => {
-    const a = ROLE_ACCESS[r]
+    const a = accessFor(r)
     return a && (a.read.includes('*') || a.read.includes(moduleId))
   })
 }
@@ -116,7 +140,7 @@ export function canWriteScope(roles: string[] | undefined, scope: string): boole
   if (!roles?.length) return false
   const moduleOfScope = scope.split('/')[0]
   return roles.some(r => {
-    const a = ROLE_ACCESS[r]
+    const a = accessFor(r)
     if (!a) return false
     if (a.write.includes('*')) return true
     // exact submodule grant, or a module-level grant covering this scope
@@ -126,5 +150,5 @@ export function canWriteScope(roles: string[] | undefined, scope: string): boole
 
 /** Resolve the effective read/write for a single role (for the Admin viewer). */
 export function effectiveAccess(role: string): RoleAccess {
-  return ROLE_ACCESS[role] || { read: [], write: [] }
+  return accessFor(role) || { read: [], write: [] }
 }

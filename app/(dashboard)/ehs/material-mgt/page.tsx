@@ -9,6 +9,7 @@ import {
   ShieldCheck, FileText, ListFilter, AlertTriangle, Upload, Save, Pencil, ClipboardList, Files,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import { hasRole } from '@/lib/config/access'
 import { CRITERIA_FIELDS, CRITERIA_OPERATORS, COMPLIANCE_VALUES, type Criterion } from '@/lib/ehs/familyMatch'
 
 type Part = {
@@ -57,7 +58,7 @@ const ext = (n: string) => { const m = /\.([^.]+)$/.exec(n || ''); return m ? m[
 export default function MaterialMgtPage() {
   const { data: session } = useSession()
   const roles: string[] = ((session?.user as any)?.roles) || []
-  const canEdit = roles.includes('Admin') || roles.includes('EHSadmin')
+  const canEdit = hasRole(roles, 'Admin', 'EHSadmin')
 
   const [openFamilies, setOpenFamilies] = useState<Family[]>([])
   const [openParts, setOpenParts] = useState<{ part: string; source: string }[]>([])

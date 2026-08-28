@@ -122,10 +122,12 @@ export default function TopBar() {
           {userMenuOpen && (
             <>
               <div
-                className="fixed inset-0 z-10"
+                className="fixed inset-0 z-[55]"
                 onClick={() => setUserMenuOpen(false)}
               />
-              <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl z-20 py-2 text-slate-800">
+              {/* Above sticky table headers, which sit at z-10 and z-40 —
+                  at z-20 the menu was being covered by them. */}
+              <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-xl z-[60] py-2 text-slate-800">
                 <div className="px-4 py-2 border-b border-slate-200">
                   <p className="font-semibold">{session?.user?.name}</p>
                   <p className="text-xs text-slate-500">@{session?.user?.username}</p>

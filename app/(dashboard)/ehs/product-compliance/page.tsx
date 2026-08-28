@@ -8,6 +8,7 @@ import {
   ShieldCheck, Layers, Package, Route as RouteIcon, History as HistoryIcon, Save, AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import { hasRole } from '@/lib/config/access'
 import { rollUpAll, materialPasses, type MaterialLine } from '@/lib/ehs/productCompliance'
 
 type Assessment = {
@@ -49,7 +50,7 @@ const fmtDate = (v: any) => {
 export default function ProductCompliancePage() {
   const { data: session } = useSession()
   const roles: string[] = ((session?.user as any)?.roles) || []
-  const canEdit = roles.includes('Admin') || roles.includes('EHSadmin')
+  const canEdit = hasRole(roles, 'Admin', 'EHSadmin')
 
   const [openProducts, setOpenProducts] = useState<{ apc_part: string; customer_part: string }[]>([])
   const [activeTab, setActiveTab] = useState('list')

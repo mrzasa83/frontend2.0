@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { queryMSSQL } from '@/lib/db/mssql'
-import { canReadModule } from '@/lib/config/access'
+import { canReadModule, hasRole } from '@/lib/config/access'
 import { hasColumn } from '@/lib/db/schemaProbe'
 import {
   partMatchesFamily, CRITERIA_FIELDS, CRITERIA_OPERATORS, COMPLIANCE_VALUES,
@@ -13,7 +13,7 @@ import {
 export const dynamic = 'force-dynamic'
 
 /** Only Admin and EHSadmin may change EHS data. */
-const canWriteEhs = (roles: string[]) => roles.includes('Admin') || roles.includes('EHSadmin')
+const canWriteEhs = (roles: string[]) => hasRole(roles, 'Admin', 'EHSadmin')
 
 const BASE_SQL = `
   select RKEY, INV_PART_NUMBER, INV_PART_DESCRIPTION, MANUFACTURER_NAME, ACTIVE_FLAG

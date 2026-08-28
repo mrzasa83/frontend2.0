@@ -3,13 +3,13 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryMSSQL } from '@/lib/db/mssql'
 import { queryPrimary } from '@/lib/db/mysql-primary'
-import { canReadModule } from '@/lib/config/access'
+import { canReadModule, hasRole } from '@/lib/config/access'
 import { loadFamilies } from '@/lib/ehs/loadFamilies'
 import { familyForPart, COMPLIANCE_VALUES, type PartRow } from '@/lib/ehs/familyMatch'
 
 export const dynamic = 'force-dynamic'
 
-const canWriteEhs = (roles: string[]) => roles.includes('Admin') || roles.includes('EHSadmin')
+const canWriteEhs = (roles: string[]) => hasRole(roles, 'Admin', 'EHSadmin')
 
 const PART_SQL = `
   SELECT TOP 1 RKEY, INV_PART_NUMBER, INV_PART_DESCRIPTION, MANUFACTURER_NAME, ACTIVE_FLAG
