@@ -93,14 +93,14 @@ export default function MaterialMgtPage() {
     ...openParts.map(p => ({
       id: `part-${p.part}`,
       // The tab says which part it is and where its classification comes from.
+      // The badge says which KIND of thing the tab holds. A Part is a single
+      // active purchased line in Paradigm; a Family is a saved search that
+      // collects parts. Labelling a part "Family" because it inherits its
+      // classification from one was confusing.
       label: (
         <span className="flex items-center gap-1.5">
           {p.part}
-          {p.source && (
-            <span className={`text-[10px] px-1 py-0.5 rounded ${p.source === 'Part' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
-              {p.source}
-            </span>
-          )}
+          <span className="text-[10px] px-1 py-0.5 rounded bg-cyan-100 text-cyan-700">Part</span>
         </span>
       ),
       closeable: true,
@@ -108,7 +108,14 @@ export default function MaterialMgtPage() {
       content: <PartDetail key={`part-${p.part}`} partNumber={p.part} canEdit={canEdit} onChanged={refreshAll} />,
     })),
     ...openFamilies.map(f => ({
-      id: `fam-${f.id}`, label: f.family_name, closeable: true,
+      id: `fam-${f.id}`,
+      label: (
+        <span className="flex items-center gap-1.5">
+          {f.family_name}
+          <span className="text-[10px] px-1 py-0.5 rounded bg-purple-100 text-purple-700">Family</span>
+        </span>
+      ),
+      closeable: true,
       onClose: () => closeFamily(f.id),
       content: <FamilyDetail key={`fam-${f.id}`} familyId={f.id} canEdit={canEdit} onChanged={refreshAll} />,
     })),
@@ -577,9 +584,21 @@ function PartDetail({ partNumber, canEdit, onChanged }:
       <div className="mb-4">
         <h2 className="text-xl font-bold text-slate-800 font-mono flex items-center gap-2">
           {data.part.part_number}
-          {data.compliance_source && (
-            <span className={`text-xs px-1.5 py-0.5 rounded font-sans font-normal ${data.compliance_source === 'Part' ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-600'}`}>
-              class: {data.compliance_source}
+          <span className="text-xs px-1.5 py-0.5 rounded font-sans font-normal bg-cyan-100 text-cyan-700">
+            Part
+          </span>
+          {/* Where the compliance position comes from — spelled out, since
+              "class: Family" on a part read as though the part were a family. */}
+          {data.compliance_source === 'Family' && data.family && (
+            <span className="text-xs px-1.5 py-0.5 rounded font-sans font-normal bg-slate-100 text-slate-600"
+              title={`Compliance inherited from the ${data.family.family_name} family`}>
+              compliance from family
+            </span>
+          )}
+          {data.compliance_source === 'Part' && (
+            <span className="text-xs px-1.5 py-0.5 rounded font-sans font-normal bg-purple-100 text-purple-700"
+              title="This family doesn't flow its classification down, so this part carries its own">
+              compliance per part
             </span>
           )}
         </h2>
