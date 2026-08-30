@@ -7,7 +7,7 @@ import {
   Download, File, FileImage, FileSpreadsheet, Eye,
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
   TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History,
-  Search, FileCheck, X, XCircle } from 'lucide-react'
+  Search, FileCheck, X, XCircle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
 import DataView from '@/components/ui/DataView'
 import BOMTreeNavigator from '@/components/ui/BOMTreeNavigator'
 import { 
@@ -116,6 +116,9 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
   const [loadingRejects, setLoadingRejects] = useState(false)
   const [rejectsFetched, setRejectsFetched] = useState(false)
   const [rejectError, setRejectError] = useState('')
+  const [rejectInvMode, setRejectInvMode] = useState<'starts' | 'contains'>('starts')
+  const [rejectInvText, setRejectInvText] = useState('')
+  const [rejectSort, setRejectSort] = useState<{ key: string; dir: 'asc' | 'desc' }>({ key: 'reject_date', dir: 'desc' })
   const [activeSubTab, setActiveSubTab] = useState(initialSubTab || 'general')
   const [preview, setPreview] = useState<{ files: FileInfo[]; index: number } | null>(null)
   
@@ -1196,40 +1199,83 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
         )}
 
         {/* RELEASED FILES TABS */}
-        {activeSubTab === 'reject' && (
+        {activeSubTab === 'reject' && (() => {
+          // Inv Part filter + sorting, mirroring the Yield tab's behaviour.
+          const needle = rejectInvText.trim().toLowerCase()
+          const matches = (v: string) => {
+            if (!needle) return true
+            const s = String(v || '').toLowerCase()
+            return rejectInvMode === 'starts' ? s.startsWith(needle) : s.includes(needle)
+          }
+          const filteredRejects = rejectRows.filter(r => matches(r.inv_part))
+          const sortedRejects = [...filteredRejects].sort((a, b) => {
+            const { key, dir } = rejectSort
+            const av = a[key], bv = b[key]
+            let cmp: number
+            if (key === 'quantity') cmp = (Number(av) || 0) - (Number(bv) || 0)
+            else if (key === 'reject_date') cmp = new Date(av || 0).getTime() - new Date(bv || 0).getTime()
+            else cmp = String(av ?? '').localeCompare(String(bv ?? ''))
+            return dir === 'asc' ? cmp : -cmp
+          })
+          const toggleRejectSort = (key: string) =>
+            setRejectSort(s2 => s2.key === key ? { key, dir: s2.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })
+          const filteredQty = sortedRejects.reduce((a, r) => a + (Number(r.quantity) || 0), 0)
+
+          const REJECT_COLS: { key: string; label: string; w?: string; align?: string }[] = [
+            { key: 'inv_part', label: 'Inv Part', w: 'w-40' },
+            { key: 'reject_date', label: 'Date', w: 'w-28' },
+            { key: 'reject_time', label: 'Time', w: 'w-20' },
+            { key: 'work_order', label: 'Work Order', w: 'w-32' },
+            { key: 'reject_code', label: 'Code', w: 'w-24' },
+            { key: 'reject_description', label: 'Description' },
+            { key: 'employee_name', label: 'Employee', w: 'w-44' },
+            { key: 'quantity', label: 'Qty', w: 'w-20', align: 'text-right' },
+          ]
+
+          return (
           <div>
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
               <div>
-                <h3 className="text-lg font-semibold text-slate-800">Rejects</h3>
+                <h3 className="text-lg font-semibold text-slate-800">Rejects ({rejectRows.length})</h3>
                 <p className="text-xs text-slate-500">
-                  Reject transactions across every work order for this part
+                  Reject history for this part (read-only)
                   {!loadingRejects && !rejectError && (
-                    <> · {rejectRows.length} records · {rejectTotalQty.toLocaleString()} pieces</>
+                    <> · {sortedRejects.length} shown · {filteredQty.toLocaleString()} pieces</>
                   )}
                 </p>
               </div>
-              {rejectRows.length > 0 && (
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-slate-600">Inv Part:</span>
+                <select value={rejectInvMode} onChange={e => setRejectInvMode(e.target.value as 'starts' | 'contains')}
+                  className="px-2 py-1.5 text-sm border border-slate-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
+                  <option value="starts">Starts with</option>
+                  <option value="contains">Contains</option>
+                </select>
+                <input value={rejectInvText} onChange={e => setRejectInvText(e.target.value)}
+                  placeholder="e.g. AL-"
+                  className="px-2.5 py-1.5 text-sm border border-slate-300 rounded-lg w-40 focus:outline-none focus:ring-1 focus:ring-blue-400" />
                 <button
                   onClick={async () => {
                     const XLSX = await import('xlsx')
-                    const ws = XLSX.utils.json_to_sheet(rejectRows.map(r => ({
-                      'Customer Part': r.customer_part, 'APC Part': r.inv_part,
+                    const ws = XLSX.utils.json_to_sheet(sortedRejects.map(r => ({
+                      'Inv Part': r.inv_part, 'Customer Part': r.customer_part,
                       'Work Order': r.work_order, 'Reject Code': r.reject_code,
                       Description: r.reject_description, Employee: r.employee_name,
                       'Employee Code': r.employee_code,
                       Date: r.reject_date ? new Date(r.reject_date).toLocaleDateString() : '',
                       Time: r.reject_time, Quantity: r.quantity,
                     })))
-                    ws['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 40 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }]
+                    ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 40 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }]
                     const wb = XLSX.utils.book_new()
                     XLSX.utils.book_append_sheet(wb, ws, 'Rejects')
                     XLSX.writeFile(wb, `rejects_${partNumber}.xlsx`)
                   }}
-                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200"
+                  disabled={!sortedRejects.length}
+                  className="px-3 py-1.5 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  Excel
+                  <Download size={14} /> Export to Excel
                 </button>
-              )}
+              </div>
             </div>
 
             {rejectError && (
@@ -1240,24 +1286,34 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
               <table className="w-full text-sm">
                 <thead className="bg-slate-50 sticky top-0">
                   <tr>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Date</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-20">Time</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-32">Work Order</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-24">Code</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Description</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-44">Employee</th>
-                    <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-20">Qty</th>
+                    {REJECT_COLS.map(c => {
+                      const active = rejectSort.key === c.key
+                      return (
+                        <th key={c.key} className={`px-3 py-2 text-left text-xs font-medium text-slate-600 ${c.w || ''}`}>
+                          <button onClick={() => toggleRejectSort(c.key)}
+                            className={`flex items-center gap-1 hover:text-slate-900 ${c.align === 'text-right' ? 'ml-auto' : ''}`}>
+                            {c.label}
+                            {active
+                              ? (rejectSort.dir === 'asc' ? <ArrowUp size={11} /> : <ArrowDown size={11} />)
+                              : <ArrowUpDown size={10} className="text-slate-300" />}
+                          </button>
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody>
                   {loadingRejects ? (
-                    <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400">Loading rejects…</td></tr>
-                  ) : rejectRows.length === 0 ? (
-                    <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400 text-sm">
-                      No rejects recorded for this part.
+                    <tr><td colSpan={REJECT_COLS.length} className="px-3 py-8 text-center text-slate-400">Loading rejects…</td></tr>
+                  ) : sortedRejects.length === 0 ? (
+                    <tr><td colSpan={REJECT_COLS.length} className="px-3 py-8 text-center text-slate-400 text-sm">
+                      {rejectRows.length === 0 ? 'No rejects recorded for this part.' : 'No rejects match the filter.'}
                     </td></tr>
-                  ) : rejectRows.map((r, i) => (
+                  ) : sortedRejects.map((r, i) => (
                     <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-3 py-1.5 font-mono text-slate-700">
+                        {r.inv_part || <span className="text-slate-300">—</span>}
+                      </td>
                       <td className="px-3 py-1.5 text-slate-600 text-xs">
                         {r.reject_date ? new Date(r.reject_date).toLocaleDateString() : ''}
                       </td>
@@ -1282,7 +1338,8 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
               </table>
             </div>
           </div>
-        )}
+          )
+        })()}
 
         {activeSubTab === 'final-inspection' && (
           <div>

@@ -6,6 +6,7 @@ import { queryPrimary } from '@/lib/db/mysql-primary'
 import { canReadModule, hasRole } from '@/lib/config/access'
 import { loadFamilies } from '@/lib/ehs/loadFamilies'
 import { familyForPart, COMPLIANCE_VALUES, type PartRow } from '@/lib/ehs/familyMatch'
+import { invalidatePartsCache } from '@/lib/ehs/partsCache'
 
 export const dynamic = 'force-dynamic'
 
@@ -79,6 +80,7 @@ export async function PUT(request: NextRequest) {
        String(b?.notes ?? ''), user]
     )
 
+    invalidatePartsCache()   // per-part classification changed
     return NextResponse.json({ success: true, updated_by: user })
   } catch (error) {
     console.error('EHS part compliance save error:', error)

@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { queryMSSQL } from '@/lib/db/mssql'
 import { canReadModule, hasRole } from '@/lib/config/access'
+import { invalidatePartsCache } from '@/lib/ehs/partsCache'
 import { hasColumn } from '@/lib/db/schemaProbe'
 import {
   partMatchesFamily, CRITERIA_FIELDS, CRITERIA_OPERATORS, COMPLIANCE_VALUES,
@@ -145,6 +146,7 @@ export async function POST(request: NextRequest) {
           : [newId, c.field, c.operator, c.pattern, c.seq]
       )
     }
+    invalidatePartsCache()   // family definitions changed
     return NextResponse.json({ success: true, id: newId })
   } catch (error: any) {
     if (error?.code === 'ER_DUP_ENTRY') {
@@ -209,6 +211,7 @@ export async function PUT(request: NextRequest) {
         )
       }
     }
+    invalidatePartsCache()   // family definitions changed
     return NextResponse.json({ success: true })
   } catch (error: any) {
     if (error?.code === 'ER_DUP_ENTRY') {
@@ -231,6 +234,7 @@ export async function DELETE(request: NextRequest) {
     const id = Number(new URL(request.url).searchParams.get('id'))
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
     await queryPrimary('DELETE FROM ehs_part_families WHERE id = ?', [id])
+    invalidatePartsCache()
     return NextResponse.json({ success: true })
   } catch (error) {
     console.error('EHS family delete error:', error)

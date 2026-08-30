@@ -1,10 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { queryMSSQL } from '@/lib/db/mssql'
 import { canReadModule } from '@/lib/config/access'
-import { familyForPart, allFamiliesForPart, type PartRow } from '@/lib/ehs/familyMatch'
-import { loadFamilies } from '@/lib/ehs/loadFamilies'
+import { getPartsWithFamilies, partsCacheAge } from '@/lib/ehs/partsCache'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,33 +34,9 @@ export async function GET(request: NextRequest) {
 
   const sp = new URL(request.url).searchParams
   try {
-    const [parts, families] = await Promise.all([
-      queryMSSQL<PartRow[]>('1', BASE_SQL),
-      loadFamilies(),
-    ])
-
-    const rows = (parts || []).map(p => {
-      const fam = familyForPart(p, families)
-      const all = allFamiliesForPart(p, families)
-      // When a family doesn't flow its classification down, the part shows no
-      // inherited status — it needs its own evidence.
-      const inherits = fam ? (fam.inherit_compliance ?? 1) : 1
-      return {
-        RKEY: p.RKEY,
-        INV_PART_NUMBER: p.INV_PART_NUMBER,
-        INV_PART_DESCRIPTION: p.INV_PART_DESCRIPTION,
-        MANUFACTURER_NAME: p.MANUFACTURER_NAME,
-        ACTIVE_FLAG: p.ACTIVE_FLAG,
-        PRODUCT_FAMILY: fam?.family_name || '',
-        family_id: fam?.id ?? null,
-        reach_status: inherits ? (fam?.reach_status || '') : '',
-        rohs_status: inherits ? (fam?.rohs_status || '') : '',
-        prop65_status: inherits ? (fam?.prop65_status || '') : '',
-        per_part_evidence: fam ? !inherits : false,
-        // More than one family claiming a part means the definitions overlap.
-        overlap: all.length > 1 ? all.map(f => f.family_name) : null,
-      }
-    })
+    // Cached: the cross-database fetch and family matching used to run on every
+    // keystroke, which is what made this filter feel slow.
+    const rows = await getPartsWithFamilies(sp.get('refresh') === '1')
 
     // Filters
     const like = (v: string, hay: any) => String(hay ?? '').toLowerCase().includes(v.toLowerCase())
@@ -112,6 +86,7 @@ export async function GET(request: NextRequest) {
       rows: paged,
       total, page, pageSize, pages: Math.ceil(total / pageSize) || 1,
       totalParts: rows.length,
+      cacheAgeMs: partsCacheAge(),
       assigned,
       unassigned: rows.length - assigned,
     })
