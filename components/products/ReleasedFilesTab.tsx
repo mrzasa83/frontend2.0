@@ -7,8 +7,7 @@ import {
   Download, File, FileImage, FileSpreadsheet, Eye,
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
   TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History,
-  Search, FileCheck, X
-} from 'lucide-react'
+  Search, FileCheck, X, XCircle } from 'lucide-react'
 import DataView from '@/components/ui/DataView'
 import BOMTreeNavigator from '@/components/ui/BOMTreeNavigator'
 import { 
@@ -111,6 +110,12 @@ function formatDate(isoDate: string): string {
 }
 
 export default function ReleasedFilesTab({ partNumber, customerPN, customer, onStatusChange, onBuildLocationChange, initialSubTab, onlySubTabs }: Props) {
+  // Reject history — loaded when the tab is first opened, like the others.
+  const [rejectRows, setRejectRows] = useState<any[]>([])
+  const [rejectTotalQty, setRejectTotalQty] = useState(0)
+  const [loadingRejects, setLoadingRejects] = useState(false)
+  const [rejectsFetched, setRejectsFetched] = useState(false)
+  const [rejectError, setRejectError] = useState('')
   const [activeSubTab, setActiveSubTab] = useState(initialSubTab || 'general')
   const [preview, setPreview] = useState<{ files: FileInfo[]; index: number } | null>(null)
   
@@ -624,6 +629,29 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
     XLSX.writeFile(wb, `${filename}.xlsx`)
   }
 
+  // Rejects are keyed on the CUSTOMER part number, so every work order built
+  // for the part is covered.
+  useEffect(() => {
+    if (activeSubTab !== 'reject' || rejectsFetched || !partNumber) return
+    let cancelled = false
+    setLoadingRejects(true); setRejectError('')
+    fetch(getApiUrl(`/api/products/rejects?part=${encodeURIComponent(partNumber)}`))
+      .then(async r => {
+        const d = await r.json()
+        if (!r.ok) throw new Error(d.error || d.details || 'Failed to load rejects')
+        return d
+      })
+      .then(d => {
+        if (cancelled) return
+        setRejectRows(d.rows || [])
+        setRejectTotalQty(d.totalQty || 0)
+        setRejectsFetched(true)
+      })
+      .catch(e => { if (!cancelled) setRejectError(e.message) })
+      .finally(() => { if (!cancelled) setLoadingRejects(false) })
+    return () => { cancelled = true }
+  }, [activeSubTab, rejectsFetched, partNumber])
+
   // ========================================
   // SUB-TAB DEFINITIONS
   // ========================================
@@ -635,6 +663,7 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
     { id: 'work-orders', label: 'Work Orders', icon: ClipboardList },
     { id: 'inventory', label: 'Inventory', icon: Archive },
     { id: 'discrepancy', label: 'Discrepancy', icon: AlertTriangle },
+    { id: 'reject', label: 'Reject', icon: XCircle },
     { id: 'final-inspection', label: 'Final Inspection', icon: ClipboardList },
     { id: 'build-drawings', label: 'Build Drawings', icon: FileText },
     { id: 'pack-ship', label: 'Pack & Ship', icon: Truck },
@@ -1167,6 +1196,94 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
         )}
 
         {/* RELEASED FILES TABS */}
+        {activeSubTab === 'reject' && (
+          <div>
+            <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              <div>
+                <h3 className="text-lg font-semibold text-slate-800">Rejects</h3>
+                <p className="text-xs text-slate-500">
+                  Reject transactions across every work order for this part
+                  {!loadingRejects && !rejectError && (
+                    <> · {rejectRows.length} records · {rejectTotalQty.toLocaleString()} pieces</>
+                  )}
+                </p>
+              </div>
+              {rejectRows.length > 0 && (
+                <button
+                  onClick={async () => {
+                    const XLSX = await import('xlsx')
+                    const ws = XLSX.utils.json_to_sheet(rejectRows.map(r => ({
+                      'Customer Part': r.customer_part, 'APC Part': r.inv_part,
+                      'Work Order': r.work_order, 'Reject Code': r.reject_code,
+                      Description: r.reject_description, Employee: r.employee_name,
+                      'Employee Code': r.employee_code,
+                      Date: r.reject_date ? new Date(r.reject_date).toLocaleDateString() : '',
+                      Time: r.reject_time, Quantity: r.quantity,
+                    })))
+                    ws['!cols'] = [{ wch: 16 }, { wch: 18 }, { wch: 16 }, { wch: 12 }, { wch: 40 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }]
+                    const wb = XLSX.utils.book_new()
+                    XLSX.utils.book_append_sheet(wb, ws, 'Rejects')
+                    XLSX.writeFile(wb, `rejects_${partNumber}.xlsx`)
+                  }}
+                  className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200"
+                >
+                  Excel
+                </button>
+              )}
+            </div>
+
+            {rejectError && (
+              <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{rejectError}</div>
+            )}
+
+            <div className="bg-white border border-slate-200 rounded-lg overflow-auto max-h-[520px]">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 sticky top-0">
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Date</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-20">Time</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-32">Work Order</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-24">Code</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Description</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-44">Employee</th>
+                    <th className="px-3 py-2 text-right text-xs font-medium text-slate-600 w-20">Qty</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadingRejects ? (
+                    <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400">Loading rejects…</td></tr>
+                  ) : rejectRows.length === 0 ? (
+                    <tr><td colSpan={7} className="px-3 py-8 text-center text-slate-400 text-sm">
+                      No rejects recorded for this part.
+                    </td></tr>
+                  ) : rejectRows.map((r, i) => (
+                    <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
+                      <td className="px-3 py-1.5 text-slate-600 text-xs">
+                        {r.reject_date ? new Date(r.reject_date).toLocaleDateString() : ''}
+                      </td>
+                      <td className="px-3 py-1.5 text-slate-500 text-xs tabular-nums">{r.reject_time}</td>
+                      <td className="px-3 py-1.5 font-mono text-slate-700">{r.work_order}</td>
+                      <td className="px-3 py-1.5">
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-red-100 text-red-700 font-medium">
+                          {r.reject_code}
+                        </span>
+                      </td>
+                      <td className="px-3 py-1.5 text-slate-600">{r.reject_description}</td>
+                      <td className="px-3 py-1.5 text-slate-600 text-xs">
+                        {r.employee_name}
+                        {r.employee_code && <span className="text-slate-400"> ({r.employee_code})</span>}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums font-medium text-slate-800">
+                        {r.quantity ?? ''}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
         {activeSubTab === 'final-inspection' && (
           <div>
             <h3 className="text-lg font-semibold text-slate-800 mb-1">Final Inspection</h3>

@@ -19,7 +19,8 @@ export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const roles = (session.user as any)?.roles || []
-  if (!canReadModule(roles, 'ehs')) {
+  // Material Mgt sits under Product now, so either module grants read.
+  if (!canReadModule(roles, 'ehs') && !canReadModule(roles, 'products')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
   try {

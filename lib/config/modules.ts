@@ -103,12 +103,6 @@ export const MODULES: Module[] = [
         path: '/ehs/product-compliance',
         requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng']
       },
-      {
-        id: 'ehs-material-mgt',
-        name: 'Material Mgt',
-        path: '/ehs/material-mgt',
-        requiredRoles: ['Admin', 'EHSadmin', 'Program', 'ProcessEng', 'ProductEng']
-      },
     ]
   },
   { 
@@ -122,6 +116,12 @@ export const MODULES: Module[] = [
         name: 'Products', 
         path: '/products',
         requiredRoles: ['Admin', 'roUser', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations']
+      },
+      {
+        id: 'material-mgt',
+        name: 'Material Mgt',
+        path: '/products/material-mgt',
+        requiredRoles: ['Admin', 'EHSadmin', 'roUser', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations', 'Program']
       },
       { 
         id: 'documents', 
