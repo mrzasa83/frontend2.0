@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
-import { canReadModule } from '@/lib/config/access'
+import { canReadModule, hasRole } from '@/lib/config/access'
 import { getLocationMap, locationsFor } from '@/lib/changes/mcnLocation'
 
 export const dynamic = 'force-dynamic'
@@ -31,20 +31,51 @@ export const dynamic = 'force-dynamic'
 
 const STATUS_CASE = `
   CASE
-    WHEN LOWER(COALESCE(disposition,'')) LIKE 'reject%' THEN 'Rejected'
-    WHEN LOWER(COALESCE(disposition,'')) LIKE 'accept%'
-         AND (COALESCE(closeddate,'') <> '' OR mcn_status = 1) THEN 'Implemented'
-    WHEN LOWER(COALESCE(disposition,'')) LIKE 'accept%' THEN 'Approved'
-    WHEN mcn_status = 1 AND COALESCE(closeddate,'') <> '' THEN 'Implemented'
-    ELSE 'Pending'
+    -- mcn_status 0: open, and it's the PE disposition that decides
+    WHEN mcn_status = 0 AND (pe_disposition IS NULL OR TRIM(pe_disposition) = '') THEN 'Pending'
+    WHEN mcn_status = 0 AND LOWER(TRIM(pe_disposition)) LIKE 'approv%' THEN 'Approved'
+    WHEN mcn_status = 0 THEN 'Pending'
+
+    -- mcn_status 1: closed out, and the disposition decides how.
+    -- NULL and empty string mean DIFFERENT things here, so the NULL test has to
+    -- come first: TRIM(NULL) is NULL, not '', and would fall through.
+    WHEN mcn_status = 1 AND disposition IS NULL THEN 'Rejected (PPE)'
+    WHEN mcn_status = 1 AND TRIM(disposition) = '' THEN 'Implemented'
+    WHEN mcn_status = 1 AND LOWER(TRIM(disposition)) LIKE 'accept%' THEN 'Implemented'
+    WHEN mcn_status = 1 AND LOWER(TRIM(disposition)) LIKE 'reject%' THEN 'Rejected'
+    WHEN mcn_status = 1 AND LOWER(TRIM(disposition)) LIKE 'cancel%' THEN 'Canceled'
+    WHEN mcn_status = 1 THEN 'Implemented'
+
+    WHEN mcn_status = 2 THEN 'Rejected (PE)'
+    WHEN mcn_status = 3 THEN 'Test'
+    ELSE 'Unknown'
+  END`
+
+/**
+ * Coarse grouping for the chart and filter chips: the three rejected variants
+ * differ by who rejected it, which matters on the record but would fragment the
+ * summary into near-empty bars.
+ */
+const STATUS_GROUP_CASE = `
+  CASE
+    WHEN mcn_status = 0 AND LOWER(TRIM(COALESCE(pe_disposition,''))) LIKE 'approv%' THEN 'Approved'
+    WHEN mcn_status = 0 THEN 'Pending'
+    WHEN mcn_status = 1 AND disposition IS NULL THEN 'Rejected'
+    WHEN mcn_status = 1 AND LOWER(TRIM(disposition)) LIKE 'reject%' THEN 'Rejected'
+    WHEN mcn_status = 1 AND LOWER(TRIM(disposition)) LIKE 'cancel%' THEN 'Canceled'
+    WHEN mcn_status = 1 THEN 'Implemented'
+    WHEN mcn_status = 2 THEN 'Rejected'
+    WHEN mcn_status = 3 THEN 'Test'
+    ELSE 'Unknown'
   END`
 
 // hold_status is free-form in the legacy data; anything non-empty that isn't a
-// negative counts as on hold.
+// negative counts as on hold. Hold is independent of status — a record can be
+// held in any state.
 const HOLD_CASE = `
   CASE
-    WHEN hold_status IS NULL OR hold_status = '' THEN 0
-    WHEN LOWER(hold_status) IN ('no','none','n','0','false','off') THEN 0
+    WHEN hold_status IS NULL OR TRIM(hold_status) = '' THEN 0
+    WHEN LOWER(TRIM(hold_status)) IN ('no','none','n','0','false','off') THEN 0
     ELSE 1
   END`
 
@@ -56,6 +87,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
+  // mcn_status = 3 is a test record. Hidden from everyone but Admin, so it
+  // can't skew counts or turn up in a search for real changes.
+  const isAdmin = hasRole(roles, 'Admin')
+  const testFilter = isAdmin ? '' : 'WHERE mcn_status <> 3'
+
   const sp = new URL(request.url).searchParams
   const id = sp.get('id')
 
@@ -63,7 +99,9 @@ export async function GET(request: NextRequest) {
     // ---- Single record ----
     if (id) {
       const rows = await queryPrimary<any[]>(
-        `SELECT *, ${STATUS_CASE} AS status, ${HOLD_CASE} AS on_hold FROM mcn WHERE id = ? LIMIT 1`,
+        `SELECT *, ${STATUS_CASE} AS status, ${STATUS_GROUP_CASE} AS status_group,
+                ${HOLD_CASE} AS on_hold
+         FROM mcn WHERE id = ? ${isAdmin ? '' : 'AND mcn_status <> 3'} LIMIT 1`,
         [id]
       )
       if (!rows?.length) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -84,9 +122,12 @@ export async function GET(request: NextRequest) {
         subdate, subtime, closeddate, closedtime,
         STR_TO_DATE(CONCAT(NULLIF(subdate,''), ' ', NULLIF(subtime,'')), '%d%b%Y %H:%i:%s') AS submitted_at,
         STR_TO_DATE(CONCAT(NULLIF(closeddate,''), ' ', NULLIF(closedtime,'')), '%d%b%Y %H:%i:%s') AS closed_at,
+        pe_disposition,
         ${STATUS_CASE} AS status,
+        ${STATUS_GROUP_CASE} AS status_group,
         ${HOLD_CASE} AS on_hold
       FROM mcn
+      ${testFilter}
       ORDER BY submitted_at DESC, id DESC
     `)
 
@@ -106,6 +147,7 @@ export async function GET(request: NextRequest) {
              CASE WHEN COALESCE(closeddate,'') <> '' THEN 'closed' ELSE 'open' END AS closed,
              COUNT(*) AS n
       FROM mcn
+      ${testFilter}
       GROUP BY mcn_status, disposition, submission_type, closed
       ORDER BY n DESC
       LIMIT 40
@@ -116,6 +158,7 @@ export async function GET(request: NextRequest) {
       data,
       count: data.length,
       statusAudit: audit || [],
+      isAdmin,
       locations: Array.from(new Set(data.flatMap(d => d.locations))).sort(),
     })
   } catch (error) {

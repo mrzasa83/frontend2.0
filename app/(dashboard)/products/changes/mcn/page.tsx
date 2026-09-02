@@ -8,6 +8,8 @@ import {
   ChevronDown, ChevronRight, Download, PauseCircle,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import Tabs from '@/components/ui/Tabs'
+import McnDetail from '@/components/changes/McnDetail'
 
 type Mcn = {
   id: number
@@ -33,24 +35,34 @@ type Mcn = {
   submitted_at: string | null
   closed_at: string | null
   status: string
+  status_group: string
   on_hold: number
   locations: string[]
   location: string
 }
 
-const STATUSES = ['Pending', 'Approved', 'Implemented', 'Rejected'] as const
+// Chips/chart use the coarse grouping; the table shows the exact status, since
+// "Rejected (PE)" vs "Rejected (PPE)" matters on the record itself.
+const STATUS_GROUPS = ['Pending', 'Approved', 'Implemented', 'Rejected', 'Canceled'] as const
 
 const STATUS_STYLE: Record<string, string> = {
   Pending: 'bg-amber-100 text-amber-700',
   Approved: 'bg-blue-100 text-blue-700',
   Implemented: 'bg-green-100 text-green-700',
   Rejected: 'bg-red-100 text-red-700',
+  'Rejected (PE)': 'bg-red-100 text-red-700',
+  'Rejected (PPE)': 'bg-rose-100 text-rose-700',
+  Canceled: 'bg-slate-200 text-slate-600',
+  Test: 'bg-purple-100 text-purple-700',
+  Unknown: 'bg-slate-100 text-slate-500',
 }
 const STATUS_BAR: Record<string, string> = {
   Pending: '#f59e0b',
   Approved: '#3b82f6',
   Implemented: '#22c55e',
   Rejected: '#ef4444',
+  Canceled: '#94a3b8',
+  Test: '#a855f7',
 }
 
 const fmtDate = (v: any) => {
@@ -68,6 +80,20 @@ const daysInQueue = (v: any) => {
 }
 
 export default function ProductChangesPage() {
+  const [openIds, setOpenIds] = useState<{ id: number; label: string }[]>([])
+  const [activeTab, setActiveTab] = useState('all')
+
+  const openRecord = (r: Mcn) => {
+    if (!openIds.find(o => o.id === r.id)) {
+      setOpenIds(v => [...v, { id: r.id, label: `${r.id} · ${r.toolnum || ''}`.trim() }])
+    }
+    setActiveTab(`mcn-${r.id}`)
+  }
+  const closeRecord = (id: number) => {
+    setOpenIds(v => v.filter(o => o.id !== id))
+    setActiveTab('all')
+  }
+
   const [rows, setRows] = useState<Mcn[]>([])
   const [locations, setLocations] = useState<string[]>([])
   const [audit, setAudit] = useState<any[]>([])
@@ -97,24 +123,31 @@ export default function ProductChangesPage() {
   useEffect(() => { load() }, [load])
 
   const counts = useMemo(() => {
-    const c: Record<string, number> = { Pending: 0, Approved: 0, Implemented: 0, Rejected: 0 }
-    for (const r of rows) c[r.status] = (c[r.status] || 0) + 1
+    const c: Record<string, number> = {}
+    for (const r of rows) c[r.status_group] = (c[r.status_group] || 0) + 1
     return c
   }, [rows])
+
+  // Test records only exist for Admin, so the chip only appears when there are any.
+  const chipStatuses = useMemo(() => {
+    const list: string[] = ['All', ...STATUS_GROUPS]
+    if (counts['Test']) list.push('Test')
+    return list
+  }, [counts])
 
   const onHoldCount = useMemo(() => rows.filter(r => r.on_hold).length, [rows])
 
   // Open work, oldest first — the queue that needs attention.
   const openQueue = useMemo(() =>
     rows
-      .filter(r => r.status === 'Pending' || r.status === 'Approved')
+      .filter(r => r.status_group === 'Pending' || r.status_group === 'Approved')
       .sort((a, b) => new Date(a.submitted_at || 0).getTime() - new Date(b.submitted_at || 0).getTime()),
     [rows])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return rows.filter(r => {
-      if (statusFilter !== 'All' && r.status !== statusFilter) return false
+      if (statusFilter !== 'All' && r.status_group !== statusFilter) return false
       if (holdFilter === 'hold' && !r.on_hold) return false
       if (holdFilter === 'nohold' && r.on_hold) return false
       if (locationFilter && !(r.locations || []).includes(locationFilter)) return false
@@ -150,7 +183,8 @@ export default function ProductChangesPage() {
   const toggleSort = (key: string) =>
     setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })
 
-  const chartData = STATUSES.map(s => ({ name: s, count: counts[s] || 0 }))
+  const chartData = [...STATUS_GROUPS, ...(counts['Test'] ? ['Test'] : [])]
+    .map(s => ({ name: s, count: counts[s] || 0 }))
 
   const exportExcel = async () => {
     const XLSX = await import('xlsx')
@@ -195,6 +229,11 @@ export default function ProductChangesPage() {
       </div>
 
       {error && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{error}</div>}
+
+      <Tabs
+        tabs={[
+          { id: 'all', label: 'All Changes', closeable: false, content: (
+            <>
 
       {/* Dashboard */}
       <div className="bg-white border border-slate-200 rounded-lg mb-4">
@@ -262,7 +301,7 @@ export default function ProductChangesPage() {
 
       {/* Filters */}
       <div className="flex items-center gap-2 mb-3 flex-wrap">
-        {(['All', ...STATUSES] as string[]).map(s => (
+        {chipStatuses.map(s => (
           <button key={s} onClick={() => setStatusFilter(s)}
             className={`px-3 py-1 text-sm rounded-lg border ${
               statusFilter === s ? 'border-blue-500 text-blue-700 bg-blue-50 font-medium' : 'border-slate-200 text-slate-600 hover:bg-slate-50'
@@ -338,8 +377,9 @@ export default function ProductChangesPage() {
             ) : sorted.length === 0 ? (
               <tr><td colSpan={COLS.length} className="px-3 py-8 text-center text-slate-400">No product changes match.</td></tr>
             ) : sorted.slice(0, 500).map(r => (
-              <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
-                <td className="px-3 py-1.5 text-slate-700">{r.id}</td>
+              <tr key={r.id} onClick={() => openRecord(r)}
+                className="border-t border-slate-100 hover:bg-blue-50 cursor-pointer">
+                <td className="px-3 py-1.5 text-blue-600 font-medium hover:underline">{r.id}</td>
                 <td className="px-3 py-1.5 text-slate-600 text-xs font-mono truncate max-w-[220px]" title={r.request}>{r.request}</td>
                 <td className="px-3 py-1.5 font-mono text-slate-800">{r.toolnum}</td>
                 <td className="px-3 py-1.5 font-mono text-slate-600">{r.partnum}</td>
@@ -349,7 +389,8 @@ export default function ProductChangesPage() {
                 </td>
                 <td className="px-3 py-1.5 text-slate-500 text-xs">{fmtDate(r.submitted_at)}</td>
                 <td className="px-3 py-1.5">
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[r.status] || 'bg-slate-100 text-slate-600'}`}>
+                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[r.status] || 'bg-slate-100 text-slate-600'}`}
+                    title={r.status !== r.status_group ? `Counted under ${r.status_group}` : undefined}>
                     {r.status}
                   </span>
                 </td>
@@ -406,6 +447,20 @@ export default function ProductChangesPage() {
           </div>
         )}
       </div>
+            </>
+          ) },
+          ...openIds.map(o => ({
+            id: `mcn-${o.id}`,
+            label: o.label,
+            closeable: true,
+            onClose: () => closeRecord(o.id),
+            content: <McnDetail key={`mcn-${o.id}`} id={o.id} />,
+          })),
+        ]}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        preserveState={true}
+      />
     </div>
   )
 }
