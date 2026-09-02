@@ -11,6 +11,7 @@ export default function ChangesPage() {
       icon: FileText,
       href: '/products/changes/standards',
       color: 'blue',
+      disabled: false,
     },
     {
       title: 'ECO',
@@ -18,14 +19,15 @@ export default function ChangesPage() {
       icon: GitBranch,
       href: '/products/changes/eco',
       color: 'purple',
+      disabled: false,
     },
     {
       title: 'Products',
-      description: 'Product-level engineering changes and revision management',
+      description: 'Product Changes (MCN) — track requests, dispositions, holds and build location',
       icon: Package,
-      href: '/products/changes/products',
+      href: '/products/changes/mcn',
       color: 'emerald',
-      disabled: true,
+      disabled: false,
     },
   ]
 
