@@ -7,15 +7,20 @@ import { canReadModule } from '@/lib/config/access'
 export const dynamic = 'force-dynamic'
 
 /**
- * Reject history for a customer part.
+ * Rejects and defects for a customer part.
  *
- * DATA0311 links a work order to a reject transaction (DATA0058), which carries
- * the reject code (DATA0039), the employee (DATA0005), the date/time and the
- * quantity.
+ * Driven from DATA0058 (the reject transactions) rather than DATA0311, walking
+ * out to the throughput record and its work order, then to the customer part,
+ * the inventory part (via the work order's BOM), the reject code and the
+ * employee.
  *
- * Matched on DATA0050.CATALOG_NUMBER rather than CUSTOMER_PART_NUMBER — the
- * catalog number is the field that lines up with the APC part number the page
- * is showing.
+ * COST depends on what kind of record it is, per DATA0039.REJECT_DEFECT_FLAG:
+ *   'D' (defect)  the reject value carried on the transaction
+ *   otherwise     cost applied at the work centre, less direct material,
+ *                 plus the material actually issued
+ * The DATA0311 join is therefore keyed on all four pointers — work order, work
+ * centre, throughput and reject — so the cost lines up with this exact
+ * transaction rather than any other reject on the same order.
  */
 const REJECT_SQL = `
   SELECT
@@ -24,21 +29,43 @@ const REJECT_SQL = `
       LTRIM(RTRIM(d6.WORK_ORDER_NUMBER))     AS WORK_ORDER_NUMBER,
       LTRIM(RTRIM(d39.REJ_CODE))             AS REJ_CODE,
       LTRIM(RTRIM(d39.REJECT_DESCRIPTION))   AS REJECT_DESCRIPTION,
+      LTRIM(RTRIM(d39.REJECT_DEFECT_FLAG))   AS REJECT_DEFECT_FLAG,
       LTRIM(RTRIM(d5.EMPL_CODE))             AS EMPLOYEE_CODE,
       LTRIM(RTRIM(d5.EMPLOYEE_NAME))         AS EMPLOYEE_NAME,
       d58.TDATE      AS REJECT_DATE,
       d58.TTIME      AS REJECT_TIME,
-      d58.QTY_REJECT AS QUANTITY
-  FROM DATA0311 d311 WITH (NOLOCK)
-  LEFT JOIN DATA0006 d6  WITH (NOLOCK) ON d6.RKEY  = d311.WORK_ORDER_PTR
-  LEFT JOIN DATA0058 d58 WITH (NOLOCK) ON d58.RKEY = d311.DATA_58_PTR
-  LEFT JOIN DATA0039 d39 WITH (NOLOCK) ON d39.RKEY = d58.REJECT_PTR
-  LEFT JOIN DATA0056 d56 WITH (NOLOCK) ON d56.RKEY = d311.DATA_56_PTR
-  LEFT JOIN DATA0034 d34 WITH (NOLOCK) ON d34.RKEY = d311.DATA_34_PTR
-  LEFT JOIN DATA0005 d5  WITH (NOLOCK) ON d5.RKEY  = d58.EMPL_PTR
-  LEFT JOIN DATA0050 d50 WITH (NOLOCK) ON d50.RKEY = d6.CUST_PART_PTR
-  LEFT JOIN DATA0017 d17 WITH (NOLOCK) ON d17.RKEY = d6.INVENTORY_PTR
-  WHERE d50.CATALOG_NUMBER LIKE @part
+      d58.QTY_REJECT AS QUANTITY,
+      CASE
+          WHEN d39.REJECT_DEFECT_FLAG = 'D' THEN d58.REJ_VALUE
+          ELSE (d311.TOT_ACT_COST_APPLIED - d311.APPLIED_DIRECT_MTRL) + d311.ACTUAL_MTRL_ISSUED
+      END AS REJECT_COST
+  FROM DATA0058 d58 WITH (NOLOCK)
+  -- Throughput -> Work Order
+  LEFT JOIN DATA0056 d56 WITH (NOLOCK)
+      ON d56.RKEY = d58.TPUT_PTR
+  LEFT JOIN DATA0006 d6 WITH (NOLOCK)
+      ON d6.RKEY = d56.WO_PTR
+  -- Customer Part
+  LEFT JOIN DATA0050 d50 WITH (NOLOCK)
+      ON d50.RKEY = d6.CUST_PART_PTR
+  -- Inventory part, through the work order's BOM
+  LEFT JOIN DATA0025 d25 WITH (NOLOCK)
+      ON d25.RKEY = d6.BOM_PTR
+  LEFT JOIN DATA0017 d17 WITH (NOLOCK)
+      ON d17.RKEY = d25.INVENTORY_PTR
+  -- Reject code
+  LEFT JOIN DATA0039 d39 WITH (NOLOCK)
+      ON d39.RKEY = d58.REJECT_PTR
+  -- Employee
+  LEFT JOIN DATA0005 d5 WITH (NOLOCK)
+      ON d5.RKEY = d58.EMPL_PTR
+  -- Cost applied for this exact transaction
+  LEFT JOIN DATA0311 d311 WITH (NOLOCK)
+      ON d311.WORK_ORDER_PTR = d6.RKEY
+     AND d311.DATA_34_PTR = d58.W_C_PTR
+     AND d311.DATA_56_PTR = d56.RKEY
+     AND d311.DATA_58_PTR = d58.RKEY
+  WHERE d50.CUSTOMER_PART_NUMBER LIKE @part
   ORDER BY d58.TDATE DESC, d58.TTIME DESC`
 
 // GET ?part=75336 -> reject transactions for that customer part.
@@ -71,6 +98,11 @@ export async function GET(request: NextRequest) {
       work_order: r.WORK_ORDER_NUMBER || '',
       reject_code: r.REJ_CODE || '',
       reject_description: r.REJECT_DESCRIPTION || '',
+      // 'D' marks a defect; anything else is a reject. The two are costed
+      // differently, so the distinction is worth showing.
+      is_defect: String(r.REJECT_DEFECT_FLAG || '').toUpperCase() === 'D',
+      defect_flag: r.REJECT_DEFECT_FLAG || '',
+      cost: r.REJECT_COST === null || r.REJECT_COST === undefined ? null : Number(r.REJECT_COST),
       employee_code: r.EMPLOYEE_CODE || '',
       employee_name: r.EMPLOYEE_NAME || '',
       reject_date: r.REJECT_DATE || null,
@@ -79,8 +111,9 @@ export async function GET(request: NextRequest) {
     }))
 
     const totalQty = mapped.reduce((a, r) => a + (Number(r.quantity) || 0), 0)
+    const totalCost = mapped.reduce((a, r) => a + (Number(r.cost) || 0), 0)
     return NextResponse.json({
-      success: true, rows: mapped, count: mapped.length, totalQty,
+      success: true, rows: mapped, count: mapped.length, totalQty, totalCost,
     })
   } catch (error) {
     console.error('Reject query error:', error)

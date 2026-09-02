@@ -109,10 +109,19 @@ function formatDate(isoDate: string): string {
   })
 }
 
+
+/** Currency for reject/defect cost. Costs can be negative after adjustments. */
+const fmtCost = (v: any) => {
+  const n = Number(v)
+  if (!isFinite(n)) return ''
+  return n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 })
+}
+
 export default function ReleasedFilesTab({ partNumber, customerPN, customer, onStatusChange, onBuildLocationChange, initialSubTab, onlySubTabs }: Props) {
   // Reject history — loaded when the tab is first opened, like the others.
   const [rejectRows, setRejectRows] = useState<any[]>([])
   const [rejectTotalQty, setRejectTotalQty] = useState(0)
+  const [rejectTotalCost, setRejectTotalCost] = useState(0)
   const [loadingRejects, setLoadingRejects] = useState(false)
   const [rejectsFetched, setRejectsFetched] = useState(false)
   const [rejectError, setRejectError] = useState('')
@@ -648,6 +657,7 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
         if (cancelled) return
         setRejectRows(d.rows || [])
         setRejectTotalQty(d.totalQty || 0)
+        setRejectTotalCost(d.totalCost || 0)
         setRejectsFetched(true)
       })
       .catch(e => { if (!cancelled) setRejectError(e.message) })
@@ -1212,7 +1222,8 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
             const { key, dir } = rejectSort
             const av = a[key], bv = b[key]
             let cmp: number
-            if (key === 'quantity') cmp = (Number(av) || 0) - (Number(bv) || 0)
+            if (key === 'quantity' || key === 'cost') cmp = (Number(av) || 0) - (Number(bv) || 0)
+            else if (key === 'is_defect') cmp = (av ? 1 : 0) - (bv ? 1 : 0)
             else if (key === 'reject_date') cmp = new Date(av || 0).getTime() - new Date(bv || 0).getTime()
             else cmp = String(av ?? '').localeCompare(String(bv ?? ''))
             return dir === 'asc' ? cmp : -cmp
@@ -1220,6 +1231,7 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
           const toggleRejectSort = (key: string) =>
             setRejectSort(s2 => s2.key === key ? { key, dir: s2.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })
           const filteredQty = sortedRejects.reduce((a, r) => a + (Number(r.quantity) || 0), 0)
+          const filteredCost = sortedRejects.reduce((a, r) => a + (Number(r.cost) || 0), 0)
 
           const REJECT_COLS: { key: string; label: string; w?: string; align?: string }[] = [
             { key: 'inv_part', label: 'Inv Part', w: 'w-40' },
@@ -1229,7 +1241,9 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
             { key: 'reject_code', label: 'Code', w: 'w-24' },
             { key: 'reject_description', label: 'Description' },
             { key: 'employee_name', label: 'Employee', w: 'w-44' },
+            { key: 'is_defect', label: 'Type', w: 'w-24' },
             { key: 'quantity', label: 'Qty', w: 'w-20', align: 'text-right' },
+            { key: 'cost', label: 'Cost', w: 'w-28', align: 'text-right' },
           ]
 
           return (
@@ -1238,9 +1252,12 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
               <div>
                 <h3 className="text-lg font-semibold text-slate-800">Rejects ({rejectRows.length})</h3>
                 <p className="text-xs text-slate-500">
-                  Reject history for this part (read-only)
+                  Reject history for this part (based on D0600c1)
                   {!loadingRejects && !rejectError && (
-                    <> · {sortedRejects.length} shown · {filteredQty.toLocaleString()} pieces</>
+                    <>
+                      {' '}· {sortedRejects.length} shown · {filteredQty.toLocaleString()} pieces
+                      {' '}· {fmtCost(filteredCost)}
+                    </>
                   )}
                 </p>
               </div>
@@ -1260,10 +1277,11 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
                     const ws = XLSX.utils.json_to_sheet(sortedRejects.map(r => ({
                       'Inv Part': r.inv_part, 'Customer Part': r.customer_part,
                       'Work Order': r.work_order, 'Reject Code': r.reject_code,
-                      Description: r.reject_description, Employee: r.employee_name,
-                      'Employee Code': r.employee_code,
+                      Description: r.reject_description,
+                      Type: r.is_defect ? 'Defect' : 'Reject',
+                      Employee: r.employee_name, 'Employee Code': r.employee_code,
                       Date: r.reject_date ? new Date(r.reject_date).toLocaleDateString() : '',
-                      Time: r.reject_time, Quantity: r.quantity,
+                      Time: r.reject_time, Quantity: r.quantity, Cost: r.cost ?? '',
                     })))
                     ws['!cols'] = [{ wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 40 }, { wch: 22 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 10 }]
                     const wb = XLSX.utils.book_new()
@@ -1329,8 +1347,17 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
                         {r.employee_name}
                         {r.employee_code && <span className="text-slate-400"> ({r.employee_code})</span>}
                       </td>
+                      <td className="px-3 py-1.5">
+                        <span className={`text-xs px-1.5 py-0.5 rounded ${r.is_defect ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`}
+                          title={r.is_defect ? 'Defect — costed at reject value' : 'Reject — costed from applied cost and material'}>
+                          {r.is_defect ? 'Defect' : 'Reject'}
+                        </span>
+                      </td>
                       <td className="px-3 py-1.5 text-right tabular-nums font-medium text-slate-800">
                         {r.quantity ?? ''}
+                      </td>
+                      <td className="px-3 py-1.5 text-right tabular-nums text-slate-700">
+                        {r.cost == null ? <span className="text-slate-300">—</span> : fmtCost(r.cost)}
                       </td>
                     </tr>
                   ))}
