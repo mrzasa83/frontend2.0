@@ -36,6 +36,8 @@ type Mcn = {
   closed_at: string | null
   status: string
   status_group: string
+  owner: string
+  owner_label: string
   on_hold: number
   locations: string[]
   location: string
@@ -137,6 +139,20 @@ export default function ProductChangesPage() {
 
   const onHoldCount = useMemo(() => rows.filter(r => r.on_hold).length, [rows])
 
+  // Who's holding open work, busiest first. Open only — a closed record has no
+  // active owner, and including them would just rank whoever closed the most.
+  const ownerCounts = useMemo(() => {
+    const c = new Map<string, number>()
+    for (const r of rows) {
+      if (r.status_group !== 'Pending' && r.status_group !== 'Approved') continue
+      const k = r.owner_label || 'Unassigned'
+      c.set(k, (c.get(k) || 0) + 1)
+    }
+    return Array.from(c.entries())
+      .map(([owner, count]) => ({ owner, count }))
+      .sort((a, b) => b.count - a.count || a.owner.localeCompare(b.owner))
+  }, [rows])
+
   // Open work, oldest first — the queue that needs attention.
   const openQueue = useMemo(() =>
     rows
@@ -183,14 +199,16 @@ export default function ProductChangesPage() {
   const toggleSort = (key: string) =>
     setSort(s => s.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' })
 
-  const chartData = [...STATUS_GROUPS, ...(counts['Test'] ? ['Test'] : [])]
+  // The distribution chart plots the OPEN states only — Implemented dwarfs
+  // everything else by an order of magnitude and flattens the bars that matter.
+  const chartData = (['Pending', 'Approved'] as string[])
     .map(s => ({ name: s, count: counts[s] || 0 }))
 
   const exportExcel = async () => {
     const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(sorted.map(r => ({
       ID: r.id, Request: r.request, 'Tool #': r.toolnum, 'Part #': r.partnum,
-      Customer: r.customer, Location: r.location, Status: r.status,
+      Customer: r.customer, Owner: r.owner_label, Location: r.location, Status: r.status,
       'On Hold': r.on_hold ? 'Yes' : 'No', 'Hold Reason': r.hold_status_reason || '',
       Initiator: r.initiator, Requester: r.requester,
       Change: r.change, Reason: r.reason, 'Change Reason': r.chngreason, Effect: r.chngeffect,
@@ -206,7 +224,8 @@ export default function ProductChangesPage() {
     { key: 'request', label: 'Request', w: 'w-56' },
     { key: 'toolnum', label: 'Tool #', w: 'w-24' },
     { key: 'partnum', label: 'Part #', w: 'w-32' },
-    { key: 'customer', label: 'Customer', w: 'w-40' },
+    { key: 'customer', label: 'Customer', w: 'w-36' },
+    { key: 'owner', label: 'Owner', w: 'w-32' },
     { key: 'location', label: 'Location', w: 'w-36' },
     { key: 'submitted_at', label: 'Submitted', w: 'w-28' },
     { key: 'status', label: 'Status', w: 'w-28' },
@@ -243,9 +262,9 @@ export default function ProductChangesPage() {
           Dashboard
         </button>
         {showDash && (
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 p-4 border-t border-slate-100">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-4 border-t border-slate-100">
             <div>
-              <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Status distribution</div>
+              <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Open by status</div>
               <ResponsiveContainer width="100%" height={190}>
                 <BarChart data={chartData} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
@@ -261,6 +280,35 @@ export default function ProductChangesPage() {
 
             <div>
               <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">
+                Open by owner ({ownerCounts.length})
+              </div>
+              <div className="border border-slate-200 rounded-lg overflow-auto max-h-[190px]">
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr>
+                      <th className="px-2 py-1.5 text-left text-xs font-medium text-slate-600">Owner</th>
+                      <th className="px-2 py-1.5 text-right text-xs font-medium text-slate-600 w-16">Open</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ownerCounts.length === 0 ? (
+                      <tr><td colSpan={2} className="px-2 py-4 text-center text-slate-400 text-sm">Nothing open.</td></tr>
+                    ) : ownerCounts.map(o => (
+                      <tr key={o.owner} className="border-t border-slate-100 hover:bg-slate-50 cursor-pointer"
+                        onClick={() => setSearch(o.owner === 'Unassigned' ? '' : o.owner)}>
+                        <td className={`px-2 py-1 ${o.owner === 'Unassigned' ? 'text-amber-600 italic' : 'text-slate-700'}`}>
+                          {o.owner}
+                        </td>
+                        <td className="px-2 py-1 text-right tabular-nums text-slate-700">{o.count}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">
                 Open — days in queue ({openQueue.length})
               </div>
               <div className="border border-slate-200 rounded-lg overflow-auto max-h-[190px]">
@@ -271,12 +319,13 @@ export default function ProductChangesPage() {
                       <th className="px-2 py-1.5 text-left text-xs font-medium text-slate-600">Tool #</th>
                       <th className="px-2 py-1.5 text-left text-xs font-medium text-slate-600">Part #</th>
                       <th className="px-2 py-1.5 text-left text-xs font-medium text-slate-600">Customer</th>
+                      <th className="px-2 py-1.5 text-left text-xs font-medium text-slate-600">Owner</th>
                       <th className="px-2 py-1.5 text-right text-xs font-medium text-slate-600">In Queue</th>
                     </tr>
                   </thead>
                   <tbody>
                     {openQueue.length === 0 ? (
-                      <tr><td colSpan={5} className="px-2 py-4 text-center text-slate-400 text-sm">Nothing open.</td></tr>
+                      <tr><td colSpan={6} className="px-2 py-4 text-center text-slate-400 text-sm">Nothing open.</td></tr>
                     ) : openQueue.slice(0, 50).map(r => {
                       const d = daysInQueue(r.submitted_at)
                       return (
@@ -284,7 +333,10 @@ export default function ProductChangesPage() {
                           <td className="px-2 py-1 text-slate-700">{r.id}</td>
                           <td className="px-2 py-1 font-mono text-slate-700">{r.toolnum}</td>
                           <td className="px-2 py-1 font-mono text-slate-600">{r.partnum}</td>
-                          <td className="px-2 py-1 text-slate-600 truncate max-w-[160px]">{r.customer}</td>
+                          <td className="px-2 py-1 text-slate-600 truncate max-w-[140px]">{r.customer}</td>
+                          <td className={`px-2 py-1 truncate max-w-[120px] ${r.owner ? 'text-slate-700' : 'text-amber-600 italic'}`}>
+                            {r.owner_label}
+                          </td>
                           <td className={`px-2 py-1 text-right ${d != null && d > 30 ? 'text-red-600 font-medium' : 'text-amber-600'}`}>
                             {d == null ? '' : d === 0 ? 'Today' : `${d} days`}
                           </td>
@@ -383,7 +435,10 @@ export default function ProductChangesPage() {
                 <td className="px-3 py-1.5 text-slate-600 text-xs font-mono truncate max-w-[220px]" title={r.request}>{r.request}</td>
                 <td className="px-3 py-1.5 font-mono text-slate-800">{r.toolnum}</td>
                 <td className="px-3 py-1.5 font-mono text-slate-600">{r.partnum}</td>
-                <td className="px-3 py-1.5 text-slate-600 truncate max-w-[160px]">{r.customer}</td>
+                <td className="px-3 py-1.5 text-slate-600 truncate max-w-[140px]">{r.customer}</td>
+                <td className={`px-3 py-1.5 truncate max-w-[130px] ${r.owner ? 'text-slate-700' : 'text-slate-300'}`}>
+                  {r.owner_label || '—'}
+                </td>
                 <td className="px-3 py-1.5 text-slate-600 text-xs">
                   {r.location || <span className="text-slate-300">—</span>}
                 </td>

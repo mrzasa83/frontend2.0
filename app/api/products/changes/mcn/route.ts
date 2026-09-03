@@ -115,7 +115,7 @@ export async function GET(request: NextRequest) {
     const rows = await queryPrimary<any[]>(`
       SELECT
         id, request, mcn_status, toolnum, partnum, customer,
-        initiator, requester, otherrequester, pe, closedby,
+        initiator, requester, otherrequester, pe, ppe, closedby,
         \`change\`, reason, chngreason, chngeffect, disposition,
         submission_type, hold_status, hold_status_reason, urgent,
         eco, to_eco, software, wip, batchcard,
@@ -131,11 +131,36 @@ export async function GET(request: NextRequest) {
       ORDER BY submitted_at DESC, id DESC
     `)
 
+    /**
+     * Who owns the record right now — it moves with the state:
+     *   Draft      the initiator (state not defined yet; branch is here so it
+     *              works the moment a Draft status starts being emitted)
+     *   Pending    the PE, who has it to disposition
+     *   Approved   the PPE, who has it to implement
+     * Anything closed out has no active owner.
+     */
+    const ownerOf = (r: any): string => {
+      const pick = (v: any) => String(v ?? '').trim()
+      if (r.status === 'Draft') return pick(r.initiator)
+      if (r.status_group === 'Approved') return pick(r.ppe)
+      if (r.status_group === 'Pending') return pick(r.pe)
+      return ''
+    }
+
     // Attach build location from the Paradigm route.
     const locMap = await getLocationMap()
     const data = (rows || []).map(r => {
       const locations = locationsFor(locMap, r.toolnum)
-      return { ...r, locations, location: locations.join(', ') }
+      const owner = ownerOf(r)
+      return {
+        ...r,
+        locations,
+        location: locations.join(', '),
+        owner,
+        // Unowned open work is worth being able to see, so it gets a label
+        // rather than an empty cell.
+        owner_label: owner || (r.status_group === 'Pending' || r.status_group === 'Approved' ? 'Unassigned' : ''),
+      }
     })
 
     // How the raw values actually combine — so the mapping above can be checked
