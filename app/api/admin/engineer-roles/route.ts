@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
+import { hasColumn } from '@/lib/db/schemaProbe'
+import { clearPeLocationCache } from '@/lib/changes/legacyNames'
 
 // Engineer role types
 type EngineerRole = 'HDW' | 'CAM' | 'PCB' | 'ASM'
@@ -11,6 +13,7 @@ type UserEngineerRoles = {
   username: string
   name: string | null
   ccName: string | null
+  legacyMcnName?: string | null
   roles: EngineerRole[]
 }
 
@@ -33,6 +36,7 @@ export async function GET(request: NextRequest) {
         username,
         name,
         cc_name,
+        legacy_mcn_name,
         engineer_roles
       FROM Users
       WHERE active = 1
@@ -46,6 +50,7 @@ export async function GET(request: NextRequest) {
       username: user.username,
       name: user.name,
       ccName: user.cc_name,
+      legacyMcnName: user.legacy_mcn_name ?? null,
       roles: user.engineer_roles ? JSON.parse(user.engineer_roles) : []
     }))
 
@@ -82,7 +87,7 @@ export async function PUT(request: NextRequest) {
 
   try {
     const body = await request.json()
-    const { userId, roles, ccName } = body
+    const { userId, roles, ccName, legacyMcnName } = body
 
     if (!userId) {
       return NextResponse.json({ error: 'userId is required' }, { status: 400 })
@@ -93,21 +98,26 @@ export async function PUT(request: NextRequest) {
     const cleanRoles = (roles || []).filter((r: string) => validRoles.includes(r as EngineerRole))
 
     // Update user with CC name and engineer roles
-    const updateQuery = `
-      UPDATE Users 
-      SET cc_name = ?, engineer_roles = ?
-      WHERE id = ?
-    `
-    await queryPrimary(updateQuery, [
-      ccName || null,
-      JSON.stringify(cleanRoles),
-      userId
-    ])
+    // legacy_mcn_name links this user to how they appear in the legacy MCN
+    // data; only written when the column exists, so the code tolerates the
+    // migration not having run yet.
+    const withLegacy = await hasColumn('Users', 'legacy_mcn_name')
+    const updateQuery = withLegacy
+      ? `UPDATE Users SET cc_name = ?, engineer_roles = ?, legacy_mcn_name = ? WHERE id = ?`
+      : `UPDATE Users SET cc_name = ?, engineer_roles = ? WHERE id = ?`
+    const updateArgs = withLegacy
+      ? [ccName || null, JSON.stringify(cleanRoles),
+         (typeof legacyMcnName === 'string' && legacyMcnName.trim()) ? legacyMcnName.trim() : null,
+         userId]
+      : [ccName || null, JSON.stringify(cleanRoles), userId]
+    await queryPrimary(updateQuery, updateArgs)
+    clearPeLocationCache()   // the PE -> location mapping just changed
 
     return NextResponse.json({
       success: true,
       userId,
       ccName,
+      legacyMcnName: legacyMcnName ?? null,
       roles: cleanRoles
     })
 

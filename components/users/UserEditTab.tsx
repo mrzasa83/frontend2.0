@@ -19,6 +19,8 @@ type User = {
   active: number | null
   roles?: string[]
   cc_name?: string | null
+  office_location?: string | null
+  legacy_mcn_name?: string | null
   engineer_roles?: string[]
 }
 
@@ -56,6 +58,9 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
   // Control Center linking state
   const [ccUsers, setCcUsers] = useState<string[]>([])
   const [selectedCcName, setSelectedCcName] = useState<string>(user.cc_name || '')
+  const [legacyMcnName, setLegacyMcnName] = useState<string>(user.legacy_mcn_name || '')
+  const [legacyOptions, setLegacyOptions] = useState<{ name: string; uses: number; mappedTo: string | null }[]>([])
+  const [loadingLegacy, setLoadingLegacy] = useState(false)
   const [loadingCcUsers, setLoadingCcUsers] = useState(false)
   
   // Engineer roles state
@@ -198,6 +203,7 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
         body: JSON.stringify({
           userId: user.id,
           ccName: selectedCcName || null,
+          legacyMcnName: legacyMcnName || null,
           roles: engineerRoles
         })
       })
@@ -211,6 +217,7 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
       setFormData(prev => ({ 
         ...prev, 
         cc_name: selectedCcName || null,
+        legacy_mcn_name: legacyMcnName || null,
         engineer_roles: engineerRoles 
       }))
       
@@ -334,6 +341,24 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
             onChange={(e) => handleChange('title', e.target.value)}
             className={inputClassName}
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            Office Location
+          </label>
+          {/* Drives the location shown against Product Changes this person
+              approves as PE. */}
+          <select
+            value={formData.office_location || ''}
+            onChange={(e) => handleChange('office_location', e.target.value)}
+            className={inputClassName}
+          >
+            <option value="">— not set —</option>
+            <option value="Mesa">Mesa</option>
+            <option value="Nashua">Nashua</option>
+            <option value="Nogales">Nogales</option>
+          </select>
         </div>
 
         <div>
@@ -493,6 +518,18 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
     </div>
   )
 
+  // Legacy MCN names, drawn from the records themselves so the list only offers
+  // values that actually appear in the data.
+  useEffect(() => {
+    if (!isAdmin) return
+    setLoadingLegacy(true)
+    fetch(getApiUrl('/api/admin/legacy-names'))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.options) setLegacyOptions(d.options) })
+      .catch(() => {})
+      .finally(() => setLoadingLegacy(false))
+  }, [isAdmin])
+
   // Engineer Roles Tab Content (Admin only)
   const engineerRolesTab = (
     <div className="space-y-6">
@@ -524,6 +561,38 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
             </select>
             <p className="text-xs text-slate-500 mt-1">
               This links the app user to their Control Center identity for job tracking.
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Legacy MCN identity */}
+      <div>
+        <h4 className="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
+          <Link2 size={16} />
+          Legacy MCN Name
+        </h4>
+        {loadingLegacy ? (
+          <div className="text-sm text-slate-500">Loading legacy names...</div>
+        ) : (
+          <div>
+            <select
+              value={legacyMcnName}
+              onChange={(e) => setLegacyMcnName(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">-- Not linked --</option>
+              {legacyOptions.map(o => (
+                <option key={o.name} value={o.name}>
+                  {o.name} ({o.uses.toLocaleString()})
+                  {o.mappedTo && o.mappedTo !== user.username ? ` — already ${o.mappedTo}` : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-slate-500 mt-1">
+              How this person appears in the legacy MCN records (Surname:Firstname).
+              Linking it lets Product Changes resolve the PE to this user, and from
+              there to their office location. The number is how often the name appears.
             </p>
           </div>
         )}

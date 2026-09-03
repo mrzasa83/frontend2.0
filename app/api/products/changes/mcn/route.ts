@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { canReadModule, hasRole } from '@/lib/config/access'
 import { getLocationMap, locationsFor } from '@/lib/changes/mcnLocation'
+import { getPeLocationMap, locationForPe } from '@/lib/changes/legacyNames'
 
 export const dynamic = 'force-dynamic'
 
@@ -147,15 +148,25 @@ export async function GET(request: NextRequest) {
       return ''
     }
 
-    // Attach build location from the Paradigm route.
-    const locMap = await getLocationMap()
+    // Two independent notions of location, in priority order:
+    //   1. the office of the Process Engineer who owns the approval — this is
+    //      the one asked for, and it says who is handling the change
+    //   2. the part's build location from its Paradigm route — a fallback,
+    //      useful when the PE isn't mapped yet
+    // Both are returned so the difference is visible rather than hidden.
+    const [locMap, peLocMap] = await Promise.all([getLocationMap(), getPeLocationMap()])
     const data = (rows || []).map(r => {
       const locations = locationsFor(locMap, r.toolnum)
+      const routeLocation = locations.join(', ')
+      const peLocation = locationForPe(peLocMap, r.pe)
       const owner = ownerOf(r)
       return {
         ...r,
         locations,
-        location: locations.join(', '),
+        route_location: routeLocation,
+        pe_location: peLocation,
+        location: peLocation || routeLocation,
+        location_source: peLocation ? 'PE' : (routeLocation ? 'Route' : ''),
         owner,
         // Unowned open work is worth being able to see, so it gets a label
         // rather than an empty cell.
@@ -184,7 +195,15 @@ export async function GET(request: NextRequest) {
       count: data.length,
       statusAudit: audit || [],
       isAdmin,
-      locations: Array.from(new Set(data.flatMap(d => d.locations))).sort(),
+      locations: Array.from(new Set(
+        data.flatMap(d => [...(d.locations || []), d.pe_location]).filter(Boolean)
+      )).sort(),
+      // How many PEs still need a legacy-name mapping before location is
+      // reliable — worth knowing rather than guessing at coverage.
+      unmappedPes: Array.from(new Set(
+        data.filter(d => !d.pe_location && String(d.pe || '').trim())
+            .map(d => String(d.pe).trim())
+      )).sort().slice(0, 50),
     })
   } catch (error) {
     console.error('MCN query error:', error)

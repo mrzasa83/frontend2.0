@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
+import { hasColumn } from '@/lib/db/schemaProbe'
 
 export async function PUT(
   request: NextRequest,
@@ -23,30 +24,32 @@ export async function PUT(
     console.log('Updating user ID:', id)
     console.log('Update data:', data)
 
-    // Update user in database
+    // office_location arrives with a migration that may not have run yet, so
+    // the column is only written when it exists — a pending migration
+    // shouldn't take user editing down.
+    const withLocation = await hasColumn('Users', 'office_location')
+
+    const setCols = [
+      'name = ?', 'email = ?', 'nickname = ?', 'phone = ?',
+      'mobile = ?', 'title = ?', 'role = ?', 'active = ?',
+      ...(withLocation ? ['office_location = ?'] : []),
+      'updatedAt = NOW()',
+    ]
+    const setArgs: any[] = [
+      data.name || null,
+      data.email || null,
+      data.nickname || null,
+      data.phone || null,
+      data.mobile || null,
+      data.title || null,
+      data.role || null,
+      data.active !== undefined ? data.active : null,
+      ...(withLocation ? [data.office_location || null] : []),
+    ]
+
     const result = await queryPrimary(
-      `UPDATE Users SET 
-        name = ?,
-        email = ?,
-        nickname = ?,
-        phone = ?,
-        mobile = ?,
-        title = ?,
-        role = ?,
-        active = ?,
-        updatedAt = NOW()
-      WHERE id = ?`,
-      [
-        data.name || null,
-        data.email || null,
-        data.nickname || null,
-        data.phone || null,
-        data.mobile || null,
-        data.title || null,
-        data.role || null,
-        data.active !== undefined ? data.active : null,
-        id
-      ]
+      `UPDATE Users SET ${setCols.join(', ')} WHERE id = ?`,
+      [...setArgs, id]
     )
 
     console.log('Update result:', result)

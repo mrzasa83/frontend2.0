@@ -38,6 +38,9 @@ type Mcn = {
   status_group: string
   owner: string
   owner_label: string
+  pe_location: string
+  route_location: string
+  location_source: string
   on_hold: number
   locations: string[]
   location: string
@@ -208,7 +211,8 @@ export default function ProductChangesPage() {
     const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(sorted.map(r => ({
       ID: r.id, Request: r.request, 'Tool #': r.toolnum, 'Part #': r.partnum,
-      Customer: r.customer, Owner: r.owner_label, Location: r.location, Status: r.status,
+      Customer: r.customer, Owner: r.owner_label, PE: r.pe,
+      Location: r.location, 'Location Source': r.location_source, Status: r.status,
       'On Hold': r.on_hold ? 'Yes' : 'No', 'Hold Reason': r.hold_status_reason || '',
       Initiator: r.initiator, Requester: r.requester,
       Change: r.change, Reason: r.reason, 'Change Reason': r.chngreason, Effect: r.chngeffect,
@@ -226,6 +230,7 @@ export default function ProductChangesPage() {
     { key: 'partnum', label: 'Part #', w: 'w-32' },
     { key: 'customer', label: 'Customer', w: 'w-36' },
     { key: 'owner', label: 'Owner', w: 'w-32' },
+    { key: 'pe', label: 'PE', w: 'w-32' },
     { key: 'location', label: 'Location', w: 'w-36' },
     { key: 'submitted_at', label: 'Submitted', w: 'w-28' },
     { key: 'status', label: 'Status', w: 'w-28' },
@@ -439,8 +444,18 @@ export default function ProductChangesPage() {
                 <td className={`px-3 py-1.5 truncate max-w-[130px] ${r.owner ? 'text-slate-700' : 'text-slate-300'}`}>
                   {r.owner_label || '—'}
                 </td>
+                <td className="px-3 py-1.5 text-slate-600 text-xs truncate max-w-[130px]" title={r.pe || ''}>
+                  {r.pe || <span className="text-slate-300">—</span>}
+                </td>
                 <td className="px-3 py-1.5 text-slate-600 text-xs">
-                  {r.location || <span className="text-slate-300">—</span>}
+                  {r.location
+                    ? <span title={r.location_source === 'PE'
+                        ? `From the PE's office (${r.pe})`
+                        : 'From the part\'s route — the PE isn\'t mapped to a location yet'}>
+                        {r.location}
+                        {r.location_source === 'Route' && <span className="text-slate-300"> ~</span>}
+                      </span>
+                    : <span className="text-slate-300">—</span>}
                 </td>
                 <td className="px-3 py-1.5 text-slate-500 text-xs">{fmtDate(r.submitted_at)}</td>
                 <td className="px-3 py-1.5">
