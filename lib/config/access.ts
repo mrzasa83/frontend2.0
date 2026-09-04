@@ -31,6 +31,8 @@ export const ROLE_DEFS: { name: string; description: string; legacy?: boolean }[
   { name: 'ProductEng', description: 'View Op/Prod/Process/App/User; write Product→*' },
   { name: 'Program', description: 'View Operation, Product, App, User, Contract, EHS' },
   { name: 'EHSadmin', description: 'View EHS; write EHS→* (families, classifications, documents)' },
+  // Governs FrontImage, which shares this user database. No frontEnd2.0 access.
+  { name: 'ImageAdmin', description: 'Access to FrontImage (external app)' },
   { name: 'roUser', description: 'View Operation, Product, App (read-only)' },
   { name: 'FAIadmin', description: 'View Operations; delete First Article Inspections' },
   // Legacy aliases (kept for backward compatibility)

@@ -2,6 +2,8 @@
 
 
 import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
+import { hasRole } from '@/lib/config/access'
 import { Save, X, CheckCircle, Clock, XCircle, MapPin, Pencil, ExternalLink, Maximize2, Minimize2 } from 'lucide-react'
 import Tabs from '@/components/ui/Tabs'
 import DataView, { ColumnMetadata } from '@/components/ui/DataView'
@@ -33,9 +35,14 @@ type Props = {
 }
 
 export default function ProductEdit({ product, onSave, onCancel, readOnly = false, canEdit = false, onEditMode }: Props) {
+  const { data: session } = useSession()
+  const userRoles: string[] = ((session?.user as any)?.roles) || []
+  // General/Engineering are Product Engineering only; everyone else lands on
+  // Released, which is also the default so nobody opens onto a hidden tab.
+  const canSeeEngineering = hasRole(userRoles, 'Admin', 'ProductEng')
   const [formData, setFormData] = useState(product)
   const [hasChanges, setHasChanges] = useState(false)
-  const [activeTab, setActiveTab] = useState('general')
+  const [activeTab, setActiveTab] = useState('released')
   const [productStatus, setProductStatus] = useState<string>('Loading...')
   const [buildLocation, setBuildLocation] = useState<string | null>(null)
   const [frontVueOpen, setFrontVueOpen] = useState(false)
@@ -226,10 +233,20 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
     />
   )
 
-  // Top-level horizontal tabs - General, Engineering, Released
+  // Top-level horizontal tabs.
+  // General and Engineering hold pre-release engineering data, so they're
+  // limited to Product Engineering. Everyone else sees Released only — the
+  // released record is what the rest of the business works from.
+  // Session arrives asynchronously; once it does, an engineer starts on General.
+  useEffect(() => {
+    if (canSeeEngineering) setActiveTab(t => (t === 'released' ? 'general' : t))
+  }, [canSeeEngineering])
+
   const topLevelTabs = [
-    { id: 'general', label: 'General', content: generalTab, closeable: false },
-    { id: 'engineering', label: 'Engineering', content: engineeringTab, closeable: false },
+    ...(canSeeEngineering ? [
+      { id: 'general', label: 'General', content: generalTab, closeable: false },
+      { id: 'engineering', label: 'Engineering', content: engineeringTab, closeable: false },
+    ] : []),
     { id: 'released', label: 'Released', content: releasedTab, closeable: false }
   ]
 
