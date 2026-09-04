@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Link from 'next/link'
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts'
 import {
   ArrowLeft, RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, GitBranch,
   ChevronDown, ChevronRight, Download, PauseCircle,
@@ -142,6 +142,49 @@ export default function ProductChangesPage() {
 
   const onHoldCount = useMemo(() => rows.filter(r => r.on_hold).length, [rows])
 
+  /**
+   * New vs closed over the last seven days.
+   *
+   * Counts by the day a record was submitted and the day it was closed, so the
+   * two bars answer "are we keeping up?" — closing more than arrives means the
+   * backlog is shrinking. Built from the rows already loaded rather than a
+   * second query.
+   */
+  const throughput = useMemo(() => {
+    const days: { key: string; label: string; New: number; Closed: number }[] = []
+    const index = new Map<string, number>()
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date()
+      d.setHours(0, 0, 0, 0)
+      d.setDate(d.getDate() - i)
+      const key = d.toDateString()
+      index.set(key, days.length)
+      days.push({
+        key,
+        label: d.toLocaleDateString(undefined, { weekday: 'short', month: 'numeric', day: 'numeric' }),
+        New: 0, Closed: 0,
+      })
+    }
+    const bucket = (v: any) => {
+      if (!v) return -1
+      const d = new Date(v)
+      if (isNaN(d.getTime())) return -1
+      d.setHours(0, 0, 0, 0)
+      const i = index.get(d.toDateString())
+      return i === undefined ? -1 : i
+    }
+    for (const r of rows) {
+      const s = bucket(r.submitted_at)
+      if (s >= 0) days[s].New++
+      const c = bucket(r.closed_at)
+      if (c >= 0) days[c].Closed++
+    }
+    return days
+  }, [rows])
+
+  const weekNew = useMemo(() => throughput.reduce((a, d) => a + d.New, 0), [throughput])
+  const weekClosed = useMemo(() => throughput.reduce((a, d) => a + d.Closed, 0), [throughput])
+
   // Who's holding open work, busiest first. Open only — a closed record has no
   // active owner, and including them would just rank whoever closed the most.
   const ownerCounts = useMemo(() => {
@@ -267,7 +310,24 @@ export default function ProductChangesPage() {
           Dashboard
         </button>
         {showDash && (
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 p-4 border-t border-slate-100">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 p-4 border-t border-slate-100">
+            <div>
+              <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">
+                Last 7 days · {weekNew} new / {weekClosed} closed
+              </div>
+              <ResponsiveContainer width="100%" height={190}>
+                <BarChart data={throughput} margin={{ top: 5, right: 10, bottom: 5, left: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="label" tick={{ fontSize: 10 }} interval={0} angle={-30} textAnchor="end" height={46} />
+                  <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                  <Tooltip formatter={(v: any) => Number(v).toLocaleString()} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="New" fill="#3b82f6" />
+                  <Bar dataKey="Closed" fill="#22c55e" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+
             <div>
               <div className="text-xs uppercase tracking-wide text-slate-400 mb-2">Open by status</div>
               <ResponsiveContainer width="100%" height={190}>
@@ -449,12 +509,7 @@ export default function ProductChangesPage() {
                 </td>
                 <td className="px-3 py-1.5 text-slate-600 text-xs">
                   {r.location
-                    ? <span title={r.location_source === 'PE'
-                        ? `From the PE's office (${r.pe})`
-                        : 'From the part\'s route — the PE isn\'t mapped to a location yet'}>
-                        {r.location}
-                        {r.location_source === 'Route' && <span className="text-slate-300"> ~</span>}
-                      </span>
+                    ? <span title="Build location, from the part's released route">{r.location}</span>
                     : <span className="text-slate-300">—</span>}
                 </td>
                 <td className="px-3 py-1.5 text-slate-500 text-xs">{fmtDate(r.submitted_at)}</td>

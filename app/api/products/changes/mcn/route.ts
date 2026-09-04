@@ -148,12 +148,9 @@ export async function GET(request: NextRequest) {
       return ''
     }
 
-    // Two independent notions of location, in priority order:
-    //   1. the office of the Process Engineer who owns the approval — this is
-    //      the one asked for, and it says who is handling the change
-    //   2. the part's build location from its Paradigm route — a fallback,
-    //      useful when the PE isn't mapped yet
-    // Both are returned so the difference is visible rather than hidden.
+    // Location comes from the part's ROUTE — where the part is actually built.
+    // The PE's office is also resolved and returned alongside it, since the PE
+    // column is shown, but it isn't what drives Location.
     const [locMap, peLocMap] = await Promise.all([getLocationMap(), getPeLocationMap()])
     const data = (rows || []).map(r => {
       const locations = locationsFor(locMap, r.toolnum)
@@ -165,8 +162,8 @@ export async function GET(request: NextRequest) {
         locations,
         route_location: routeLocation,
         pe_location: peLocation,
-        location: peLocation || routeLocation,
-        location_source: peLocation ? 'PE' : (routeLocation ? 'Route' : ''),
+        location: routeLocation,
+        location_source: routeLocation ? 'Route' : '',
         owner,
         // Unowned open work is worth being able to see, so it gets a label
         // rather than an empty cell.
@@ -195,9 +192,7 @@ export async function GET(request: NextRequest) {
       count: data.length,
       statusAudit: audit || [],
       isAdmin,
-      locations: Array.from(new Set(
-        data.flatMap(d => [...(d.locations || []), d.pe_location]).filter(Boolean)
-      )).sort(),
+      locations: Array.from(new Set(data.flatMap(d => d.locations || []).filter(Boolean))).sort(),
       // How many PEs still need a legacy-name mapping before location is
       // reliable — worth knowing rather than guessing at coverage.
       unmappedPes: Array.from(new Set(
