@@ -67,7 +67,13 @@ const HEADER_SQL = `
   LEFT JOIN DATA0010 d10 WITH (NOLOCK) ON d10.RKEY = d50.CUSTOMER_PTR
   LEFT JOIN DATA0025 d25 WITH (NOLOCK) ON d25.RKEY = d50.BOM_PTR
   LEFT JOIN DATA0017 d17 WITH (NOLOCK) ON d17.RKEY = d25.INVENTORY_PTR
-  WHERE LTRIM(RTRIM(d50.CUSTOMER_PART_NUMBER)) = @part`
+  -- The stored number carries a status suffix ("12807 INPROCESS"), so an exact
+  -- match finds nothing. A bare LIKE '12807%' is wrong too — it would also
+  -- match 128070, a different part, and pick it when the plain number doesn't
+  -- exist. So: the exact number, or the number followed by a space.
+  WHERE LTRIM(RTRIM(d50.CUSTOMER_PART_NUMBER)) = @exact
+     OR LTRIM(RTRIM(d50.CUSTOMER_PART_NUMBER)) LIKE @withSuffix
+  ORDER BY LEN(LTRIM(RTRIM(d50.CUSTOMER_PART_NUMBER))), d50.CUSTOMER_PART_NUMBER`
 
 /** Components directly under a BOM header. */
 const BOM_SQL = `
@@ -185,7 +191,11 @@ async function loadRoute(sourcePtr: number, ttype: number): Promise<RouteStep[]>
  * level to lowest. A visited set stops a self-referencing BOM looping.
  */
 export async function buildCardSet(customerPart: string): Promise<CardData[]> {
-  const head = await queryMSSQL<any[]>('1', HEADER_SQL, { part: customerPart })
+  const part = String(customerPart ?? '').trim()
+  const head = await queryMSSQL<any[]>('1', HEADER_SQL, {
+    exact: part,
+    withSuffix: `${part} %`,
+  })
   if (!head?.length) return []
   const h = head[0]
 
