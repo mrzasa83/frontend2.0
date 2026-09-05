@@ -7,7 +7,7 @@ import {
   Download, File, FileImage, FileSpreadsheet, Eye,
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
   TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History,
-  Search, FileCheck, X, XCircle, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react'
+  Search, FileCheck, X, XCircle, ArrowUp, ArrowDown, ArrowUpDown, Layers } from 'lucide-react'
 import DataView from '@/components/ui/DataView'
 import BOMTreeNavigator from '@/components/ui/BOMTreeNavigator'
 import { 
@@ -20,6 +20,7 @@ import {
   changesMetadata
 } from '@/lib/metadata/columnMetadata'
 import { getApiUrl } from '@/lib/api'
+import BatchCardsTab from './BatchCardsTab'
 import FilePreviewModal from './FilePreviewModal'
 
 type FileInfo = {
@@ -671,6 +672,7 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
   const allSubTabs = [
     { id: 'general', label: 'General', icon: ClipboardList },
     { id: 'bom', label: 'BOM', icon: Package },
+    { id: 'batch-cards', label: 'Batch Cards', icon: Layers },
     { id: 'yield', label: 'Yield', icon: TrendingUp },
     { id: 'route', label: 'Route', icon: RouteIcon },
     { id: 'work-orders', label: 'Work Orders', icon: ClipboardList },
@@ -1209,6 +1211,10 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
         )}
 
         {/* RELEASED FILES TABS */}
+        {activeSubTab === 'batch-cards' && (
+          <BatchCardsTab partNumber={partNumber} />
+        )}
+
         {activeSubTab === 'reject' && (() => {
           // Inv Part filter + sorting, mirroring the Yield tab's behaviour.
           const needle = rejectInvText.trim().toLowerCase()

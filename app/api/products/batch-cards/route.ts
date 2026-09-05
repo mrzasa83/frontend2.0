@@ -1,0 +1,123 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
+import { canReadModule, hasRole } from '@/lib/config/access'
+import {
+  listBatchCards, resolveBatchCardFolders, archiveStamp,
+} from '@/lib/products/batchCardFiles'
+import { promises as fs } from 'fs'
+import path from 'path'
+
+export const dynamic = 'force-dynamic'
+
+const canGenerate = (roles: string[]) => hasRole(roles, 'Admin', 'ProductEng')
+
+// GET ?part=12807 -> the batch cards on the J drive for this part.
+export async function GET(request: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const roles = (session.user as any)?.roles || []
+  if (!canReadModule(roles, 'products')) {
+    return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
+  }
+
+  const part = (new URL(request.url).searchParams.get('part') || '').trim()
+  if (!part) return NextResponse.json({ error: 'part is required' }, { status: 400 })
+
+  try {
+    const { location, current, archived } = await listBatchCards(part)
+    return NextResponse.json({
+      success: true,
+      part,
+      jobFolder: location.jobFolder,
+      docFolder: location.docFolder,
+      fe2Folder: location.fe2Folder,
+      folderExists: location.exists,
+      itemTypeId: location.itemTypeId,
+      current,
+      archived,
+      canGenerate: canGenerate(roles),
+    })
+  } catch (error) {
+    console.error('Batch card list error:', error)
+    return NextResponse.json({
+      error: 'Failed to list batch cards',
+      details: error instanceof Error ? error.message : String(error),
+    }, { status: 500 })
+  }
+}
+
+/**
+ * POST — folder maintenance. Product Engineering only.
+ *   action=ensure   create the documents/_fe2 folders if the job predates them
+ *   action=archive  datestamp the current cards into _fe2/archive
+ *   action=purge    delete everything in _fe2/archive
+ *
+ * Generation itself isn't here yet; these are the folder operations it needs.
+ */
+export async function POST(request: NextRequest) {
+  const session = await getServerSession(authOptions)
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const roles = (session.user as any)?.roles || []
+  if (!canGenerate(roles)) {
+    return NextResponse.json({
+      error: 'Only Product Engineering can change batch card folders',
+    }, { status: 403 })
+  }
+
+  try {
+    const b = await request.json()
+    const part = String(b?.part ?? '').trim()
+    const action = String(b?.action ?? '').trim()
+    if (!part) return NextResponse.json({ error: 'part is required' }, { status: 400 })
+
+    if (action === 'ensure') {
+      const loc = await resolveBatchCardFolders(part, true)
+      if (!loc.jobFolder) {
+        return NextResponse.json({
+          error: `No job folder found for ${part} under APC EngJobs.`,
+        }, { status: 404 })
+      }
+      return NextResponse.json({
+        success: true, created: loc.created, fe2Folder: loc.fe2Folder,
+        message: loc.created.length ? `Created ${loc.created.length} folder(s).` : 'Folders already present.',
+      })
+    }
+
+    if (action === 'archive') {
+      const { location, current } = await listBatchCards(part)
+      if (!location.fe2Folder) {
+        return NextResponse.json({ error: 'No _fe2 folder for this part.' }, { status: 404 })
+      }
+      await fs.mkdir(location.archiveFolder!, { recursive: true })
+      const stamp = archiveStamp()
+      let moved = 0
+      for (const f of current) {
+        const base = f.name.replace(/\.pdf$/i, '')
+        const target = path.join(location.archiveFolder!, `${base}__${stamp}.pdf`)
+        try { await fs.rename(f.path, target); moved++ } catch { /* skip locked files */ }
+      }
+      return NextResponse.json({ success: true, moved, stamp })
+    }
+
+    if (action === 'purge') {
+      const { location, archived } = await listBatchCards(part)
+      if (!location.archiveFolder) {
+        return NextResponse.json({ error: 'No archive folder for this part.' }, { status: 404 })
+      }
+      let removed = 0
+      for (const f of archived) {
+        try { await fs.unlink(f.path); removed++ } catch { /* skip locked files */ }
+      }
+      return NextResponse.json({ success: true, removed })
+    }
+
+    return NextResponse.json({ error: `Unknown action '${action}'` }, { status: 400 })
+  } catch (error) {
+    console.error('Batch card action error:', error)
+    return NextResponse.json({
+      error: 'Action failed',
+      details: error instanceof Error ? error.message : String(error),
+    }, { status: 500 })
+  }
+}

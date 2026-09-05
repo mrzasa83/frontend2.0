@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import Tabs from '@/components/ui/Tabs'
 import { Save, X, Key, Link2, Wrench } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import { deriveNetworkUsername } from '@/lib/config/networkUsername'
 
 type User = {
   id: number
@@ -20,6 +21,7 @@ type User = {
   roles?: string[]
   cc_name?: string | null
   office_location?: string | null
+  network_username?: string | null
   legacy_mcn_name?: string | null
   engineer_roles?: string[]
 }
@@ -341,6 +343,25 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
             onChange={(e) => handleChange('title', e.target.value)}
             className={inputClassName}
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            Network Username
+          </label>
+          {/* Their ERP/Paradigm login, which appears on batch card printouts.
+              Left blank it's derived from the app login (michael.rzasa ->
+              mrzasa); set it only when that rule doesn't hold. */}
+          <input
+            type="text"
+            value={formData.network_username ?? ''}
+            onChange={(e) => handleChange('network_username', e.target.value)}
+            placeholder={deriveNetworkUsername(user.username || '')}
+            className={inputClassName}
+          />
+          <p className="text-xs text-slate-500 mt-1">
+            Blank uses <span className="font-mono">{deriveNetworkUsername(user.username || '')}</span>
+          </p>
         </div>
 
         <div>

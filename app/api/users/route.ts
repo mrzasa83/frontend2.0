@@ -29,6 +29,7 @@ export async function GET() {
         u.createdAt,
         u.cc_name,
         u.office_location,
+        u.network_username,
         u.engineer_roles,
         GROUP_CONCAT(r.name) as role_names
       FROM Users u

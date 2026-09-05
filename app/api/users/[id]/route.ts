@@ -28,11 +28,13 @@ export async function PUT(
     // the column is only written when it exists — a pending migration
     // shouldn't take user editing down.
     const withLocation = await hasColumn('Users', 'office_location')
+    const withNetUser = await hasColumn('Users', 'network_username')
 
     const setCols = [
       'name = ?', 'email = ?', 'nickname = ?', 'phone = ?',
       'mobile = ?', 'title = ?', 'role = ?', 'active = ?',
       ...(withLocation ? ['office_location = ?'] : []),
+      ...(withNetUser ? ['network_username = ?'] : []),
       'updatedAt = NOW()',
     ]
     const setArgs: any[] = [
@@ -45,6 +47,7 @@ export async function PUT(
       data.role || null,
       data.active !== undefined ? data.active : null,
       ...(withLocation ? [data.office_location || null] : []),
+      ...(withNetUser ? [data.network_username || null] : []),
     ]
 
     const result = await queryPrimary(
