@@ -281,7 +281,7 @@ function ProductPicker({ onClose, onPick }: { onClose: () => void; onPick: (p: s
           <div className="relative flex-1">
             <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
             <input value={q} onChange={e => setQ(e.target.value)} autoFocus
-              placeholder="Production or sales part number…"
+              placeholder="Production part, sales part, or program…"
               className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-full focus:outline-none focus:ring-1 focus:ring-blue-400" />
           </div>
           <label className="flex items-center gap-1.5 text-sm text-slate-600 whitespace-nowrap"

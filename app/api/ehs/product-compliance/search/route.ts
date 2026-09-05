@@ -18,6 +18,8 @@ export const dynamic = 'force-dynamic'
  *   otherwise   everything before the first space
  * and whatever follows the space is the status ("Released" when there's none).
  *
+ * Searchable on ProdPartNum, SalesPartNum and Program.
+ *
  * The NoteRows / NotesJSON portion of the original query is deliberately left
  * out here. Building the notes for every part means a correlated FOR XML PATH
  * across the whole notepad table, which is far too slow to sit behind a
@@ -89,7 +91,7 @@ const SEARCH_SQL = `
   SELECT TOP 100
       ProdPartNum, SalesPartNum, CUSTOMER_NAME, Program, Status, CUST_CODE, ProdPartRKEY
   FROM ProdParts
-  WHERE (ProdPartNum LIKE @q OR SalesPartNum LIKE @q)
+  WHERE (ProdPartNum LIKE @q OR SalesPartNum LIKE @q OR Program LIKE @q)
     AND (@includeObsolete = 1 OR Status <> 'OBSOLETE')
   ORDER BY
       -- Prefix matches first, so typing "753" surfaces 75336 above A75336
