@@ -249,45 +249,99 @@ function ProductPicker({ onClose, onPick }: { onClose: () => void; onPick: (p: s
   const [q, setQ] = useState('')
   const [rows, setRows] = useState<any[]>([])
   const [busy, setBusy] = useState(false)
+  // Obsolete parts are out of scope by default — they're the bulk of the
+  // history and would bury current work in the results.
+  const [includeObsolete, setIncludeObsolete] = useState(false)
 
   useEffect(() => {
     if (q.trim().length < 2) { setRows([]); return }
     const t = setTimeout(async () => {
       setBusy(true)
       try {
-        const res = await fetch(getApiUrl(`/api/ehs/product-compliance/search?q=${encodeURIComponent(q.trim())}`))
+        const p = new URLSearchParams({ q: q.trim() })
+        if (includeObsolete) p.set('includeObsolete', '1')
+        const res = await fetch(getApiUrl(`/api/ehs/product-compliance/search?${p.toString()}`))
         const r = await res.json()
         setRows(r.rows || [])
       } catch { /* leave the list as-is */ }
       setBusy(false)
     }, 300)
     return () => clearTimeout(t)
-  }, [q])
+  }, [q, includeObsolete])
 
   return (
     <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg p-4" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl p-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="font-semibold text-slate-800">Assess a product</h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
         </div>
-        <div className="relative mb-2">
-          <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
-          <input value={q} onChange={e => setQ(e.target.value)} autoFocus placeholder="Part number…"
-            className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-full focus:outline-none focus:ring-1 focus:ring-blue-400" />
+
+        <div className="flex items-center gap-3 mb-2">
+          <div className="relative flex-1">
+            <Search size={14} className="absolute left-2.5 top-2.5 text-slate-400" />
+            <input value={q} onChange={e => setQ(e.target.value)} autoFocus
+              placeholder="Production or sales part number…"
+              className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-full focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          </div>
+          <label className="flex items-center gap-1.5 text-sm text-slate-600 whitespace-nowrap"
+            title="Obsolete parts are excluded unless you ask for them">
+            <input type="checkbox" checked={includeObsolete}
+              onChange={e => setIncludeObsolete(e.target.checked)} />
+            Include obsolete
+          </label>
         </div>
-        <div className="max-h-72 overflow-auto border border-slate-100 rounded">
-          {busy ? <p className="text-sm text-slate-400 p-3">Searching…</p>
-            : rows.length === 0 ? <p className="text-sm text-slate-400 p-3">{q.trim().length < 2 ? 'Type at least two characters.' : 'No matching products.'}</p>
-            : rows.map((r, i) => (
-              <button key={i} onClick={() => onPick(r.apc_part, r.customer_part)}
-                className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-slate-50 last:border-0 flex items-center gap-2">
-                <span className="font-mono text-sm text-slate-800 w-40 shrink-0">{r.apc_part}</span>
-                <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${r.part_type === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>{r.part_type}</span>
-                <span className="text-sm text-slate-500 truncate">{r.customer}</span>
-              </button>
-            ))}
+
+        <div className="max-h-80 overflow-auto border border-slate-200 rounded-lg">
+          {busy ? (
+            <p className="text-sm text-slate-400 p-3">Searching…</p>
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-slate-400 p-3">
+              {q.trim().length < 2 ? 'Type at least two characters.' : 'No matching products.'}
+            </p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-40">Prod Part #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-40">Sales Part #</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Customer</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-36">Program</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r, i) => (
+                  <tr key={i} onClick={() => onPick(r.prod_part, r.sales_part)}
+                    className="border-t border-slate-100 hover:bg-blue-50 cursor-pointer">
+                    <td className="px-3 py-1.5 font-mono text-slate-800">{r.prod_part}</td>
+                    <td className="px-3 py-1.5 font-mono text-slate-600">
+                      {r.sales_part || <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-600 truncate max-w-[240px]">{r.customer_name}</td>
+                    <td className="px-3 py-1.5 text-slate-600">
+                      {r.program || <span className="text-slate-300">—</span>}
+                    </td>
+                    <td className="px-3 py-1.5">
+                      <span className={`text-xs px-1.5 py-0.5 rounded ${
+                        r.status === 'OBSOLETE' ? 'bg-slate-200 text-slate-600'
+                        : r.status === 'Released' ? 'bg-green-100 text-green-700'
+                        : 'bg-amber-100 text-amber-700'
+                      }`}>
+                        {r.status}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
+        {rows.length >= 100 && (
+          <p className="text-xs text-slate-400 mt-2">
+            Showing the first 100 matches — narrow the search to see more.
+          </p>
+        )}
       </div>
     </div>
   )
