@@ -1,44 +1,53 @@
 /* ============================================================================
-   Rename the MDIOpp role to ImageAdmin.
+   Rename the MDIOpp role to ImageAdmin.  (corrected)
 
-   Roles are stored in `roles` and assigned through `user_roles` BY ID, so
-   renaming the row carries every existing assignment with it — nobody loses
-   access and no reassignment is needed.
+   The previous version assumed a `description` column on `roles`; there isn't
+   one — the app only ever uses id, name, createdAt and updatedAt. This version
+   touches `name` only.
+
+   Roles are assigned through `user_roles` BY ID, so renaming the row carries
+   every existing assignment with it: nobody loses access, nothing to reassign.
 
    This role governs FrontImage, which shares this user database. frontEnd2.0
    grants it no module access of its own.
 
-   Idempotent: safe to run more than once, and it won't abort if the role is
-   already renamed or doesn't exist.
+   Safe to run more than once.
    ============================================================================ */
 
-/* Before: what's there now */
-SELECT id, name, description FROM roles WHERE name IN ('MDIOpp', 'ImageAdmin');
 
-/* Rename in place, keeping assignments intact. */
-UPDATE roles
-SET name = 'ImageAdmin',
-    description = CASE
-      WHEN description IS NULL OR description = '' OR description LIKE '%MDI%'
-        THEN 'Access to FrontImage (MDI image processing)'
-      ELSE description
-    END
-WHERE name = 'MDIOpp';
+/* ---- 1. What the table actually looks like, and what's there now ---------- */
+SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, COLUMN_DEFAULT
+FROM information_schema.COLUMNS
+WHERE table_schema = DATABASE() AND table_name = 'roles'
+ORDER BY ORDINAL_POSITION;
 
-/* If the role never existed, create it so it can be assigned. */
-INSERT INTO roles (name, description)
-SELECT 'ImageAdmin', 'Access to FrontImage (MDI image processing)'
+SELECT * FROM roles WHERE name IN ('MDIOpp', 'ImageAdmin');
+
+
+/* ---- 2. Rename in place, keeping every assignment ------------------------- */
+UPDATE roles SET name = 'ImageAdmin' WHERE name = 'MDIOpp';
+
+
+/* ---- 3. If the role never existed, create it so it can be assigned -------- *
+ * Only name is set. If your roles table has other NOT NULL columns without a
+ * default, this INSERT will complain — the rename above is the important part,
+ * and you can add the row through Admin -> Roles instead.
+ */
+INSERT INTO roles (name)
+SELECT 'ImageAdmin'
 FROM DUAL
 WHERE NOT EXISTS (SELECT 1 FROM roles WHERE name = 'ImageAdmin');
 
-/* After: confirm the rename and see how many users carry it. */
-SELECT r.id, r.name, r.description, COUNT(ur.userId) AS assigned_users
+
+/* ---- 4. Verify: the role, and how many users carry it -------------------- */
+SELECT r.id, r.name, COUNT(ur.userId) AS assigned_users
 FROM roles r
 LEFT JOIN user_roles ur ON ur.roleId = r.id
 WHERE r.name IN ('MDIOpp', 'ImageAdmin')
-GROUP BY r.id, r.name, r.description;
+GROUP BY r.id, r.name;
 
-/* Who has it — the list that should be able to sign into FrontImage. */
+
+/* ---- 5. Who can sign into FrontImage once its auth checks ImageAdmin ------ */
 SELECT u.id, u.username, u.name, u.active
 FROM Users u
 INNER JOIN user_roles ur ON ur.userId = u.id
