@@ -51,18 +51,22 @@ export type CardData = {
 const clean = (v: any) => String(v ?? '').trim()
 
 /** Header for the top-level customer part. */
+// Only columns proven by the existing Products/Daily Plan queries. The BOM
+// header's identity comes from its inventory part (DATA0025 -> DATA0017), which
+// is how the Products BOM tab resolves it — DATA0025 has no BOM_NAME, and
+// DATA0037 has no ROUTE_NAME.
 const HEADER_SQL = `
   SELECT TOP 1
+    d50.RKEY,
     d50.CUSTOMER_PART_NUMBER, d50.CUSTOMER_PART_DESC, d50.CP_REV,
-    d50.CATALOG_NUMBER, d50.BOM_PTR, d50.PROD_ROUTE_PTR,
+    d50.CATALOG_NUMBER, d50.BOM_PTR,
     d10.CUST_CODE, d10.CUSTOMER_NAME,
-    d25.BOM_NAME, d17.INV_PART_DESCRIPTION AS BOM_DESC,
-    d37.ROUTE_NAME
+    LTRIM(RTRIM(d17.INV_PART_NUMBER))      AS BOM_PART,
+    LTRIM(RTRIM(d17.INV_PART_DESCRIPTION)) AS BOM_DESC
   FROM DATA0050 d50 WITH (NOLOCK)
   LEFT JOIN DATA0010 d10 WITH (NOLOCK) ON d10.RKEY = d50.CUSTOMER_PTR
   LEFT JOIN DATA0025 d25 WITH (NOLOCK) ON d25.RKEY = d50.BOM_PTR
   LEFT JOIN DATA0017 d17 WITH (NOLOCK) ON d17.RKEY = d25.INVENTORY_PTR
-  LEFT JOIN DATA0037 d37 WITH (NOLOCK) ON d37.RKEY = d50.PROD_ROUTE_PTR
   WHERE LTRIM(RTRIM(d50.CUSTOMER_PART_NUMBER)) = @part`
 
 /** Components directly under a BOM header. */
@@ -72,8 +76,7 @@ const BOM_SQL = `
     LTRIM(RTRIM(d17.INV_PART_DESCRIPTION)) AS description,
     LTRIM(RTRIM(d17.P_M))                  AS pm,
     d17.RKEY                                AS rkey,
-    d26.QTY_BOM,
-    LTRIM(RTRIM(d26.UNIT_OF_MEASURE))      AS unit
+    d26.QTY_BOM
   FROM DATA0025 d25 WITH (NOLOCK)
   JOIN DATA0026 d26 WITH (NOLOCK) ON d26.PARENT_NODE_INVENT = d25.RKEY
   JOIN DATA0017 d17 WITH (NOLOCK) ON d17.RKEY = d26.INVENTORY_PTR
@@ -88,31 +91,61 @@ const BOM_SQL = `
 const ROUTE_SQL = `
   SELECT
     d38.STEP_NUMBER,
-    LTRIM(RTRIM(d34.DEPT_NAME)) AS deptName,
-    LTRIM(RTRIM(d34.DEPT_CODE)) AS deptCode,
-    d38.RKEY AS stepRkey
+    RTRIM(d34.DEPT_NAME) AS deptName,
+    RTRIM(d34.DEPT_CODE) AS deptCode,
+    -- instruction text, same shape the Daily Plan uses
+    LTRIM(RTRIM(
+      ISNULL(i1.PROD_ROUT_INST_1,'') + ' ' + ISNULL(i1.PROD_ROUT_INST_2,'') + ' ' +
+      ISNULL(i1.PROD_ROUT_INST_3,'') + ' ' + ISNULL(i1.PROD_ROUT_INST_4,'')
+    )) AS instructionText,
+    (
+      ISNULL(RTRIM(i1.INST_CODE),'') +
+      CASE WHEN i2.INST_CODE IS NOT NULL THEN '; ' + RTRIM(i2.INST_CODE) ELSE '' END +
+      CASE WHEN i3.INST_CODE IS NOT NULL THEN '; ' + RTRIM(i3.INST_CODE) ELSE '' END +
+      CASE WHEN i4.INST_CODE IS NOT NULL THEN '; ' + RTRIM(i4.INST_CODE) ELSE '' END +
+      CASE WHEN i5.INST_CODE IS NOT NULL THEN '; ' + RTRIM(i5.INST_CODE) ELSE '' END
+    ) AS instructionCodes,
+    -- inline parameter values
+    STUFF(
+      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_1))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_1)) ELSE '' END +
+      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_2))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_2)) ELSE '' END +
+      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_3))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_3)) ELSE '' END +
+      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_4))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_4)) ELSE '' END +
+      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_5))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_5)) ELSE '' END,
+      1, 3, '') AS parameterValues,
+    -- parameter names from the DATA0035 definitions
+    STUFF(
+      CASE WHEN p1.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p1.PRODUCTION_PARAMETER) ELSE '' END +
+      CASE WHEN p2.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p2.PRODUCTION_PARAMETER) ELSE '' END +
+      CASE WHEN p3.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p3.PRODUCTION_PARAMETER) ELSE '' END +
+      CASE WHEN p4.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p4.PRODUCTION_PARAMETER) ELSE '' END +
+      CASE WHEN p5.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p5.PRODUCTION_PARAMETER) ELSE '' END,
+      1, 3, '') AS parameterNames,
+    -- additional route step parameters (DATA0471 values -> DATA0469 defs)
+    STUFF((
+      SELECT '; ' +
+        LTRIM(RTRIM(ISNULL(d469.PARAMETER_DESC, d469.PARAMETER_CODE))) + ': ' +
+        LTRIM(RTRIM(ISNULL(CAST(d471.PARAMETER_VALUE AS NVARCHAR(MAX)), '')))
+      FROM DATA0471 d471 WITH (NOLOCK)
+      INNER JOIN DATA0469 d469 WITH (NOLOCK) ON d469.RKEY = d471.DATA0469_PTR
+      WHERE d471.DATA0038_PTR = d38.RKEY
+      ORDER BY d471.SEQUENCE_NO
+      FOR XML PATH(''), TYPE
+    ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS extParameters
   FROM DATA0038 d38 WITH (NOLOCK)
   LEFT JOIN DATA0034 d34 WITH (NOLOCK) ON d34.RKEY = d38.DEPT_PTR
+  LEFT JOIN DATA0036 i1 WITH (NOLOCK) ON i1.RKEY = d38.DEF_ROUT_INST_1_PTR
+  LEFT JOIN DATA0036 i2 WITH (NOLOCK) ON i2.RKEY = d38.DEF_ROUT_INST_2_PTR
+  LEFT JOIN DATA0036 i3 WITH (NOLOCK) ON i3.RKEY = d38.DEF_ROUT_INST_3_PTR
+  LEFT JOIN DATA0036 i4 WITH (NOLOCK) ON i4.RKEY = d38.DEF_ROUT_INST_4_PTR
+  LEFT JOIN DATA0036 i5 WITH (NOLOCK) ON i5.RKEY = d38.DEF_ROUT_INST_5_PTR
+  LEFT JOIN DATA0035 p1 WITH (NOLOCK) ON p1.RKEY = d38.DEF_ROUT_PARA_1_PTR
+  LEFT JOIN DATA0035 p2 WITH (NOLOCK) ON p2.RKEY = d38.DEF_ROUT_PARA_2_PTR
+  LEFT JOIN DATA0035 p3 WITH (NOLOCK) ON p3.RKEY = d38.DEF_ROUT_PARA_3_PTR
+  LEFT JOIN DATA0035 p4 WITH (NOLOCK) ON p4.RKEY = d38.DEF_ROUT_PARA_4_PTR
+  LEFT JOIN DATA0035 p5 WITH (NOLOCK) ON p5.RKEY = d38.DEF_ROUT_PARA_5_PTR
   WHERE d38.SOURCE_PTR = @sourcePtr AND d38.TTYPE = @ttype
   ORDER BY d38.STEP_NUMBER`
-
-const INSTRUCTIONS_SQL = `
-  SELECT d36.SOURCE_PTR AS stepRkey, LTRIM(RTRIM(d36.INSTRUCTION_TEXT)) AS text,
-         d36.SEQUENCE_NUMBER
-  FROM DATA0036 d36 WITH (NOLOCK)
-  WHERE d36.SOURCE_PTR IN (SELECT d38.RKEY FROM DATA0038 d38 WITH (NOLOCK)
-                           WHERE d38.SOURCE_PTR = @sourcePtr AND d38.TTYPE = @ttype)
-  ORDER BY d36.SOURCE_PTR, d36.SEQUENCE_NUMBER`
-
-const PARAMS_SQL = `
-  SELECT d35.SOURCE_PTR AS stepRkey,
-         LTRIM(RTRIM(d44.PARAM_NAME)) AS name,
-         LTRIM(RTRIM(d35.PARAM_VALUE)) AS value
-  FROM DATA0035 d35 WITH (NOLOCK)
-  LEFT JOIN DATA0044 d44 WITH (NOLOCK) ON d44.RKEY = d35.PARAM_PTR
-  WHERE d35.SOURCE_PTR IN (SELECT d38.RKEY FROM DATA0038 d38 WITH (NOLOCK)
-                           WHERE d38.SOURCE_PTR = @sourcePtr AND d38.TTYPE = @ttype)
-  ORDER BY d35.SOURCE_PTR`
 
 /** Notepad / discrepancy text for a customer part. */
 const NOTES_SQL = `
@@ -122,30 +155,28 @@ const NOTES_SQL = `
   ORDER BY d211.SEQUENCE_NUMBER`
 
 async function loadRoute(sourcePtr: number, ttype: number): Promise<RouteStep[]> {
-  const [steps, instr, params] = await Promise.all([
-    queryMSSQL<any[]>('1', ROUTE_SQL, { sourcePtr, ttype }).catch(() => []),
-    queryMSSQL<any[]>('1', INSTRUCTIONS_SQL, { sourcePtr, ttype }).catch(() => []),
-    queryMSSQL<any[]>('1', PARAMS_SQL, { sourcePtr, ttype }).catch(() => []),
-  ])
-  const byStep = new Map<number, RouteStep>()
-  for (const s of steps || []) {
-    byStep.set(Number(s.stepRkey), {
-      step: Number(s.STEP_NUMBER) || 0,
-      dept: clean(s.deptName),
-      deptCode: clean(s.deptCode),
-      instructions: [],
-      params: [],
-    })
-  }
-  for (const i of instr || []) {
-    const st = byStep.get(Number(i.stepRkey))
-    if (st && clean(i.text)) st.instructions.push(clean(i.text))
-  }
-  for (const p of params || []) {
-    const st = byStep.get(Number(p.stepRkey))
-    if (st && clean(p.name)) st.params.push({ name: clean(p.name), value: clean(p.value) })
-  }
-  return Array.from(byStep.values()).sort((a, b) => a.step - b.step)
+  const rows = await queryMSSQL<any[]>('1', ROUTE_SQL, { sourcePtr, ttype }).catch(() => [])
+  return (rows || []).map(r => {
+    // Names and values are pipe-joined in matching order.
+    const names = clean(r.parameterNames).split('|').map(clean).filter(Boolean)
+    const values = clean(r.parameterValues).split('|').map(clean).filter(Boolean)
+    const params = names.map((name, i) => ({ name, value: values[i] ?? '' }))
+    // Additional step parameters arrive pre-formatted as "name: value" pairs.
+    for (const extra of clean(r.extParameters).split(';').map(clean).filter(Boolean)) {
+      const [name, ...rest] = extra.split(':')
+      params.push({ name: clean(name), value: clean(rest.join(':')) })
+    }
+    const instructions: string[] = []
+    if (clean(r.instructionText)) instructions.push(clean(r.instructionText))
+    if (clean(r.instructionCodes)) instructions.push(clean(r.instructionCodes))
+    return {
+      step: Number(r.STEP_NUMBER) || 0,
+      dept: clean(r.deptName),
+      deptCode: clean(r.deptCode),
+      instructions,
+      params,
+    }
+  })
 }
 
 /**
@@ -171,8 +202,8 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
       lines.push({
         partNumber: clean(r.partNumber),
         description: clean(r.description),
-        unit: clean(r.unit) || 'PART',
-        requiredPer: `${Number(r.QTY_BOM ?? 0).toFixed(6)}/${clean(r.unit) || 'PART'}`,
+        unit: 'PART',
+        requiredPer: `${Number(r.QTY_BOM ?? 0).toFixed(6)}/PART`,
         qtyRequired: Number(r.QTY_BOM ?? 0).toFixed(6),
         isManufactured: isM,
       })
@@ -183,6 +214,8 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
 
   // Top card — the customer part.
   const topBom = await bomLines(Number(h.BOM_PTR))
+  // TTYPE 4 is the released customer-part route.
+  const topRoute = await loadRoute(Number(h.RKEY ?? 0), 4)
   const notes = await queryMSSQL<any[]>('1', NOTES_SQL, { rkey: Number(h.RKEY ?? 0) }).catch(() => [])
   cards.push({
     level: 0,
@@ -191,13 +224,13 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
     revision: clean(h.CP_REV) || '-',
     customerCode: clean(h.CUST_CODE),
     customerName: clean(h.CUSTOMER_NAME),
-    bomNumber: clean(h.BOM_NAME),
+    bomNumber: clean(h.BOM_PART),
     bomDescription: clean(h.BOM_DESC),
-    routeName: clean(h.ROUTE_NAME),
+    routeName: topRoute[0] ? `${topRoute[0].deptCode} ${topRoute[0].dept}`.trim() : '',
     productCode: '',
     catalogNumber: clean(h.CATALOG_NUMBER),
     bom: topBom.lines,
-    route: await loadRoute(Number(h.RKEY ?? 0), 4),
+    route: topRoute,
     notes: (notes || []).map(n => clean(n.text)).filter(Boolean),
   })
 
@@ -211,7 +244,7 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
 
       // A manufactured item's BOM hangs off its inventory record.
       const own = await queryMSSQL<any[]>('1',
-        `SELECT TOP 1 d25.RKEY AS bomPtr, LTRIM(RTRIM(d25.BOM_NAME)) AS bomName
+        `SELECT TOP 1 d25.RKEY AS bomPtr
          FROM DATA0025 d25 WITH (NOLOCK) WHERE d25.INVENTORY_PTR = @rkey`,
         { rkey: Number(r.rkey) }).catch(() => [])
       const bomPtr = Number(own?.[0]?.bomPtr ?? 0)
@@ -224,7 +257,7 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
         revision: '-',
         customerCode: clean(h.CUST_CODE),
         customerName: clean(h.CUSTOMER_NAME),
-        bomNumber: clean(own?.[0]?.bomName),
+        bomNumber: pn,
         bomDescription: clean(r.description),
         routeName: '',
         productCode: '',
