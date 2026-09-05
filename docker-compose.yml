@@ -32,7 +32,7 @@ services:
     # default.  Override with DRIVE_MOUNT_* env vars if the container
     # paths differ.
     volumes:
-      - /mnt/jdrive:/mnt/jdrive:ro      # J: drive  (EngJobs)
+      - /mnt/jdrive:/mnt/jdrive:rw      # J: drive  (EngJobs) — rw: batch cards are written into job folders
       - /mnt/sdrive:/mnt/sdrive:ro      # S: drive  (APCFS04\SHARED2)
       - /mnt/tdrive:/mnt/tdrive:ro      # T: drive  (Packaging)
       - /mnt/ldrive:/mnt/ldrive:ro      # L: drive  (NashuaScanDocStorage / C of Cs)

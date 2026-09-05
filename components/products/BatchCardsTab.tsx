@@ -69,6 +69,7 @@ export default function BatchCardsTab({ partNumber }: { partNumber: string }) {
       setNotice(
         action === 'ensure' ? (r.message || 'Folders ready.')
         : action === 'archive' ? `Archived ${r.moved} card(s).`
+        : action === 'generate' ? (r.message || `Generated ${r.written ?? 0} card(s).`)
         : `Removed ${r.removed} archived card(s).`
       )
       await load()
@@ -107,12 +108,12 @@ export default function BatchCardsTab({ partNumber }: { partNumber: string }) {
           )}
           {isProductEng && (
             <>
-              {!data?.folderExists && data?.jobFolder && (
-                <button onClick={() => act('ensure')} disabled={!!busy}
-                  className="px-3 py-1.5 text-sm border border-slate-200 text-slate-700 rounded-lg hover:bg-slate-100 flex items-center gap-1.5 disabled:opacity-50">
-                  <FolderPlus size={14} /> Create folders
-                </button>
-              )}
+              {/* Folders are created as part of generating — no separate step. */}
+              <button onClick={() => act('generate')} disabled={!!busy || !data?.jobFolder}
+                title="Build a batch card for this part and every component below it"
+                className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1.5 disabled:opacity-50">
+                <FileText size={14} /> {busy === 'generate' ? 'Generating…' : 'Generate'}
+              </button>
               {current.length > 0 && (
                 <button onClick={() => act('archive', `Archive ${current.length} current card(s)?`)}
                   disabled={!!busy}
@@ -148,10 +149,16 @@ export default function BatchCardsTab({ partNumber }: { partNumber: string }) {
           </span>
         </div>
       )}
-      {!loading && data?.jobFolder && !data?.folderExists && (
+      {!loading && data?.writeError && (
+        <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm flex gap-2">
+          <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+          <span>{data.writeError}</span>
+        </div>
+      )}
+      {!loading && data?.jobFolder && !data?.folderExists && !data?.writeError && (
         <div className="p-3 mb-3 bg-slate-50 border border-slate-200 text-slate-600 rounded-lg text-sm">
-          This job has no <span className="font-mono">_fe2</span> folder yet.
-          {isProductEng ? ' Use “Create folders” to add it.' : ' Product Engineering can create it.'}
+          No <span className="font-mono">_fe2</span> folder yet — it's created the first time
+          cards are generated.
         </div>
       )}
 

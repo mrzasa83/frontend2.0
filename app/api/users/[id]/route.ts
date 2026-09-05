@@ -55,6 +55,12 @@ export async function PUT(
       [...setArgs, id]
     )
 
+    // Warn rather than pretend: a value sent for a column that doesn't exist
+    // yet was thrown away, and the user needs to know which migration to run.
+    const dropped: string[] = []
+    if (!withLocation && data.office_location) dropped.push('office_location')
+    if (!withNetUser && data.network_username) dropped.push('network_username')
+
     console.log('Update result:', result)
 
     return NextResponse.json({ 

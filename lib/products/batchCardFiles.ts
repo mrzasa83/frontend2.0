@@ -147,6 +147,7 @@ export type BatchCardLocation = {
   itemTypeId: number
   exists: boolean
   created: string[]     // folders created on this call
+  writeError: string    // why creation failed, when it did
 }
 
 /**
@@ -161,7 +162,7 @@ export async function resolveBatchCardFolders(
   const jobFolder = await findJobFolder(apcPart)
   const loc: BatchCardLocation = {
     apcPart, jobFolder, docFolder: null, fe2Folder: null, archiveFolder: null,
-    itemTypeId, exists: false, created: [],
+    itemTypeId, exists: false, created: [], writeError: '',
   }
   if (!jobFolder) return loc
 
@@ -182,7 +183,12 @@ export async function resolveBatchCardFolders(
         await fs.mkdir(dir, { recursive: true })
         loc.created.push(dir)
         return true
-      } catch {
+      } catch (e: any) {
+        // Most likely the drive is mounted read-only. Record it: silently
+        // returning false made a failed create look like "already present".
+        loc.writeError = e?.code === 'EROFS' || e?.code === 'EACCES' || e?.code === 'EPERM'
+          ? `Cannot write to the J drive (${e.code}). It is mounted read-only in the container — the mount needs to be read/write before batch cards can be created.`
+          : `Could not create ${dir}: ${e?.message || String(e)}`
         return false
       }
     }

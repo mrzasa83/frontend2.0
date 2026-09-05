@@ -597,23 +597,29 @@ export default function UserEditTab({ user, roles = [], onSave, onCancel, isAdmi
           <div className="text-sm text-slate-500">Loading legacy names...</div>
         ) : (
           <div>
-            <select
+            {/* Free text with suggestions rather than a strict dropdown: the
+                list is built from names found in the MCN data, and a name that
+                isn't there yet still needs to be linkable. */}
+            <input
+              list="legacy-mcn-names"
               value={legacyMcnName}
               onChange={(e) => setLegacyMcnName(e.target.value)}
+              placeholder="e.g. RZASA: MICHAEL"
               className="w-full px-3 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="">-- Not linked --</option>
+            />
+            <datalist id="legacy-mcn-names">
               {legacyOptions.map(o => (
                 <option key={o.name} value={o.name}>
-                  {o.name} ({o.uses.toLocaleString()})
+                  {o.uses.toLocaleString()} record(s)
                   {o.mappedTo && o.mappedTo !== user.username ? ` — already ${o.mappedTo}` : ''}
                 </option>
               ))}
-            </select>
+            </datalist>
             <p className="text-xs text-slate-500 mt-1">
               How this person appears in the legacy MCN records (Surname:Firstname).
               Linking it lets Product Changes resolve the PE to this user, and from
-              there to their office location. The number is how often the name appears.
+              there to their office location. Pick from the suggestions or type it
+              exactly as it appears on the records ({legacyOptions.length} known).
             </p>
           </div>
         )}

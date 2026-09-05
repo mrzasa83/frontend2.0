@@ -113,6 +113,15 @@ export async function PUT(request: NextRequest) {
     await queryPrimary(updateQuery, updateArgs)
     clearPeLocationCache()   // the PE -> location mapping just changed
 
+    // If the column isn't there, the value was dropped. Say so — silently
+    // discarding it looks exactly like a save that worked.
+    if (!withLegacy && typeof legacyMcnName === 'string' && legacyMcnName.trim()) {
+      return NextResponse.json({
+        success: false,
+        error: 'The legacy_mcn_name column does not exist yet — run sql/alter_users_location_legacy_name.sql. Roles and CC name were saved.',
+      }, { status: 409 })
+    }
+
     return NextResponse.json({
       success: true,
       userId,
