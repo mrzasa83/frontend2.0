@@ -207,24 +207,60 @@ const ROUTE_SQL = `
  *   DATA0047  unit values, joined to DATA0002 for the unit and its description
  */
 /**
- * Labels for the numbered parameter and spec columns, read off the Paradigm
- * printout for 12807. Paradigm stores only the values — the captions live in
- * its own configuration — so these are positional.
+ * Captions for the numbered parameter and spec columns.
  *
- * If a caption looks wrong on a card, it's this list that needs correcting,
- * not the query.
+ * DATA0278 is the definition table: PARAMETER_NAME is the caption, SOURCE_INDEX
+ * is which numbered column it describes, and SOURCE_TYPE separates the sets.
+ * The specs come back as "Cust Part Spec 1..20" in PARAMETER_DESC.
+ *
+ * Placeholder names — "spec_20" and the like — mean the slot is unused, so they
+ * are treated as having no caption and only print when they carry a value.
+ *
+ * Previously this was a positional list read off a printout, which had three
+ * captions wrong (15, 18 and 19 are MIL SPEC R, COSTING and HOMOGENOUS, not
+ * what the printout order suggested). Sourced beats inferred.
  */
-const PARA_LABELS = [
-  'MN SPACING', 'MIN AN RIN', 'FLBDTK +/-', 'CIRC SIZE', '# PROC PCS',
-  '# OF LYRS', '# UP', 'PANEL SIZE', '# UP/ARRAY', 'PART TYPE',
-]
+const CAPTIONS_SQL = `
+  SELECT
+    LTRIM(RTRIM(PARAMETER_NAME)) AS name,
+    LTRIM(RTRIM(PARAMETER_DESC)) AS descr,
+    SOURCE_INDEX                 AS idx,
+    SOURCE_TYPE                  AS stype
+  FROM DATA0278 WITH (NOLOCK)
+  WHERE STATUS = 1
+  ORDER BY SOURCE_TYPE, SOURCE_INDEX`
 
-const SPEC_LABELS = [
-  'MATERIAL', 'WELDABLE', 'LAB', 'BASE SPEC', 'EC SPEC',
-  'CM SPEC', 'END CUST', 'EC PART #', 'EC REV', 'PREV PART#',
-  'ENGINEER', 'FOLDER', 'EDGE DIST', 'MFG DWG #', 'HOMOGENOUS',
-  'APC TOP LVL P/N', 'COST_PROD_CODE', 'SPEC 18', 'SPEC 19', 'SPEC 20',
-]
+/** A caption that's really just a placeholder for an unused slot. */
+const isPlaceholder = (name: string, idx: number) =>
+  !name ||
+  new RegExp(`^(spec|para|parameter)[ _-]?0*${idx}$`, 'i').test(name) ||
+  /^(spec|para|parameter)[ _-]?\d+$/i.test(name)
+
+/**
+ * Build caption lists keyed on SOURCE_INDEX. Specs and parameters are told
+ * apart by their description text, since both value tables use source type 2.
+ */
+async function loadCaptions(): Promise<{ para: string[]; spec: string[] }> {
+  const para: string[] = []
+  const spec: string[] = []
+  try {
+    const rows = await queryMSSQL<any[]>('1', CAPTIONS_SQL)
+    for (const r of rows || []) {
+      const idx = Number(r.idx) || 0
+      if (idx < 1) continue
+      const name = clean(r.name)
+      const descr = clean(r.descr).toLowerCase()
+      const target = descr.includes('spec') ? spec
+        : descr.includes('param') ? para
+        : null
+      if (!target) continue
+      target[idx - 1] = isPlaceholder(name, idx) ? '' : name
+    }
+  } catch (e) {
+    console.error('Caption lookup (DATA0278) failed:', e)
+  }
+  return { para, spec }
+}
 
 const PARAMS_SQL = `
   SELECT TOP 1 * FROM DATA0044 WITH (NOLOCK)
@@ -355,7 +391,8 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
   }
 
   const rkey = Number(h.RKEY ?? 0)
-  const [paraRow, specRow, unitRows, commentRows] = await Promise.all([
+  const [captions, paraRow, specRow, unitRows, commentRows] = await Promise.all([
+    loadCaptions(),
     queryMSSQL<any[]>('1', PARAMS_SQL, { rkey }).catch(() => []),
     queryMSSQL<any[]>('1', SPECS_SQL, { rkey }).catch(() => []),
     queryMSSQL<any[]>('1', UNITS_SQL, { rkey }).catch(() => []),
@@ -411,8 +448,8 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
     route: topRoute,
     notes: (notes || []).map(n => clean(n.text)).filter(Boolean),
     comments: notepadLines(commentRows || []),
-    parameters: numbered(paraRow?.[0], /^PROD_PARA_\d+$/i, PARA_LABELS),
-    specs: numbered(specRow?.[0], /^PROD_SPEC_\d+$/i, SPEC_LABELS),
+    parameters: numbered(paraRow?.[0], /^PROD_PARA_\d+$/i, captions.para),
+    specs: numbered(specRow?.[0], /^PROD_SPEC_\d+$/i, captions.spec),
     units: (unitRows || []).map(u => ({
       code: clean(u.unitCode),
       description: clean(u.unitDescription),

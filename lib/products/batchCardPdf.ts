@@ -284,7 +284,7 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
     })
     // U+270E lower-left pencil — the closest match in DejaVu to the nib icon
     // on the printout, and the font carries it so no extra asset is needed.
-    text('\u270E', M + 4, 10, regular, rgb(0.25, 0.3, 0.36))
+    text('✎', M + 4, 10, regular, rgb(0.25, 0.3, 0.36))
     text(`Step : ${st.step}`, M + 20, 10, bold)
     text(st.dept, M + 92, 10, bold)
     text(st.deptCode, M + 310, 10, bold)
