@@ -529,6 +529,42 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
         mProdCode = clean(pc?.[0]?.code); mProdName = clean(pc?.[0]?.name)
       }
 
+      // The card itself — this was dropped in an earlier edit, which is why the
+      // walk gathered every child's data and then produced nothing.
+      cards.push({
+        kind: 'manufactured',
+        level,
+        partNumber: pn,
+        description: clean(r.description),
+        revision: '-',
+        customerCode: clean(h.CUST_CODE),
+        customerName: clean(h.CUSTOMER_NAME),
+        bomNumber: pn,
+        bomDescription: clean(r.description),
+        routeCode: mRouteCode,
+        routeName: mRouteName,
+        productCode: mProdCode,
+        productName: mProdName,
+        catalogNumber: clean(inv.CATALOG_NUMBER ?? ''),
+        modifiedBy: '',
+        modifiedDate: '',
+        enteredBy: '',
+        enteredDate: '',
+        salesPart: null,
+        bom: sub.lines,
+        // TTYPE 3 is the inventory-part route, keyed on DATA0017.RKEY.
+        route: await loadRoute(invRkey, 3),
+        notes: [],
+        comments: notepadLines(mComments || []),
+        parameters: numbered(mPara?.[0], /^PROD_PARA_\d+$/i, captionsFor(captions, 1, 'para')),
+        specs: numbered(mSpec?.[0], /^PROD_SPEC_\d+$/i, captionsFor(captions, 1, 'spec')),
+        units: (mUnits || []).map(u => ({
+          code: clean(u.unitCode),
+          description: clean(u.unitDescription),
+          value: clean(u.unitValue),
+        })).filter(u => u.code),
+      })
+
       await walk(sub.children, level + 1)
     }
   }

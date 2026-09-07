@@ -305,10 +305,24 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
     // on the printout, and the font carries it so no extra asset is needed.
     text('✎', M + 4, 9, regular, rgb(0.25, 0.3, 0.36))
     text(`Step : ${st.step}`, M + 18, 9, bold)
-    // Department name is truncated and the code sits well left of the sign-off
-    // boxes — at size 10 a long code ran under the IN/DTE box.
-    text(st.dept.slice(0, 34), M + 84, 9, bold)
-    text(st.deptCode, M + 262, 9, bold)
+
+    /**
+     * The department code is RIGHT-ALIGNED against the sign-off boxes and the
+     * name is clipped to whatever space is left. Fixed columns kept letting a
+     * long code run under the IN/DTE box; measuring makes overlap impossible
+     * whatever the code length.
+     */
+    const codeSize = 9
+    const codeW = bold.widthOfTextAtSize(st.deptCode || '', codeSize)
+    const codeX = bx - 12 - codeW
+    const nameX = M + 84
+    const nameRoom = codeX - nameX - 8
+    let name = st.dept || ''
+    while (name && bold.widthOfTextAtSize(name, codeSize) > nameRoom) {
+      name = name.slice(0, -1)
+    }
+    text(name, nameX, codeSize, bold)
+    text(st.deptCode, codeX, codeSize, bold)
     y -= 22
 
     if (st.params.length) {
