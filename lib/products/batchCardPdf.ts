@@ -107,7 +107,8 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
     centre('4.0 Live', 8, mono, hy)
     rightPair('Page', String(pages.length), hy)
     hy -= 11
-    centre('CUSTOMER PART DETAILS', 10, monoBold, hy)
+    centre(card.kind === 'manufactured' ? 'MANUFACTURED PART DETAILS' : 'CUSTOMER PART DETAILS',
+           10, monoBold, hy)
     page.drawText(new Date().toLocaleString(), {
       x: COLON_X - 4 - mono.widthOfTextAtSize(new Date().toLocaleString(), 8) + 60,
       y: hy, size: 8, font: mono, color: INK,
@@ -135,10 +136,14 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
       hy -= 11
     }
 
-    row('Customer', `${card.customerCode}   ${card.customerName}`)
-    row('Part Number', card.partNumber, true, 'Part Revision', card.revision)
-    row('Part Description', card.description)
-    row('BOM Number', card.bomNumber, true, 'BOM Revision', '')
+    // A manufactured part has no customer or sales identity — its header is
+    // just the BOM it represents, which is what the printout shows.
+    if (card.kind === 'customer') {
+      row('Customer', `${card.customerCode}   ${card.customerName}`)
+      row('Part Number', card.partNumber, true, 'Part Revision', card.revision)
+      row('Part Description', card.description)
+    }
+    row('BOM Number', card.bomNumber, true, 'BOM Revision', card.revision || '-')
     row('BOM Description', card.bomDescription)
 
     // Everything below appears on page 1 only — continuation pages carry just
@@ -151,10 +156,24 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
           undefined, undefined)
     }
     if (card.productCode || card.productName) {
-      // Catalog Number sits in the right column on this line; neither label is
-      // bold on the original.
-      row('Product Code', `${card.productCode}   ${card.productName}`.trim(), false,
-          card.catalogNumber ? 'Catalog Number' : undefined, card.catalogNumber, false)
+      if (card.kind === 'manufactured') {
+        // Manufactured cards put Catalog Number on its own line, right-aligned.
+        row('Product Code', `${card.productCode}   ${card.productName}`.trim(), false)
+        if (card.catalogNumber) {
+          const lbl = 'Catalog Number'
+          const lw = mono.widthOfTextAtSize(lbl, 8)
+          const vx = PAGE.w - M - 8 - mono.widthOfTextAtSize(card.catalogNumber, 8)
+          page.drawText(lbl, { x: vx - 6 - lw, y: hy, size: 8, font: mono, color: INK })
+          page.drawText(':', { x: vx - 4, y: hy, size: 8, font: mono, color: INK })
+          page.drawText(card.catalogNumber, { x: vx + 2, y: hy, size: 8, font: mono, color: INK })
+          hy -= 11
+        }
+      } else {
+        // Catalog Number sits in the right column on this line; neither label is
+        // bold on the original.
+        row('Product Code', `${card.productCode}   ${card.productName}`.trim(), false,
+            card.catalogNumber ? 'Catalog Number' : undefined, card.catalogNumber, false)
+      }
     }
 
     if (card.enteredBy || card.enteredDate) {

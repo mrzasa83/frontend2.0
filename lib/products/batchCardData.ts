@@ -34,6 +34,8 @@ export type BomLine = {
 }
 
 export type CardData = {
+  /** Which header the card gets: the customer part, or a manufactured item. */
+  kind: 'customer' | 'manufactured'
   level: number
   /** Customer part number for the top card, INV_PART_NUMBER below it. */
   partNumber: string
@@ -240,35 +242,49 @@ const isPlaceholder = (name: string, idx: number) =>
  * Build caption lists keyed on SOURCE_INDEX. Specs and parameters are told
  * apart by their description text, since both value tables use source type 2.
  */
-async function loadCaptions(): Promise<{ para: string[]; spec: string[] }> {
-  const para: string[] = []
-  const spec: string[] = []
+export type CaptionSets = Map<string, string[]>
+
+/** Key: `<SOURCE_TYPE>|spec` or `<SOURCE_TYPE>|para`. */
+const capKey = (stype: number, kind: 'spec' | 'para') => `${stype}|${kind}`
+
+async function loadCaptions(): Promise<CaptionSets> {
+  const sets: CaptionSets = new Map()
   try {
     const rows = await queryMSSQL<any[]>('1', CAPTIONS_SQL)
     for (const r of rows || []) {
       const idx = Number(r.idx) || 0
       if (idx < 1) continue
-      const name = clean(r.name)
+      const stype = Number(r.stype) || 0
       const descr = clean(r.descr).toLowerCase()
-      const target = descr.includes('spec') ? spec
-        : descr.includes('param') ? para
-        : null
-      if (!target) continue
-      target[idx - 1] = isPlaceholder(name, idx) ? '' : name
+      const kind: 'spec' | 'para' | null =
+        descr.includes('spec') ? 'spec' : descr.includes('param') ? 'para' : null
+      if (!kind) continue
+      const key = capKey(stype, kind)
+      const list = sets.get(key) || []
+      const name = clean(r.name)
+      list[idx - 1] = isPlaceholder(name, idx) ? '' : name
+      sets.set(key, list)
     }
   } catch (e) {
     console.error('Caption lookup (DATA0278) failed:', e)
   }
-  return { para, spec }
+  return sets
 }
 
+const captionsFor = (sets: CaptionSets, stype: number, kind: 'spec' | 'para') =>
+  sets.get(capKey(stype, kind)) || []
+
+/**
+ * Source types: a CUSTOMER part (DATA0050) carries type 2, a MANUFACTURED part
+ * (DATA0017) type 1 — for parameters, specs and comments alike.
+ */
 const PARAMS_SQL = `
   SELECT TOP 1 * FROM DATA0044 WITH (NOLOCK)
-  WHERE SOURCE_PTR = @rkey AND SOURCE_TYPE = 2`
+  WHERE SOURCE_PTR = @rkey AND SOURCE_TYPE = @stype`
 
 const SPECS_SQL = `
   SELECT TOP 1 * FROM DATA0045 WITH (NOLOCK)
-  WHERE SOURCE_PTR = @rkey AND SOURCE_TYPE = 2`
+  WHERE SOURCE_PTR = @rkey AND SOURCE_TYPE = @stype`
 
 const UNITS_SQL = `
   SELECT
@@ -277,7 +293,7 @@ const UNITS_SQL = `
     d47.UNIT_VALUE                    AS unitValue
   FROM DATA0047 d47 WITH (NOLOCK)
   LEFT JOIN DATA0002 d2 WITH (NOLOCK) ON d2.RKEY = d47.UNIT_POINTER
-  WHERE d47.SOURCE_POINTER = @rkey AND d47.TTYPE = 2
+  WHERE d47.SOURCE_POINTER = @rkey AND d47.TTYPE = @stype
   ORDER BY d2.UNIT_CODE`
 
 /**
@@ -292,7 +308,7 @@ const UNITS_SQL = `
  */
 const COMMENTS_SQL = `
   SELECT * FROM DATA0011 WITH (NOLOCK)
-  WHERE FILE_POINTER = @rkey AND SOURCE_TYPE = 2050
+  WHERE FILE_POINTER = @rkey AND SOURCE_TYPE = @noteType
   ORDER BY RKEY`
 
 /** Notepad / discrepancy text for a customer part. */
@@ -393,10 +409,10 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
   const rkey = Number(h.RKEY ?? 0)
   const [captions, paraRow, specRow, unitRows, commentRows] = await Promise.all([
     loadCaptions(),
-    queryMSSQL<any[]>('1', PARAMS_SQL, { rkey }).catch(() => []),
-    queryMSSQL<any[]>('1', SPECS_SQL, { rkey }).catch(() => []),
-    queryMSSQL<any[]>('1', UNITS_SQL, { rkey }).catch(() => []),
-    queryMSSQL<any[]>('1', COMMENTS_SQL, { rkey }).catch(() => []),
+    queryMSSQL<any[]>('1', PARAMS_SQL, { rkey, stype: 2 }).catch(() => []),
+    queryMSSQL<any[]>('1', SPECS_SQL, { rkey, stype: 2 }).catch(() => []),
+    queryMSSQL<any[]>('1', UNITS_SQL, { rkey, stype: 2 }).catch(() => []),
+    queryMSSQL<any[]>('1', COMMENTS_SQL, { rkey, noteType: 2050 }).catch(() => []),
   ])
 
   /**
@@ -422,6 +438,7 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
   const topRoute = await loadRoute(Number(h.RKEY ?? 0), 4)
   const notes = await queryMSSQL<any[]>('1', NOTES_SQL, { rkey: Number(h.RKEY ?? 0) }).catch(() => [])
   cards.push({
+    kind: 'customer',
     level: 0,
     partNumber: clean(h.CUSTOMER_PART_NUMBER),
     description: clean(h.CUSTOMER_PART_DESC),
@@ -448,8 +465,8 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
     route: topRoute,
     notes: (notes || []).map(n => clean(n.text)).filter(Boolean),
     comments: notepadLines(commentRows || []),
-    parameters: numbered(paraRow?.[0], /^PROD_PARA_\d+$/i, captions.para),
-    specs: numbered(specRow?.[0], /^PROD_SPEC_\d+$/i, captions.spec),
+    parameters: numbered(paraRow?.[0], /^PROD_PARA_\d+$/i, captionsFor(captions, 2, 'para')),
+    specs: numbered(specRow?.[0], /^PROD_SPEC_\d+$/i, captionsFor(captions, 2, 'spec')),
     units: (unitRows || []).map(u => ({
       code: clean(u.unitCode),
       description: clean(u.unitDescription),
@@ -473,36 +490,45 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
       const bomPtr = Number(own?.[0]?.bomPtr ?? 0)
       const sub = await bomLines(bomPtr)
 
-      cards.push({
-        level,
-        partNumber: pn,
-        description: clean(r.description),
-        revision: '-',
-        customerCode: clean(h.CUST_CODE),
-        customerName: clean(h.CUSTOMER_NAME),
-        bomNumber: pn,
-        bomDescription: clean(r.description),
-        routeCode: '',
-        routeName: '',
-        productCode: clean(h.PROD_CODE),
-        productName: clean(h.PROD_NAME),
-        catalogNumber: clean(h.CATALOG_NUMBER),
-        modifiedBy: '',
-        modifiedDate: '',
-        enteredBy: '',
-        enteredDate: '',
-        salesPart: null,
-        bom: sub.lines,
-        // TTYPE 3 is the inventory-part route, keyed on DATA0017.RKEY — the
-        // same join the Standards "related parts" query uses. TTYPE 1 (my
-        // earlier guess) returns nothing, which is why these came out blank.
-        route: await loadRoute(Number(r.rkey), 3),
-        notes: [],
-        comments: [],
-        parameters: [],
-        specs: [],
-        units: [],
-      })
+      /**
+       * A manufactured part carries its own parameters, specs, units and
+       * comments, keyed on its DATA0017 RKEY with source type 1 (comments use
+       * 2017). The customer-part card uses type 2 / 2050.
+       *
+       * The header block is read with SELECT * so an unexpected column layout
+       * can't fail the whole card — the fields are picked out in code.
+       */
+      const invRkey = Number(r.rkey)
+      const [mPara, mSpec, mUnits, mComments, invRow] = await Promise.all([
+        queryMSSQL<any[]>('1', PARAMS_SQL, { rkey: invRkey, stype: 1 }).catch(() => []),
+        queryMSSQL<any[]>('1', SPECS_SQL, { rkey: invRkey, stype: 1 }).catch(() => []),
+        queryMSSQL<any[]>('1', UNITS_SQL, { rkey: invRkey, stype: 1 }).catch(() => []),
+        queryMSSQL<any[]>('1', COMMENTS_SQL, { rkey: invRkey, noteType: 2017 }).catch(() => []),
+        queryMSSQL<any[]>('1',
+          'SELECT TOP 1 * FROM DATA0017 WITH (NOLOCK) WHERE RKEY = @rkey',
+          { rkey: invRkey }).catch(() => []),
+      ])
+
+      // Route and product code, when the inventory record points at them.
+      const inv = invRow?.[0] || {}
+      let mRouteCode = '', mRouteName = '', mProdCode = '', mProdName = ''
+      const routePtr = Number(inv.PROD_ROUTE_PTR ?? inv.ROUTE_PTR ?? 0)
+      const prodPtr = Number(inv.PROD_CODE_PTR ?? 0)
+      if (routePtr) {
+        const rt = await queryMSSQL<any[]>('1',
+          `SELECT TOP 1 LTRIM(RTRIM(PROD_ROUTE_CODE)) AS code,
+                        LTRIM(RTRIM(PROD_ROUTE_CODE_NAME)) AS name
+           FROM DATA0037 WITH (NOLOCK) WHERE RKEY = @ptr`, { ptr: routePtr }).catch(() => [])
+        mRouteCode = clean(rt?.[0]?.code); mRouteName = clean(rt?.[0]?.name)
+      }
+      if (prodPtr) {
+        const pc = await queryMSSQL<any[]>('1',
+          `SELECT TOP 1 LTRIM(RTRIM(PROD_CODE)) AS code,
+                        LTRIM(RTRIM(PRODUCT_NAME)) AS name
+           FROM DATA0008 WITH (NOLOCK) WHERE RKEY = @ptr`, { ptr: prodPtr }).catch(() => [])
+        mProdCode = clean(pc?.[0]?.code); mProdName = clean(pc?.[0]?.name)
+      }
+
       await walk(sub.children, level + 1)
     }
   }
