@@ -140,6 +140,11 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
     row('Part Description', card.description)
     row('BOM Number', card.bomNumber, true, 'BOM Revision', '')
     row('BOM Description', card.bomDescription)
+
+    // Everything below appears on page 1 only — continuation pages carry just
+    // enough to identify the card, as on the original printout.
+    const firstPage = pages.length <= 1
+    if (firstPage) {
     // Route and Product Code are NOT bold on the original printout.
     if (card.routeCode || card.routeName) {
       row('Route', `${card.routeCode}      ${card.routeName}`.trim(), false,
@@ -157,6 +162,7 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
     }
     if (card.modifiedBy || card.modifiedDate) {
       row('Last Modified By', card.modifiedBy, true, 'Modified Date', card.modifiedDate)
+    }
     }
 
     hy -= 4
@@ -276,9 +282,12 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
         borderColor: RULE, borderWidth: 0.7,
       })
     })
-    text(`Step : ${st.step}`, M + 6, 10, bold)
-    text(st.dept, M + 78, 10, bold)
-    text(st.deptCode, M + 300, 10, bold)
+    // U+270E lower-left pencil — the closest match in DejaVu to the nib icon
+    // on the printout, and the font carries it so no extra asset is needed.
+    text('\u270E', M + 4, 10, regular, rgb(0.25, 0.3, 0.36))
+    text(`Step : ${st.step}`, M + 20, 10, bold)
+    text(st.dept, M + 92, 10, bold)
+    text(st.deptCode, M + 310, 10, bold)
     y -= 22
 
     if (st.params.length) {
@@ -309,6 +318,20 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
         text(n.slice(0, 125), M + 6, 7.5, mono, rgb(0.2, 0.24, 0.3))
         y -= 10
       }
+    })
+  }
+
+  // ---- Sales part details ----
+  if (card.salesPart) {
+    section('Sales Part Details', () => {
+      label('Part Number', M + 6, y); label('Description', M + 180, y)
+      label('Revision', M + 430, y)
+      y -= 3; rule(); y -= 10
+      need(12)
+      text(card.salesPart!.partNumber, M + 6, 8, mono)
+      text(card.salesPart!.description.slice(0, 40), M + 180, 8, mono)
+      text(card.salesPart!.revision, M + 430, 8, mono)
+      y -= 11
     })
   }
 

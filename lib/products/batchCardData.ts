@@ -52,6 +52,7 @@ export type CardData = {
   modifiedDate: string
   enteredBy: string
   enteredDate: string
+  salesPart: { partNumber: string; description: string; revision: string } | null
   bom: BomLine[]
   route: RouteStep[]
   notes: string[]
@@ -90,6 +91,10 @@ const HEADER_SQL = `
     -- "Entered By" comes from the SALES part, not this row. The sales part is
     -- the child whose PRODUCTION_PART_PTR points at this row's RKEY; the
     -- production part itself is excluded because its pointer equals its own key.
+    -- Sales part, from the same child row
+    LTRIM(RTRIM(child.CUSTOMER_PART_NUMBER))  AS SALES_PART_NUMBER,
+    LTRIM(RTRIM(child.CUSTOMER_PART_DESC))    AS SALES_PART_DESC,
+    LTRIM(RTRIM(child.CP_REV))                AS SALES_PART_REV,
     LTRIM(RTRIM(d5e.EMPL_CODE))               AS ENTERED_BY_CODE,
     LTRIM(RTRIM(d5e.EMPLOYEE_NAME))           AS ENTERED_BY_NAME,
     d50.CUSTPART_ENT_DATE                     AS ENTERED_DATE
@@ -397,6 +402,11 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
     modifiedDate: h.MODIFIED_DATE ? new Date(h.MODIFIED_DATE).toLocaleDateString() : '',
     enteredBy: [clean(h.ENTERED_BY_CODE), clean(h.ENTERED_BY_NAME)].filter(Boolean).join(' '),
     enteredDate: h.ENTERED_DATE ? new Date(h.ENTERED_DATE).toLocaleDateString() : '',
+    salesPart: clean(h.SALES_PART_NUMBER) ? {
+      partNumber: clean(h.SALES_PART_NUMBER),
+      description: clean(h.SALES_PART_DESC),
+      revision: clean(h.SALES_PART_REV) || '-',
+    } : null,
     bom: topBom.lines,
     route: topRoute,
     notes: (notes || []).map(n => clean(n.text)).filter(Boolean),
@@ -444,6 +454,7 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
         modifiedDate: '',
         enteredBy: '',
         enteredDate: '',
+        salesPart: null,
         bom: sub.lines,
         // TTYPE 3 is the inventory-part route, keyed on DATA0017.RKEY — the
         // same join the Standards "related parts" query uses. TTYPE 1 (my
