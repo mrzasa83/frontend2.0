@@ -293,7 +293,7 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
   for (const [idx, st] of card.route.entries()) {
     need(34)
     // Sign-off boxes first, so their labels sit above the step line.
-    const bx = PAGE.w - M - 186
+    const bx = PAGE.w - M - 180
     ;['IN/DTE', 'IN/OUT', 'SCRP/IR'].forEach((l, i) => {
       page.drawText(l, { x: bx + i * 62 + 12, y: y + 13, size: 6, font: bold, color: MUTED })
       page.drawRectangle({
@@ -303,10 +303,12 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
     })
     // U+270E lower-left pencil — the closest match in DejaVu to the nib icon
     // on the printout, and the font carries it so no extra asset is needed.
-    text('✎', M + 4, 10, regular, rgb(0.25, 0.3, 0.36))
-    text(`Step : ${st.step}`, M + 20, 10, bold)
-    text(st.dept, M + 92, 10, bold)
-    text(st.deptCode, M + 310, 10, bold)
+    text('✎', M + 4, 9, regular, rgb(0.25, 0.3, 0.36))
+    text(`Step : ${st.step}`, M + 18, 9, bold)
+    // Department name is truncated and the code sits well left of the sign-off
+    // boxes — at size 10 a long code ran under the IN/DTE box.
+    text(st.dept.slice(0, 34), M + 84, 9, bold)
+    text(st.deptCode, M + 262, 9, bold)
     y -= 22
 
     if (st.params.length) {

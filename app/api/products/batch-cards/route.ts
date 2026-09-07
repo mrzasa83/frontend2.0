@@ -183,10 +183,23 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Why the card count is what it is: how many BOM lines each card had, and
+      // how many of those were manufactured (each of which becomes its own card).
+      const tree = cards.map(c => ({
+        part: c.partNumber,
+        kind: c.kind,
+        level: c.level,
+        bomLines: c.bom.length,
+        manufacturedLines: c.bom.filter(b => b.isManufactured).length,
+        routeSteps: c.route.length,
+      }))
+
       return NextResponse.json({
         success: true, written, cards: cards.length, operator, employeeId,
+        tree,
         failed,
         message: `Generated ${written} card(s) for ${part} as ${operator}` +
+                 `${cards[0] ? ` · top BOM ${cards[0].bom.length} line(s), ${cards[0].bom.filter(b => b.isManufactured).length} manufactured` : ''}` +
                  `${employeeId ? ` (ID ${employeeId})` : ' — no Paradigm employee code found for that network name'}` +
                  `${failed.length ? `, ${failed.length} failed` : ''}.`,
       })
