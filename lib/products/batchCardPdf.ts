@@ -173,12 +173,33 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
 
   newPage()
 
-  const band = (title: string) => {
-    need(24)
-    page.drawRectangle({ x: M, y: y - 3, width: PAGE.w - 2 * M, height: 13, color: BAND })
+  /**
+   * Section band, and a border drawn around whatever the body puts below it.
+   *
+   * The border is only drawn when the body fits on one page — a rectangle can't
+   * span a page break, and a box that runs off the bottom edge looks worse than
+   * no box at all.
+   */
+  const section = (title: string, body: () => void, minHeight = 0) => {
+    need(30 + minHeight)
+    const startPage = page
+    page.drawRectangle({
+      x: M, y: y - 3, width: PAGE.w - 2 * M, height: 14,
+      color: BAND, borderColor: RULE, borderWidth: 0.7,
+    })
     const w = bold.widthOfTextAtSize(title, 8.5)
     text(title, (PAGE.w - w) / 2, 8.5, bold)
-    y -= 16
+    y -= 17
+    const contentTop = y + 11
+    body()
+    if (minHeight && contentTop - y < minHeight) y = contentTop - minHeight
+    if (page === startPage) {
+      startPage.drawRectangle({
+        x: M, y: y + 6, width: PAGE.w - 2 * M, height: contentTop - y - 6,
+        borderColor: RULE, borderWidth: 0.7,
+      })
+    }
+    y -= 10
   }
 
   // Single column, as on the original printout: label, then value.
@@ -192,103 +213,103 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
     y -= 4
   }
 
-  if (card.comments.length) {
-    band('Part Data Comments')
+  // Always present, blank or not — the printout reserves the box whether or
+  // not anything was written in it.
+  section('Part Data Comments', () => {
     for (const line of card.comments) {
       need(11)
       text(line.slice(0, 120), M + 6, 7.5, mono, rgb(0.2, 0.24, 0.3))
       y -= 10
     }
-    y -= 4
-  }
+  }, 26)
 
-  if (card.parameters.length) { band('Production Part Parameters'); pairs(card.parameters) }
-  if (card.specs.length) { band('Customer Part Specifications'); pairs(card.specs) }
+  if (card.parameters.length) section('Production Part Parameters', () => pairs(card.parameters))
+  if (card.specs.length) section('Customer Part Specifications', () => pairs(card.specs))
   if (card.units.length) {
-    band('Unit Loading Factors')
-    label('Unit Name', M + 6, y); label('Unit Code', M + 250, y)
-    label('Part Loading Factor', M + 360, y)
-    y -= 3; rule(); y -= 10
-    for (const u of card.units) {
-      need(11)
-      text(u.description, M + 6, 7.5)
-      text(u.code, M + 250, 7.5)
-      text(u.value, M + 360, 7.5)
-      y -= 10
-    }
-    y -= 4
+    section('Unit Loading Factors', () => {
+      label('Unit Name', M + 6, y); label('Unit Code', M + 250, y)
+      label('Part Loading Factor', M + 360, y)
+      y -= 3; rule(); y -= 10
+      for (const u of card.units) {
+        need(11)
+        text(u.description, M + 6, 7.5, mono)
+        text(u.code, M + 250, 7.5, mono)
+        text(u.value, M + 360, 7.5, mono)
+        y -= 10
+      }
+    })
   }
 
-  // ---- Bill of material ----
-  if (card.bom.length) {
-    need(30)
-    page.drawRectangle({ x: M, y: y - 3, width: PAGE.w - 2 * M, height: 13, color: BAND })
-    text('Bill of Material', (PAGE.w / 2) - 32, 8.5, bold)
-    y -= 15
-    label('Part Number', M, y); label('Part Description', M + 110, y)
-    label('Unit', M + 270, y); label('Required/BOM', M + 310, y)
-    label('Qty Required', M + 400, y)
-    y -= 3; rule(); y -= 10
-    for (const b of card.bom) {
-      need(12)
-      text(b.partNumber, M, 8)
-      text(b.description.slice(0, 28), M + 110, 8)
-      text(b.unit, M + 270, 8)
-      text(b.requiredPer, M + 310, 8)
-      text(b.qtyRequired, M + 400, 8)
-      y -= 11
-    }
-    y -= 6
+  /** The bill of material, drawn as a bordered table. */
+  const drawBom = () => {
+    if (!card.bom.length) return
+    section('Bill of Material', () => {
+      label('Part Number', M + 6, y); label('Part Description', M + 120, y)
+      label('Unit', M + 290, y); label('Required/BOM', M + 330, y)
+      label('Qty Required', M + 430, y)
+      y -= 3; rule(); y -= 10
+      for (const b of card.bom) {
+        need(12)
+        text(b.partNumber, M + 6, 8, mono)
+        text(b.description.slice(0, 26), M + 120, 8, mono)
+        text(b.unit, M + 290, 8, mono)
+        text(b.requiredPer, M + 330, 8, mono)
+        text(b.qtyRequired, M + 430, 8, mono)
+        y -= 11
+      }
+    })
   }
 
   // ---- Route steps ----
-  for (const s of card.route) {
-    need(30)
-    text(`Step : ${s.step}`, M + 14, 9, bold)
-    text(s.dept, M + 90, 9, bold)
-    text(s.deptCode, M + 330, 9, bold)
-    // Sign-off boxes
-    const bx = PAGE.w - M - 174
+  // The BOM belongs to the kit step: on the printout it sits directly beneath
+  // "Step : 1 ASSEMBLY KIT", because that's the step where the material is
+  // pulled. Rendered after the first step rather than as its own block.
+  let bomDrawn = false
+  for (const [idx, st] of card.route.entries()) {
+    need(34)
+    // Sign-off boxes first, so their labels sit above the step line.
+    const bx = PAGE.w - M - 186
     ;['IN/DTE', 'IN/OUT', 'SCRP/IR'].forEach((l, i) => {
-      page.drawText(l, { x: bx + i * 58 + 8, y: y + 11, size: 6, font: bold, color: MUTED })
+      page.drawText(l, { x: bx + i * 62 + 12, y: y + 13, size: 6, font: bold, color: MUTED })
       page.drawRectangle({
-        x: bx + i * 58, y: y - 5, width: 54, height: 15,
+        x: bx + i * 62, y: y - 6, width: 58, height: 17,
         borderColor: RULE, borderWidth: 0.7,
       })
     })
-    y -= 18
+    text(`Step : ${st.step}`, M + 6, 10, bold)
+    text(st.dept, M + 78, 10, bold)
+    text(st.deptCode, M + 300, 10, bold)
+    y -= 22
 
-    if (s.params.length) {
-      need(24)
-      page.drawRectangle({ x: M, y: y - 3, width: PAGE.w - 2 * M, height: 12, color: BAND })
-      text('Route Step Parameters', (PAGE.w / 2) - 45, 8, bold)
-      y -= 14
-      for (const p of s.params) {
-        need(11)
-        text(`${p.name} : ${p.value}`, M + 20, 7.5, regular, rgb(0.2, 0.24, 0.3))
-        y -= 10
-      }
-      y -= 2
+    if (st.params.length) {
+      section('Route Step Parameters', () => {
+        for (const p of st.params) {
+          need(11)
+          text(`${p.name} : ${p.value}`, M + 20, 7.5, mono, rgb(0.2, 0.24, 0.3))
+          y -= 10
+        }
+      })
     }
-    for (const i of s.instructions) {
+    for (const i of st.instructions) {
       need(11)
-      text(i.slice(0, 120), M + 20, 7.5, regular, rgb(0.2, 0.24, 0.3))
+      text(i.slice(0, 120), M + 20, 7.5, mono, rgb(0.2, 0.24, 0.3))
       y -= 10
     }
+
+    if (idx === 0 && !bomDrawn) { drawBom(); bomDrawn = true }
   }
+  // A part with no route still needs its BOM shown.
+  if (!bomDrawn) drawBom()
 
   // ---- Discrepancy sheet ----
   if (card.notes.length) {
-    need(30)
-    y -= 4
-    page.drawRectangle({ x: M, y: y - 3, width: PAGE.w - 2 * M, height: 13, color: BAND })
-    text('Discrepancy Sheet', (PAGE.w / 2) - 36, 8.5, bold)
-    y -= 16
-    for (const n of card.notes) {
-      need(11)
-      text(n.slice(0, 125), M + 4, 7.5, regular, rgb(0.2, 0.24, 0.3))
-      y -= 10
-    }
+    section('Discrepancy Sheet', () => {
+      for (const n of card.notes) {
+        need(11)
+        text(n.slice(0, 125), M + 6, 7.5, mono, rgb(0.2, 0.24, 0.3))
+        y -= 10
+      }
+    })
   }
 
   // Footer on every page, with the final page count known only now.
