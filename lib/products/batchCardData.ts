@@ -174,7 +174,8 @@ const ROUTE_SQL = `
       CASE WHEN LTRIM(RTRIM(d38.PARAMETER_2))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_2)) ELSE '' END +
       CASE WHEN LTRIM(RTRIM(d38.PARAMETER_3))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_3)) ELSE '' END +
       CASE WHEN LTRIM(RTRIM(d38.PARAMETER_4))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_4)) ELSE '' END +
-      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_5))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_5)) ELSE '' END,
+      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_5))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_5)) ELSE '' END +
+      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_6))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_6)) ELSE '' END,
       1, 3, '') AS parameterValues,
     -- parameter names from the DATA0035 definitions
     STUFF(
@@ -182,7 +183,8 @@ const ROUTE_SQL = `
       CASE WHEN p2.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p2.PRODUCTION_PARAMETER) ELSE '' END +
       CASE WHEN p3.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p3.PRODUCTION_PARAMETER) ELSE '' END +
       CASE WHEN p4.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p4.PRODUCTION_PARAMETER) ELSE '' END +
-      CASE WHEN p5.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p5.PRODUCTION_PARAMETER) ELSE '' END,
+      CASE WHEN p5.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p5.PRODUCTION_PARAMETER) ELSE '' END +
+      CASE WHEN p6.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p6.PRODUCTION_PARAMETER) ELSE '' END,
       1, 3, '') AS parameterNames,
     -- additional route step parameters (DATA0471 values -> DATA0469 defs)
     STUFF((
@@ -209,6 +211,11 @@ const ROUTE_SQL = `
   LEFT JOIN DATA0035 p3 WITH (NOLOCK) ON p3.RKEY = d38.DEF_ROUT_PARA_3_PTR
   LEFT JOIN DATA0035 p4 WITH (NOLOCK) ON p4.RKEY = d38.DEF_ROUT_PARA_4_PTR
   LEFT JOIN DATA0035 p5 WITH (NOLOCK) ON p5.RKEY = d38.DEF_ROUT_PARA_5_PTR
+  LEFT JOIN DATA0035 p10 WITH (NOLOCK) ON p10.RKEY = d38.DEF_ROUT_PARA_10_PTR
+  LEFT JOIN DATA0035 p9 WITH (NOLOCK) ON p9.RKEY = d38.DEF_ROUT_PARA_9_PTR
+  LEFT JOIN DATA0035 p8 WITH (NOLOCK) ON p8.RKEY = d38.DEF_ROUT_PARA_8_PTR
+  LEFT JOIN DATA0035 p7 WITH (NOLOCK) ON p7.RKEY = d38.DEF_ROUT_PARA_7_PTR
+  LEFT JOIN DATA0035 p6 WITH (NOLOCK) ON p6.RKEY = d38.DEF_ROUT_PARA_6_PTR
   WHERE d38.SOURCE_PTR = @sourcePtr AND d38.TTYPE = @ttype
   ORDER BY d38.STEP_NUMBER`
 
@@ -275,7 +282,7 @@ const isPlaceholder = (name: string, idx: number) =>
 export type CaptionSets = Map<string, string[]>
 
 /** Key: `<SOURCE_TYPE>|spec` or `<SOURCE_TYPE>|para`. */
-const capKey = (stype: number, kind: 'spec' | 'para') => `${stype}|${kind}`
+const capKey = (stype: number, kind: 'spec' | 'para' | 'unit') => `${stype}|${kind}`
 
 async function loadCaptions(): Promise<CaptionSets> {
   const sets: CaptionSets = new Map()
@@ -286,8 +293,11 @@ async function loadCaptions(): Promise<CaptionSets> {
       if (idx < 1) continue
       const stype = Number(r.stype) || 0
       const descr = clean(r.descr).toLowerCase()
-      const kind: 'spec' | 'para' | null =
-        descr.includes('spec') ? 'spec' : descr.includes('param') ? 'para' : null
+      const kind: 'spec' | 'para' | 'unit' | null =
+        stype === UNIT_CAPTION_TYPE ? 'unit'
+        : descr.includes('spec') ? 'spec'
+        : descr.includes('param') ? 'para'
+        : null
       if (!kind) continue
       const key = capKey(stype, kind)
       const list = sets.get(key) || []
@@ -309,16 +319,22 @@ async function loadCaptions(): Promise<CaptionSets> {
  * for them. Without a fallback the card prints "#1, #2, #3" — which is worse
  * than borrowing the equivalent captions, since the columns line up.
  */
-const captionsFor = (sets: CaptionSets, stype: number, kind: 'spec' | 'para') => {
-  const exact = sets.get(capKey(stype, kind))
-  if (exact && exact.some(Boolean)) return exact
-  let best: string[] = []
-  for (const [key, list] of sets) {
-    if (!key.endsWith(`|${kind}`)) continue
-    if (list.filter(Boolean).length > best.filter(Boolean).length) best = list
-  }
-  return best
-}
+/**
+ * DATA0278 source types, confirmed against the data:
+ *   1  "Prod Part Param n"  -> captions for DATA0044 PROD_PARA_01..10
+ *   2  "Cust Part Spec n"   -> captions for DATA0045 PROD_SPEC_01..20
+ *   4  unit definitions     -> the Unit Loading Factors list
+ *
+ * The same two caption sets serve BOTH customer and manufactured cards: a
+ * manufactured part's DATA0044/DATA0045 rows carry source type 1, but the
+ * meaning of each numbered column is identical, so the captions don't differ.
+ */
+const PARAM_CAPTION_TYPE = 1
+const SPEC_CAPTION_TYPE = 2
+const UNIT_CAPTION_TYPE = 4
+
+const captionsFor = (sets: CaptionSets, kind: 'spec' | 'para') =>
+  sets.get(capKey(kind === 'para' ? PARAM_CAPTION_TYPE : SPEC_CAPTION_TYPE, kind)) || []
 
 /**
  * Source types: a CUSTOMER part (DATA0050) carries type 2, a MANUFACTURED part
@@ -332,14 +348,31 @@ const SPECS_SQL = `
   SELECT TOP 1 * FROM DATA0045 WITH (NOLOCK)
   WHERE SOURCE_PTR = @rkey AND SOURCE_TYPE = @stype`
 
+/**
+ * Unit loading factors.
+ *
+ * The printout lists EVERY defined unit, not just the ones the part carries a
+ * row for — anything without a DATA0047 row shows 0.0000. So this is driven
+ * from DATA0002 with the values joined on, rather than the other way round.
+ *
+ * The "Unit Code" column is a ratio, and UNIT_BASE decides which way round:
+ *   base 'P'  ->  PART/<code>   (NUMBER UP prints "PART/PNL")
+ *   otherwise ->  <code>/PART   (BACK DRILL DEPTHS prints "BDDPT/PART")
+ *
+ * Ordered by UNIT_CODE, which is the order on the printout.
+ */
 const UNITS_SQL = `
   SELECT
     LTRIM(RTRIM(d2.UNIT_CODE))        AS unitCode,
     LTRIM(RTRIM(d2.UNIT_NAME))        AS unitDescription,
-    d47.UNIT_VALUE                    AS unitValue
-  FROM DATA0047 d47 WITH (NOLOCK)
-  LEFT JOIN DATA0002 d2 WITH (NOLOCK) ON d2.RKEY = d47.UNIT_POINTER
-  WHERE d47.SOURCE_POINTER = @rkey AND d47.TTYPE = @stype
+    LTRIM(RTRIM(d2.UNIT_BASE))        AS unitBase,
+    ISNULL(d47.UNIT_VALUE, 0)         AS unitValue
+  FROM DATA0002 d2 WITH (NOLOCK)
+  LEFT JOIN DATA0047 d47 WITH (NOLOCK)
+         ON d47.UNIT_POINTER = d2.RKEY
+        AND d47.SOURCE_POINTER = @rkey
+        AND d47.TTYPE = @stype
+  WHERE d2.ACTIVE_FLAG = 0
   ORDER BY LTRIM(RTRIM(d2.UNIT_CODE))`
 
 /**
@@ -356,6 +389,21 @@ const COMMENTS_SQL = `
   SELECT * FROM DATA0011 WITH (NOLOCK)
   WHERE FILE_POINTER = @rkey AND SOURCE_TYPE = @noteType
   ORDER BY RKEY`
+
+/** Unit rows as the card shows them: ratio code and a four-decimal factor. */
+function mapUnits(rows: any[] | undefined) {
+  return (rows || [])
+    .map(u => {
+      const code = clean(u.unitCode)
+      const base = clean(u.unitBase).toUpperCase()
+      return {
+        code: base === 'P' ? `PART/${code}` : `${code}/PART`,
+        description: clean(u.unitDescription),
+        value: Number(u.unitValue ?? 0).toFixed(4),
+      }
+    })
+    .filter(u => u.description)
+}
 
 /** Notepad / discrepancy text for a customer part. */
 const NOTES_SQL = `
@@ -520,13 +568,9 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
     route: topRoute,
     notes: (notes || []).map(n => clean(n.text)).filter(Boolean),
     comments: notepadLines(commentRows || []),
-    parameters: numbered(paraRow?.[0], /^PROD_PARA_\d+$/i, captionsFor(captions, 2, 'para')),
-    specs: numbered(specRow?.[0], /^PROD_SPEC_\d+$/i, captionsFor(captions, 2, 'spec')),
-    units: (unitRows || []).map(u => ({
-      code: clean(u.unitCode),
-      description: clean(u.unitDescription),
-      value: clean(u.unitValue),
-    })).filter(u => u.code),
+    parameters: numbered(paraRow?.[0], /^PROD_PARA_\d+$/i, captionsFor(captions, 'para')),
+    specs: numbered(specRow?.[0], /^PROD_SPEC_\d+$/i, captionsFor(captions, 'spec')),
+    units: mapUnits(unitRows),
   })
 
   // Manufactured components, depth-first.
@@ -612,13 +656,9 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
         route: await loadRoute(invRkey, 3),
         notes: [],
         comments: notepadLines(mComments || []),
-        parameters: numbered(mPara?.[0], /^PROD_PARA_\d+$/i, captionsFor(captions, 1, 'para')),
-        specs: numbered(mSpec?.[0], /^PROD_SPEC_\d+$/i, captionsFor(captions, 1, 'spec')),
-        units: (mUnits || []).map(u => ({
-          code: clean(u.unitCode),
-          description: clean(u.unitDescription),
-          value: clean(u.unitValue),
-        })).filter(u => u.code),
+        parameters: numbered(mPara?.[0], /^PROD_PARA_\d+$/i, captionsFor(captions, 'para')),
+        specs: numbered(mSpec?.[0], /^PROD_SPEC_\d+$/i, captionsFor(captions, 'spec')),
+        units: mapUnits(mUnits),
       })
 
       await walk(sub.children, level + 1)
