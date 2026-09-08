@@ -188,6 +188,11 @@ export async function POST(request: NextRequest) {
       const tree = cards.map(c => ({
         part: c.partNumber,
         kind: c.kind,
+        // The RKEY each card's specs/parameters came from — if two cards share
+        // one, they're reading the same source and something is wrong.
+        sourceRkey: c.sourceRkey,
+        specCount: c.specs.length,
+        paramCount: c.parameters.length,
         level: c.level,
         bomLines: c.bom.length,
         manufacturedLines: c.bom.filter(b => b.isManufactured).length,

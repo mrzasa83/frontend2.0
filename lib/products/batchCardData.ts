@@ -36,6 +36,8 @@ export type BomLine = {
 export type CardData = {
   /** Which header the card gets: the customer part, or a manufactured item. */
   kind: 'customer' | 'manufactured'
+  /** The Paradigm RKEY this card's parameters/specs/comments were read from. */
+  sourceRkey: number
   level: number
   /** Customer part number for the top card, INV_PART_NUMBER below it. */
   partNumber: string
@@ -145,11 +147,20 @@ const ROUTE_SQL = `
     d38.STEP_NUMBER,
     RTRIM(d34.DEPT_NAME) AS deptName,
     RTRIM(d34.DEPT_CODE) AS deptCode,
-    -- instruction text, same shape the Daily Plan uses
-    LTRIM(RTRIM(
-      ISNULL(i1.PROD_ROUT_INST_1,'') + ' ' + ISNULL(i1.PROD_ROUT_INST_2,'') + ' ' +
-      ISNULL(i1.PROD_ROUT_INST_3,'') + ' ' + ISNULL(i1.PROD_ROUT_INST_4,'')
-    )) AS instructionText,
+    -- Instruction text from ALL FIVE instruction records, each line kept
+    -- separate with a delimiter. Previously only i1's lines were read, which is
+    -- why later instructions (e.g. an Operator line) never appeared.
+    ISNULL(i1.PROD_ROUT_INST_1,'') + '~' + ISNULL(i1.PROD_ROUT_INST_2,'') + '~' +
+    ISNULL(i1.PROD_ROUT_INST_3,'') + '~' + ISNULL(i1.PROD_ROUT_INST_4,'') + '~' +
+    ISNULL(i2.PROD_ROUT_INST_1,'') + '~' + ISNULL(i2.PROD_ROUT_INST_2,'') + '~' +
+    ISNULL(i2.PROD_ROUT_INST_3,'') + '~' + ISNULL(i2.PROD_ROUT_INST_4,'') + '~' +
+    ISNULL(i3.PROD_ROUT_INST_1,'') + '~' + ISNULL(i3.PROD_ROUT_INST_2,'') + '~' +
+    ISNULL(i3.PROD_ROUT_INST_3,'') + '~' + ISNULL(i3.PROD_ROUT_INST_4,'') + '~' +
+    ISNULL(i4.PROD_ROUT_INST_1,'') + '~' + ISNULL(i4.PROD_ROUT_INST_2,'') + '~' +
+    ISNULL(i4.PROD_ROUT_INST_3,'') + '~' + ISNULL(i4.PROD_ROUT_INST_4,'') + '~' +
+    ISNULL(i5.PROD_ROUT_INST_1,'') + '~' + ISNULL(i5.PROD_ROUT_INST_2,'') + '~' +
+    ISNULL(i5.PROD_ROUT_INST_3,'') + '~' + ISNULL(i5.PROD_ROUT_INST_4,'')
+    AS instructionText,
     (
       ISNULL(RTRIM(i1.INST_CODE),'') +
       CASE WHEN i2.INST_CODE IS NOT NULL THEN '; ' + RTRIM(i2.INST_CODE) ELSE '' END +
@@ -176,7 +187,9 @@ const ROUTE_SQL = `
     -- additional route step parameters (DATA0471 values -> DATA0469 defs)
     STUFF((
       SELECT '; ' +
-        LTRIM(RTRIM(ISNULL(d469.PARAMETER_DESC, d469.PARAMETER_CODE))) + ': ' +
+        -- PARAMETER_CODE is the real name ("Cu Thickness"); PARAMETER_DESC is
+        -- the generic family label ("Engenix Route Step Parameter").
+        LTRIM(RTRIM(ISNULL(d469.PARAMETER_CODE, d469.PARAMETER_DESC))) + ': ' +
         LTRIM(RTRIM(ISNULL(CAST(d471.PARAMETER_VALUE AS NVARCHAR(MAX)), '')))
       FROM DATA0471 d471 WITH (NOLOCK)
       INNER JOIN DATA0469 d469 WITH (NOLOCK) ON d469.RKEY = d471.DATA0469_PTR
@@ -232,6 +245,23 @@ const CAPTIONS_SQL = `
   WHERE STATUS = 1
   ORDER BY SOURCE_TYPE, SOURCE_INDEX`
 
+/**
+ * PARAMETER_NAME is char(10), so longer captions arrive truncated. The printout
+ * shows them in full, so these restore the full text.
+ */
+const CAPTION_ALIASES: Record<string, string> = {
+  'COST_PROD_': 'COST_PROD_CODE',
+  'APC TOP LV': 'APC TOP LVL P/N',
+  'MIL SPEC R': 'MIL SPEC REQ',
+}
+
+/**
+ * Captions that exist in Paradigm but aren't printed on the card. The slot is
+ * still consumed — removing the line would shift everything below it — so the
+ * row renders blank rather than being dropped.
+ */
+const CAPTION_HIDDEN = new Set(['COSTING'])
+
 /** A caption that's really just a placeholder for an unused slot. */
 const isPlaceholder = (name: string, idx: number) =>
   !name ||
@@ -262,7 +292,7 @@ async function loadCaptions(): Promise<CaptionSets> {
       const key = capKey(stype, kind)
       const list = sets.get(key) || []
       const name = clean(r.name)
-      list[idx - 1] = isPlaceholder(name, idx) ? '' : name
+      list[idx - 1] = isPlaceholder(name, idx) ? '' : (CAPTION_ALIASES[name] || name)
       sets.set(key, list)
     }
   } catch (e) {
@@ -310,7 +340,7 @@ const UNITS_SQL = `
   FROM DATA0047 d47 WITH (NOLOCK)
   LEFT JOIN DATA0002 d2 WITH (NOLOCK) ON d2.RKEY = d47.UNIT_POINTER
   WHERE d47.SOURCE_POINTER = @rkey AND d47.TTYPE = @stype
-  ORDER BY d2.UNIT_CODE`
+  ORDER BY LTRIM(RTRIM(d2.UNIT_CODE))`
 
 /**
  * Part Data Comments — the free-text block on page 1 of the printout.
@@ -346,8 +376,12 @@ async function loadRoute(sourcePtr: number, ttype: number): Promise<RouteStep[]>
       const [name, ...rest] = extra.split(':')
       params.push({ name: clean(name), value: clean(rest.join(':')) })
     }
-    const instructions: string[] = []
-    if (clean(r.instructionText)) instructions.push(clean(r.instructionText))
+    // Each stored line is its own line on the card — joining them with spaces
+    // ran separate instructions together.
+    const instructions: string[] = String(r.instructionText ?? '')
+      .split('~')
+      .map(l => l.replace(/\s+$/, ''))
+      .filter(l => l.trim() !== '')
     if (clean(r.instructionCodes)) instructions.push(clean(r.instructionCodes))
     return {
       step: Number(r.STEP_NUMBER) || 0,
@@ -409,10 +443,14 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
       .sort((a, b) => (parseInt(a.replace(/\D+/g, ''), 10) || 0) - (parseInt(b.replace(/\D+/g, ''), 10) || 0))
       .map(k => {
         const n = parseInt(k.replace(/\D+/g, ''), 10) || 0
+        const caption = labels[n - 1] || ''
+        const hidden = CAPTION_HIDDEN.has(caption)
         return {
-          name: labels[n - 1] || '',
-          value: clean(row[k]),
-          captioned: !!labels[n - 1],
+          // A hidden caption keeps its line but shows nothing, so the rows
+          // below stay where the reader expects them.
+          name: hidden ? '' : caption,
+          value: hidden ? '' : clean(row[k]),
+          captioned: !!caption,
         }
       })
       // Every captioned row prints, blank or not — the printout lists them all,
@@ -455,6 +493,7 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
   const notes = await queryMSSQL<any[]>('1', NOTES_SQL, { rkey: Number(h.RKEY ?? 0) }).catch(() => [])
   cards.push({
     kind: 'customer',
+    sourceRkey: rkey,
     level: 0,
     partNumber: clean(h.CUSTOMER_PART_NUMBER),
     description: clean(h.CUSTOMER_PART_DESC),
@@ -549,6 +588,7 @@ export async function buildCardSet(customerPart: string): Promise<CardData[]> {
       // walk gathered every child's data and then produced nothing.
       cards.push({
         kind: 'manufactured',
+        sourceRkey: invRkey,
         level,
         partNumber: pn,
         description: clean(r.description),
