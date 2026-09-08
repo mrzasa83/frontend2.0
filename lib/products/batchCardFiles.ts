@@ -10,10 +10,11 @@ import { ENGJOBS_PATH } from '@/lib/config/drives'
  * and the batch cards belong in a documents subfolder that differs by part
  * type — the same split the engineering folders already use:
  *
- *     Assembly / CCA        3. MFG Dwgs & Tools
+ *     Assembly / CCA        4. Assembly Review Docs
+ *     Test Vehicle          4. Assembly Review Docs
  *     Connector             MFG Dwgs
  *     Piece Part            MFG Dwgs
- *     PCB                   3. MFG Documents (Impedance, ERF, Stackup)
+ *     PCB                   6. Final Review (Dwg Review, KPAs)
  *
  * Generated cards go in a `_fe2` folder inside that, which keeps them apart
  * from the hand-maintained drawings — nothing this app writes can be confused
@@ -27,14 +28,22 @@ import { ENGJOBS_PATH } from '@/lib/config/drives'
 export const FE2_FOLDER = '_fe2'
 export const ARCHIVE_FOLDER = 'archive'
 
+/**
+ * Job-folder subfolders the cards are written into. Named so a folder rename
+ * on the J drive is a one-line change here rather than a hunt through a switch.
+ */
+export const ASSEMBLY_DOC_FOLDER = '4. Assembly Review Docs'
+export const PCB_DOC_FOLDER = '6. Final Review (Dwg Review, KPAs)'
+export const PART_DOC_FOLDER = 'MFG Dwgs'
+
 /** item_type_id: 1=PIE, 2=CON, 3=T_V, 4=CCA, 5=PCB */
 export function docFolderForItemType(itemTypeId: number): string {
   switch (itemTypeId) {
-    case 5: return '3. MFG Documents (Impedance, ERF, Stackup)'  // PCB
-    case 4: return '3. MFG Dwgs & Tools'                          // CCA / assembly
-    case 3: return '3. MFG Dwgs & Tools'                          // Test vehicle
-    case 2: return 'MFG Dwgs'                                     // Connector
-    default: return 'MFG Dwgs'                                    // Piece part
+    case 5: return PCB_DOC_FOLDER       // PCB
+    case 4: return ASSEMBLY_DOC_FOLDER  // CCA / assembly
+    case 3: return ASSEMBLY_DOC_FOLDER  // Test vehicle
+    case 2: return PART_DOC_FOLDER      // Connector
+    default: return PART_DOC_FOLDER     // Piece part
   }
 }
 
