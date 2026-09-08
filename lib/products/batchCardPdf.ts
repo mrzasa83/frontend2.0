@@ -433,7 +433,14 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
   }
 
   // Footer on every page, with the final page count known only now.
+  // Stamp when and by whom the card was generated. A batch card is a printed
+  // artefact that outlives the app version that made it — without this there's
+  // no way to tell an out-of-date card from a current one on the shop floor.
+  const stamp = `Generated ${new Date().toLocaleString()} by ${meta.operator || '-'}`
   pages.forEach((p, i) => {
+    p.drawText(stamp, {
+      x: M, y: 33, size: 6.5, font: regular, color: rgb(0.55, 0.58, 0.63),
+    })
     p.drawText('Copyright © 1988 - 2026 Aptean', { x: M, y: 24, size: 7, font: regular, color: MUTED })
     const right = `Paradigm® Version 4.0`
     p.drawText(right, {
