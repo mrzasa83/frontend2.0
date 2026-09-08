@@ -80,7 +80,16 @@ export default function BatchCardsTab({ partNumber }: { partNumber: string }) {
   const current: Card[] = data?.current || []
   const archived: Card[] = data?.archived || []
   const shown = showArchive ? [...current, ...archived] : current
-  const previewList = shown.map(c => ({ name: c.name, path: c.path, extension: 'pdf' }))
+  // A regenerated card keeps its filename, so the browser will happily show the
+  // copy it cached earlier. Stamping the modified time onto the URL makes each
+  // version distinct — otherwise a fresh card can look identical to the old one.
+  const previewList = shown.map(c => ({
+    name: c.name,
+    path: c.path,
+    extension: 'pdf',
+    serveUrl: getApiUrl(
+      `/api/files/serve?path=${encodeURIComponent(c.path)}&v=${encodeURIComponent(c.modified)}`),
+  }))
 
   return (
     <div>
@@ -205,7 +214,7 @@ export default function BatchCardsTab({ partNumber }: { partNumber: string }) {
                   <div className="flex items-center justify-end gap-2">
                     <button onClick={() => setPreview({ files: previewList, index: i })}
                       className="text-slate-500 hover:text-blue-600" title="Preview"><Eye size={15} /></button>
-                    <a href={getApiUrl(`/api/files/serve?path=${encodeURIComponent(c.path)}&download=true`)}
+                    <a href={getApiUrl(`/api/files/serve?path=${encodeURIComponent(c.path)}&download=true&v=${encodeURIComponent(c.modified)}`)}
                       target="_blank" rel="noopener noreferrer"
                       className="text-slate-500 hover:text-blue-600" title="Download"><Download size={14} /></a>
                   </div>

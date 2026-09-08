@@ -271,8 +271,24 @@ async function loadCaptions(): Promise<CaptionSets> {
   return sets
 }
 
-const captionsFor = (sets: CaptionSets, stype: number, kind: 'spec' | 'para') =>
-  sets.get(capKey(stype, kind)) || []
+/**
+ * Captions for a source type, falling back to the richest set of the same kind.
+ *
+ * Inventory-part specs (DATA0045 source type 1) carry the same captions as
+ * customer-part specs, but DATA0278 doesn't necessarily hold a separate row set
+ * for them. Without a fallback the card prints "#1, #2, #3" — which is worse
+ * than borrowing the equivalent captions, since the columns line up.
+ */
+const captionsFor = (sets: CaptionSets, stype: number, kind: 'spec' | 'para') => {
+  const exact = sets.get(capKey(stype, kind))
+  if (exact && exact.some(Boolean)) return exact
+  let best: string[] = []
+  for (const [key, list] of sets) {
+    if (!key.endsWith(`|${kind}`)) continue
+    if (list.filter(Boolean).length > best.filter(Boolean).length) best = list
+  }
+  return best
+}
 
 /**
  * Source types: a CUSTOMER part (DATA0050) carries type 2, a MANUFACTURED part
