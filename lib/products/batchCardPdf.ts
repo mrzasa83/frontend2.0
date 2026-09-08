@@ -205,6 +205,32 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
    * span a page break, and a box that runs off the bottom edge looks worse than
    * no box at all.
    */
+  /** Section band with an extra right-aligned label inside the band. */
+  const sectionTitled = (title: string, rightLabel: string, body: () => void) => {
+    need(30)
+    const startPage = page
+    page.drawRectangle({
+      x: M, y: y - 3, width: PAGE.w - 2 * M, height: 14,
+      color: BAND, borderColor: RULE, borderWidth: 0.7,
+    })
+    const w = bold.widthOfTextAtSize(title, 8.5)
+    text(title, (PAGE.w - w) / 2, 8.5, bold)
+    if (rightLabel) {
+      const rw = mono.widthOfTextAtSize(rightLabel, 7.5)
+      text(rightLabel, PAGE.w - M - 8 - rw, 7.5, mono, rgb(0.2, 0.28, 0.42))
+    }
+    y -= 17
+    const contentTop = y + 11
+    body()
+    if (page === startPage) {
+      startPage.drawRectangle({
+        x: M, y: y + 6, width: PAGE.w - 2 * M, height: contentTop - y - 6,
+        borderColor: RULE, borderWidth: 0.7,
+      })
+    }
+    y -= 10
+  }
+
   const section = (title: string, body: () => void, minHeight = 0) => {
     need(30 + minHeight)
     const startPage = page
@@ -325,6 +351,47 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
     text(st.deptCode, codeX, codeSize, bold)
     y -= 22
 
+    /**
+     * Instructions, then parameters — the order the printout uses.
+     *
+     * Instruction text carries underscore runs as fill-in blanks. Drawing them
+     * as rules rather than printing underscores gives an operator a line to
+     * actually write on, and keeps the width honest when the font changes.
+     */
+    if (st.instructions.length) {
+      // The band carries the instruction reference code, e.g. "N-008544".
+      sectionTitled('Instructions', st.instructionCodes, () => {
+        for (const raw of st.instructions) {
+          need(13)
+          let x = M + 6
+          // Split into text and blank runs, keeping both.
+          for (const piece of raw.split(/(_{2,})/)) {
+            if (!piece) continue
+            if (/^_{2,}$/.test(piece)) {
+              const w = mono.widthOfTextAtSize(piece, 7.5)
+              page.drawLine({
+                start: { x, y: y - 1.5 }, end: { x: x + w, y: y - 1.5 },
+                thickness: 0.6, color: INK,
+              })
+              x += w
+            } else {
+              page.drawText(piece.replace(/[\u0000-\u001F\u007F]/g, ' '), {
+                x, y, size: 7.5, font: mono, color: INK,
+              })
+              x += mono.widthOfTextAtSize(piece, 7.5)
+            }
+          }
+          y -= 11
+          // Rule under each line, as on the printout.
+          page.drawLine({
+            start: { x: M + 2, y: y + 3 }, end: { x: PAGE.w - M - 2, y: y + 3 },
+            thickness: 0.4, color: RULE,
+          })
+          y -= 2
+        }
+      })
+    }
+
     if (st.params.length) {
       section('Route Step Parameters', () => {
         for (const p of st.params) {
@@ -333,11 +400,6 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
           y -= 10
         }
       })
-    }
-    for (const i of st.instructions) {
-      need(11)
-      text(i.slice(0, 120), M + 20, 7.5, mono, rgb(0.2, 0.24, 0.3))
-      y -= 10
     }
 
     if (idx === 0 && !bomDrawn) { drawBom(); bomDrawn = true }

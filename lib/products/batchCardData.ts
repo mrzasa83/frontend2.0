@@ -20,6 +20,8 @@ export type RouteStep = {
   step: number
   dept: string
   deptCode: string
+  /** Instruction reference codes, shown in the Instructions band. */
+  instructionCodes: string
   instructions: string[]
   params: { name: string; value: string }[]
 }
@@ -430,11 +432,11 @@ async function loadRoute(sourcePtr: number, ttype: number): Promise<RouteStep[]>
       .split('~')
       .map(l => l.replace(/\s+$/, ''))
       .filter(l => l.trim() !== '')
-    if (clean(r.instructionCodes)) instructions.push(clean(r.instructionCodes))
     return {
       step: Number(r.STEP_NUMBER) || 0,
       dept: clean(r.deptName),
       deptCode: clean(r.deptCode),
+      instructionCodes: clean(r.instructionCodes),
       instructions,
       params,
     }
