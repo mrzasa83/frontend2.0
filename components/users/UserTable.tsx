@@ -22,20 +22,43 @@ type Props = {
   onView: (user: User) => void
   onEdit?: (user: User) => void
   showActions?: boolean // Controls whether to show edit/view buttons
+  /** When provided, the "Show inactive" switch is rendered beside the search. */
+  showInactive?: boolean
+  onShowInactiveChange?: (next: boolean) => void
 }
 
-export default function UserTable({ users, onView, onEdit, showActions = true }: Props) {
+/**
+ * `active` is 1 for enabled accounts and 0 *or* NULL for everything else —
+ * plenty of older rows never had the column set. Test for 1, never for 0.
+ */
+export const isActiveUser = (u: { active: number | null }) => u.active === 1
+
+export default function UserTable({
+  users, onView, onEdit, showActions = true,
+  showInactive, onShowInactiveChange,
+}: Props) {
   const [sortKey, setSortKey] = useState<keyof User>('username')
   const [sortAsc, setSortAsc] = useState(true)
   const [searchTerm, setSearchTerm] = useState('')
 
-  // Filter users based on search
+  const canToggleInactive = typeof onShowInactiveChange === 'function'
+
+  // Filter users based on search. Username is the only field guaranteed to be
+  // present; the rest are nullable, so each is guarded.
+  const term = searchTerm.trim().toLowerCase()
+  const matchesSearch = (user: User) => {
+    if (!term) return true
+    return [user.username, user.name, user.email, user.title, user.nickname]
+      .some(v => (v ?? '').toLowerCase().includes(term))
+  }
+
+  // Second line of defence: the API is what actually decides which rows arrive,
+  // but if the switch is off nothing inactive should slip through either way.
   const filteredUsers = users.filter(user =>
-    user.username.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    user.title?.toLowerCase().includes(searchTerm.toLowerCase())
+    matchesSearch(user) && (showInactive || !canToggleInactive || isActiveUser(user))
   )
+
+  const inactiveCount = users.filter(u => !isActiveUser(u)).length
 
   // Sort users
   const sortedUsers = [...filteredUsers].sort((a, b) => {
@@ -57,21 +80,51 @@ export default function UserTable({ users, onView, onEdit, showActions = true }:
 
   return (
     <div>
-      {/* Search Bar */}
-      <div className="mb-4">
+      {/* Search Bar + inactive switch */}
+      <div className="mb-4 flex flex-col sm:flex-row sm:items-center gap-3">
         <input
           type="text"
-          placeholder="Search by username, name, email, or title..."
+          placeholder="Search by username, name, email, title, or nickname..."
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+          className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
         />
+
+        {canToggleInactive && (
+          <label
+            className="flex items-center gap-2 shrink-0 cursor-pointer select-none"
+            title="Include deactivated accounts so they can be viewed or reactivated"
+          >
+            <button
+              type="button"
+              role="switch"
+              aria-checked={!!showInactive}
+              onClick={() => onShowInactiveChange!(!showInactive)}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                showInactive ? 'bg-blue-600' : 'bg-slate-300'
+              }`}
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  showInactive ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+            <span className="text-sm text-slate-700 whitespace-nowrap">
+              Show inactive
+              {showInactive && inactiveCount > 0 && (
+                <span className="ml-1 text-slate-500">({inactiveCount})</span>
+              )}
+            </span>
+          </label>
+        )}
       </div>
 
       {/* Results Count */}
-      {searchTerm && (
+      {(searchTerm || showInactive) && (
         <div className="mb-2 text-sm text-slate-600">
-          Found {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''}
+          Showing {filteredUsers.length} user{filteredUsers.length !== 1 ? 's' : ''}
+          {showInactive && inactiveCount > 0 && `, including ${inactiveCount} inactive`}
         </div>
       )}
 
@@ -130,11 +183,21 @@ export default function UserTable({ users, onView, onEdit, showActions = true }:
                 <tr>
                   <td colSpan={showActions ? 6 : 5} className="px-4 py-8 text-center text-slate-500">
                     {searchTerm ? 'No users found matching your search' : 'No users found'}
+                    {!searchTerm && canToggleInactive && !showInactive && (
+                      <span className="block mt-1 text-xs">
+                        Inactive accounts are hidden — turn on &ldquo;Show inactive&rdquo; to see them.
+                      </span>
+                    )}
                   </td>
                 </tr>
               ) : (
                 sortedUsers.map((user) => (
-                  <tr key={user.id} className="border-t border-slate-200 hover:bg-slate-50 transition-colors">
+                  <tr
+                    key={user.id}
+                    className={`border-t border-slate-200 hover:bg-slate-50 transition-colors ${
+                      isActiveUser(user) ? '' : 'bg-slate-50/60 text-slate-500'
+                    }`}
+                  >
                     <td className="px-4 py-3 font-mono text-sm font-semibold">
                       {user.username}
                     </td>
@@ -144,12 +207,12 @@ export default function UserTable({ users, onView, onEdit, showActions = true }:
                     <td className="px-4 py-3 text-sm">
                       <span
                         className={`px-2 py-1 rounded-full text-xs font-medium ${
-                          user.active === 1
+                          isActiveUser(user)
                             ? 'bg-green-100 text-green-700'
                             : 'bg-red-100 text-red-700'
                         }`}
                       >
-                        {user.active === 1 ? 'Active' : 'Inactive'}
+                        {isActiveUser(user) ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                     {showActions && (

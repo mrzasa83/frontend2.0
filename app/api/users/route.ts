@@ -5,15 +5,26 @@ import { queryPrimary } from '@/lib/db/mysql-primary'
 import bcrypt from 'bcryptjs'
 
 // GET - Fetch all users
-export async function GET() {
+// By default only active users are returned, which is what every caller other
+// than admin user management wants. `?includeInactive=1` lifts the filter so
+// the admin screen can show and reactivate disabled accounts.
+export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   
   if (!session) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const includeInactive = ['1', 'true', 'yes'].includes(
+    (request.nextUrl.searchParams.get('includeInactive') || '').toLowerCase()
+  )
+
   try {
-    // Fetch users with their roles
+    // Fetch users with their roles.
+    // NOTE: `active` is 1 for enabled accounts and either 0 or NULL for
+    // everything else — a lot of the older rows never had it set. `active = 1`
+    // is therefore the only safe test for "active"; `active = 0` would miss
+    // every NULL row.
     const users = await queryPrimary<any[]>(
       `SELECT 
         u.id,
@@ -35,17 +46,27 @@ export async function GET() {
       FROM Users u
       LEFT JOIN user_roles ur ON u.id = ur.userId
       LEFT JOIN roles r ON ur.roleId = r.id
-      WHERE u.active = 1
+      ${includeInactive ? '' : 'WHERE u.active = 1'}
       GROUP BY u.id
       ORDER BY u.name ASC`
     )
 
-    // Transform role_names string to roles array and parse engineer_roles JSON
-    const usersWithRoles = users.map(user => ({
-      ...user,
-      roles: user.role_names ? user.role_names.split(',') : [],
-      engineer_roles: user.engineer_roles ? JSON.parse(user.engineer_roles) : []
-    }))
+    // Transform role_names string to roles array and parse engineer_roles JSON.
+    // engineer_roles is free-form JSON in the column and some legacy rows hold
+    // junk, so a bad value degrades to an empty list instead of 500-ing the
+    // whole page — inactive rows are the most likely to carry stale data.
+    const usersWithRoles = users.map(user => {
+      let engineerRoles: string[] = []
+      try {
+        const parsed = user.engineer_roles ? JSON.parse(user.engineer_roles) : []
+        if (Array.isArray(parsed)) engineerRoles = parsed
+      } catch { /* leave empty */ }
+      return {
+        ...user,
+        roles: user.role_names ? user.role_names.split(',') : [],
+        engineer_roles: engineerRoles,
+      }
+    })
 
     return NextResponse.json(usersWithRoles)
   } catch (error) {

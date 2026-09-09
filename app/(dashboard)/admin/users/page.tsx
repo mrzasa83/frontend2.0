@@ -53,17 +53,25 @@ export default function AdminUserManagementPage() {
   const [editingUsers, setEditingUsers] = useState<User[]>([])
   const [activeTab, setActiveTab] = useState('all')
   const [showAddUser, setShowAddUser] = useState(false)
+  // Off by default: the list is for day-to-day management, and deactivated
+  // accounts are only wanted when someone is looking for one to reactivate.
+  const [showInactive, setShowInactive] = useState(false)
+
+  // The inactive filter lives in the SQL, so flipping the switch refetches.
+  const usersUrl = (withInactive: boolean) =>
+    getApiUrl(`/api/users${withInactive ? '?includeInactive=1' : ''}`)
 
   useEffect(() => {
     fetchData()
-  }, [])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showInactive])
 
   const fetchData = async () => {
     try {
       setLoading(true)
       setError(null)
       
-      const usersRes = await fetch(getApiUrl('/api/users'))
+      const usersRes = await fetch(usersUrl(showInactive))
       
       if (!usersRes.ok) {
         throw new Error('Failed to fetch users')
@@ -157,7 +165,9 @@ export default function AdminUserManagementPage() {
     }
   }
 
-  if (loading) {
+  // Only take over the screen on the first load — a refetch triggered by the
+  // inactive switch shouldn't blow the table away and lose the user's place.
+  if (loading && users.length === 0) {
     return (
       <div className="p-6">
         <div className="animate-pulse">
@@ -190,7 +200,7 @@ export default function AdminUserManagementPage() {
       <div className="flex justify-between items-center mb-4">
         <div>
           <h3 className="text-lg font-semibold text-slate-800">
-            All Users ({users.length})
+            {showInactive ? 'All Users' : 'Active Users'} ({users.length})
           </h3>
           <p className="text-sm text-slate-600 mt-1">
             Full user management with role assignment and password reset
@@ -209,6 +219,8 @@ export default function AdminUserManagementPage() {
         onView={handleView} 
         onEdit={handleEdit}
         showActions={true}
+        showInactive={showInactive}
+        onShowInactiveChange={setShowInactive}
       />
     </div>
   )
@@ -233,8 +245,10 @@ export default function AdminUserManagementPage() {
           onRefresh={async () => {
             // Fetch fresh user data and update both users and editingUsers
             await fetchData()
-            // Update the editing user with fresh data
-            const usersRes = await fetch(getApiUrl('/api/users'))
+            // Update the editing user with fresh data. Always include inactive
+            // here: deactivating a user from their own edit tab shouldn't make
+            // the tab's data unfetchable.
+            const usersRes = await fetch(usersUrl(true))
             if (usersRes.ok) {
               const freshUsers = await usersRes.json()
               const freshUser = freshUsers.find((u: User) => u.id === editUser.id)
