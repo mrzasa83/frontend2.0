@@ -8,6 +8,7 @@ import { loadFamilies } from '@/lib/ehs/loadFamilies'
 import { familyForPart, type PartRow } from '@/lib/ehs/familyMatch'
 import { windowsToLinuxPath, FILE_SERVE_ALLOWED_BASES } from '@/lib/config/drives'
 import path from 'path'
+import { NOTEPAD_SQL, assembleNotepad } from '@/lib/products/notepad'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,18 +18,6 @@ const PART_SQL = `
     RKEY, INV_PART_NUMBER, INV_PART_DESCRIPTION, MANUFACTURER_NAME, P_M, ACTIVE_FLAG
   FROM DATA0017 WITH (NOLOCK)
   WHERE LTRIM(RTRIM(INV_PART_NUMBER)) = @part`
-
-/**
- * Notepad. Paradigm keeps purchased-part notes in DATA0011, keyed by
- * FILE_POINTER = DATA0017.RKEY with SOURCE_TYPE = 17. The text is split across
- * fixed-width NOTE_PAD_LINE_n columns, so we select the row wholesale and
- * reassemble the lines in column order — that way the number of line columns
- * doesn't have to be hard-coded.
- */
-const NOTEPAD_SQL = `
-  SELECT * FROM DATA0011 WITH (NOLOCK)
-  WHERE FILE_POINTER = @rkey AND SOURCE_TYPE = 17
-  ORDER BY RKEY`
 
 /** Attachments — same reference the Build Drawings tab uses. */
 const ATTACH_SQL = `
@@ -40,31 +29,6 @@ const ATTACH_SQL = `
   WHERE d433.SOURCE_PTR = @rkey AND d433.SOURCE_TYPE = 17
   ORDER BY d433.DOCUMENT_PATH`
 
-/**
- * Reassemble the note from a DATA0011 row set.
- * Each row holds NOTE_PAD_LINE_1..n of char(70) — space-padded, and Paradigm
- * will break mid-word at the 70-character boundary. Lines are right-trimmed and
- * joined in numeric column order; trailing blank lines are dropped, but blank
- * lines in the middle are kept since they're part of the author's layout.
- */
-function assembleNotepad(rows: any[]): string {
-  const out: string[] = []
-  for (const row of rows || []) {
-    const lineKeys = Object.keys(row)
-      .filter(k => /^NOTE_?PAD_?LINE_?\d+$/i.test(k))
-      .sort((a, b) => {
-        const na = parseInt(a.replace(/\D+/g, ''), 10)
-        const nb = parseInt(b.replace(/\D+/g, ''), 10)
-        return na - nb
-      })
-    for (const k of lineKeys) {
-      const v = row[k]
-      out.push(v === null || v === undefined ? '' : String(v).replace(/\s+$/, ''))
-    }
-  }
-  while (out.length && !out[out.length - 1].trim()) out.pop()
-  return out.join('\n')
-}
 
 // GET ?part=HDW0000000014 -> the part, its notepad, attachments, family and
 // whichever compliance applies (inherited, or its own when the family is per-part).

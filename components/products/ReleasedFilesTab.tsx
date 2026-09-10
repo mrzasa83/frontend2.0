@@ -7,7 +7,8 @@ import {
   Download, File, FileImage, FileSpreadsheet, Eye,
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
   TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History,
-  Search, FileCheck, X, XCircle, ArrowUp, ArrowDown, ArrowUpDown, Layers } from 'lucide-react'
+  Search, FileCheck, X, XCircle, ArrowUp, ArrowDown, ArrowUpDown, Layers,
+  ShoppingCart } from 'lucide-react'
 import DataView from '@/components/ui/DataView'
 import BOMTreeNavigator from '@/components/ui/BOMTreeNavigator'
 import { 
@@ -21,6 +22,7 @@ import {
 } from '@/lib/metadata/columnMetadata'
 import { getApiUrl } from '@/lib/api'
 import BatchCardsTab from './BatchCardsTab'
+import BuyMaterialTab from './BuyMaterialTab'
 import FilePreviewModal from './FilePreviewModal'
 
 type FileInfo = {
@@ -672,6 +674,7 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
   const allSubTabs = [
     { id: 'general', label: 'General', icon: ClipboardList },
     { id: 'bom', label: 'BOM', icon: Package },
+    { id: 'buy-material', label: 'Buy Material', icon: ShoppingCart },
     { id: 'batch-cards', label: 'Batch Cards', icon: Layers },
     { id: 'yield', label: 'Yield', icon: TrendingUp },
     { id: 'route', label: 'Route', icon: RouteIcon },
@@ -972,6 +975,10 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
             rootPartNumber={partNumber}
             onPartClick={(pn) => console.log('Clicked part:', pn)}
           />
+        )}
+
+        {activeSubTab === 'buy-material' && (
+          <BuyMaterialTab partNumber={partNumber} customerPN={customerPN} />
         )}
 
         {activeSubTab === 'yield' && (
