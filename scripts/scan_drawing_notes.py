@@ -137,27 +137,64 @@ def page_words(path, page_no):
 
 
 def group_lines(words, tol=3.0):
-    """Group words into lines by vertical overlap, then sort left to right."""
-    lines = []
+    """
+    Group words into text lines.
+
+    Two passes. First by vertical overlap, then — the part that matters on a
+    drawing — each row is SPLIT wherever a large horizontal gap falls between
+    consecutive words.
+
+    Without that split, two columns of notes printed side by side merge into a
+    single line because they share a vertical position. On a real sheet that
+    produced:
+
+        "NOTES CONTINUED:   NOTES, UNLESS OTHERWISE SPECIFIED:"
+        "9 IDENTIFICATION MARKING   1. APPLICABLE STANDARDS/..."
+
+    and notes 1, 2 and 9 were simply lost — note 1 no longer began its line, so
+    it never matched as a note start. A drawing sheet is a 2-D canvas, not a
+    page of prose, so horizontal proximity has to be enforced, not assumed.
+
+    The gap threshold scales with glyph height so it holds at any text size,
+    with a floor above the multi-space alignment used inside a line.
+    """
+    rows = []
     for w in sorted(words, key=lambda w: (w['y0'], w['x0'])):
-        placed = False
-        for ln in lines:
-            if abs(ln['y0'] - w['y0']) <= tol:
-                ln['words'].append(w)
-                ln['y0'] = min(ln['y0'], w['y0'])
-                ln['y1'] = max(ln['y1'], w['y1'])
-                ln['x0'] = min(ln['x0'], w['x0'])
-                ln['x1'] = max(ln['x1'], w['x1'])
-                placed = True
+        for r in rows:
+            if abs(r['y0'] - w['y0']) <= tol:
+                r['words'].append(w)
+                r['y0'] = min(r['y0'], w['y0'])
+                r['y1'] = max(r['y1'], w['y1'])
                 break
-        if not placed:
-            lines.append({'y0': w['y0'], 'y1': w['y1'], 'x0': w['x0'],
-                          'x1': w['x1'], 'words': [w]})
-    for ln in lines:
-        ln['words'].sort(key=lambda w: w['x0'])
-        ln['text'] = ' '.join(w['text'] for w in ln['words'])
-    lines.sort(key=lambda l: l['y0'])
-    return lines
+        else:
+            rows.append({'y0': w['y0'], 'y1': w['y1'], 'words': [w]})
+
+    heights = sorted(w['y1'] - w['y0'] for w in words) or [8.0]
+    median_h = heights[len(heights) // 2] or 8.0
+    gap_limit = max(24.0, median_h * 3.0)
+
+    out = []
+    for r in rows:
+        ws = sorted(r['words'], key=lambda w: w['x0'])
+        run = [ws[0]]
+        for prev, cur in zip(ws, ws[1:]):
+            if cur['x0'] - prev['x1'] > gap_limit:
+                out.append(_mk_line(run))
+                run = [cur]
+            else:
+                run.append(cur)
+        out.append(_mk_line(run))
+
+    out.sort(key=lambda l: (l['y0'], l['x0']))
+    return out
+
+
+def _mk_line(ws):
+    return {
+        'x0': min(w['x0'] for w in ws), 'x1': max(w['x1'] for w in ws),
+        'y0': min(w['y0'] for w in ws), 'y1': max(w['y1'] for w in ws),
+        'words': ws, 'text': ' '.join(w['text'] for w in ws),
+    }
 
 
 # ------------------------------------------------------------------- zoning
@@ -224,65 +261,200 @@ def zone_for_bbox(x0, y0, x1, y1, page_w, page_h, cols, rows):
 
 # ------------------------------------------------------------ note matching
 
-# "8." / "10." / "(7)" / "7." where the number sits in a leader triangle.
-NOTE_START = re.compile(r'^\(?(\d{1,2})\)?[.)]\s+(.*\S)\s*$')
-NOTES_ANCHOR = re.compile(r'^NOTES?\s*:?\s*$', re.I)
+# A note that carries its own period: "8. SOLDERING SHALL BE..."
+NOTE_START_STRICT = re.compile(r'^\(?(\d{1,2})\)?[.)]\s+(\S.*?)\s*$')
+
+# A note number with the period optional. Flagged ("delta") notes are drawn
+# inside a triangle and usually have NO trailing period — on the sample drawing
+# notes 5, 6 and 9 are all bare numbers. This pattern is only ever applied
+# inside a column already established as a notes block, and only when the
+# number continues the expected sequence, because on its own it would match
+# half the dimensions on the sheet.
+NOTE_START_LOOSE = re.compile(r'^\(?(\d{1,2})\)?[.)]?\s+(\S.*?)\s*$')
+
+# Headings that introduce a notes block. Deliberately not anchored to the end
+# of the line: real drawings write "NOTES, UNLESS OTHERWISE SPECIFIED:" and
+# "NOTES CONTINUED:" far more often than a bare "NOTES:". The length cap keeps
+# a sentence that merely starts with the word from qualifying.
+NOTES_ANCHOR = re.compile(r'^NOTES?\b[\s,:]', re.I)
 
 
-def extract_notes_from_lines(lines):
+def is_anchor(text):
+    t = (text or '').strip()
+    if t.upper().rstrip(':') in ('NOTE', 'NOTES'):
+        return True
+    return bool(NOTES_ANCHOR.match(t)) and len(t) <= 70
+
+
+def cluster_columns(lines, tol=25.0):
     """
-    Numbered note lines, each with its own bounding box.
+    Group candidate note lines into columns by their left edge.
 
-    A continuation line (one that doesn't start with a number) is appended to
-    the note above it — drawing notes wrap, and the sample's note 1 runs the
-    full width of the sheet.
+    Drawings routinely run notes in two or more columns — the sample continues
+    into a second column headed "NOTES CONTINUED:". Treating the page as one
+    stream interleaves them by vertical position and scrambles the numbering.
+    """
+    cols = []
+    for ln in sorted(lines, key=lambda l: l['x0']):
+        for c in cols:
+            if abs(c['x0'] - ln['x0']) <= tol:
+                c['lines'].append(ln)
+                c['x0'] = min(c['x0'], ln['x0'])
+                break
+        else:
+            cols.append({'x0': ln['x0'], 'lines': [ln]})
+    for c in cols:
+        c['lines'].sort(key=lambda l: l['y0'])
+    return cols
+
+
+def build_notes(col_lines, x0, direction, expect_first=None):
+    """
+    Walk one column top to bottom, turning lines into notes.
+
+    A line opens a new note when it carries its own number and period, or when
+    it is a bare number that continues the sequence. Everything else is a
+    continuation of the note above — which is what keeps the lettered
+    sub-clauses ("A. DRAWING INTERPRETATION: ASME Y14.100") attached to their
+    parent instead of being read as separate notes.
     """
     notes = []
-    for ln in lines:
-        m = NOTE_START.match(ln['text'])
+    expected = expect_first
+    for ln in col_lines:
+        text = ln['text']
+        opened = False
+
+        m = NOTE_START_STRICT.match(text)
         if m:
+            num = int(m.group(1))
+            body = m.group(2)
+            opened = True
+        else:
+            m = NOTE_START_LOOSE.match(text)
+            # Bare number: only trusted when it is the next one in sequence.
+            if m and expected is not None and int(m.group(1)) == expected:
+                num, body, opened = int(m.group(1)), m.group(2), True
+
+        if opened:
             notes.append({
-                'number': m.group(1),
-                'text': m.group(2),
+                'number': str(num), 'text': body,
                 'x0': ln['x0'], 'y0': ln['y0'], 'x1': ln['x1'], 'y1': ln['y1'],
             })
-        elif notes and not NOTES_ANCHOR.match(ln['text']):
-            # Continuation only if it is roughly aligned with, and just below,
-            # the note it would join — otherwise unrelated title-block text
-            # gets swallowed.
-            prev = notes[-1]
-            close_below = 0 < (ln['y0'] - prev['y1']) < 14
-            aligned = abs(ln['x0'] - prev['x0']) < 40
-            if close_below and aligned:
-                prev['text'] += ' ' + ln['text']
-                prev['x1'] = max(prev['x1'], ln['x1'])
-                prev['y1'] = max(prev['y1'], ln['y1'])
+            expected = num + direction
+            continue
+
+        if not notes:
+            continue
+
+        prev = notes[-1]
+        gap = ln['y0'] - prev['y1']
+        # Continuations sit just below and are indented at least as far as the
+        # note's own text — never to the LEFT of it, which is how a stray line
+        # from a neighbouring block gets rejected.
+        if -2 < gap < 22 and ln['x0'] >= x0 - 4:
+            prev['text'] += ' ' + text
+            prev['x1'] = max(prev['x1'], ln['x1'])
+            prev['y1'] = max(prev['y1'], ln['y1'])
     return notes
 
 
 def find_notes_block(lines):
     """
-    Notes near a NOTES: anchor, or every numbered line if there is no anchor.
+    Locate the numbered notes on a page and return them individually.
 
-    With an anchor, only lines within a band around it are considered. Drawings
-    are full of numbers that look like list items (dimensions, zone callouts,
-    title-block fields) and taking every match on a D-size sheet produces
-    mostly rubbish.
+    Approach: find the columns that contain numbered lines, keep the ones that
+    either sit under a NOTES heading or are long enough to be a block in their
+    own right, then read each column in its own numbering direction.
+
+    The earlier version assumed a single column of bottom-up notes in a fixed
+    band around a bare "NOTES:" heading. That is one real layout, but a drawing
+    with "NOTES, UNLESS OTHERWISE SPECIFIED:" over a top-down list in two
+    columns matched none of it.
     """
-    anchors = [ln for ln in lines if NOTES_ANCHOR.match(ln['text'])]
-    if not anchors:
-        return extract_notes_from_lines(lines), False
+    anchors = [ln for ln in lines if is_anchor(ln['text'])]
+    seeds = [ln for ln in lines if NOTE_START_STRICT.match(ln['text'])]
+    if not seeds:
+        return [], False
 
-    anchor = anchors[0]
-    # Notes run upward from the anchor; allow a little below for layouts that
-    # put the heading on top.
-    band = [ln for ln in lines
-            if (anchor['y0'] - 420) <= ln['y0'] <= (anchor['y1'] + 120)
-            and ln['x0'] < anchor['x0'] + 700]
-    found = extract_notes_from_lines(band)
-    if not found:
-        found = extract_notes_from_lines(lines)
-    return found, True
+    kept = []
+    for col in cluster_columns(seeds):
+        near = [a for a in anchors if abs(a['x0'] - col['x0']) <= 80]
+        # Either introduced by a heading, or long enough that a run of numbered
+        # lines in one column is not a coincidence.
+        if near or len(col['lines']) >= 3:
+            col['anchor'] = min(near, key=lambda a: a['y0']) if near else None
+            kept.append(col)
+    if not kept:
+        return [], False
+
+    all_notes = []
+    for col in sorted(kept, key=lambda c: c['x0']):
+        nums = [int(NOTE_START_STRICT.match(l['text']).group(1)) for l in col['lines']]
+        # Numbering direction, read off the column itself rather than assumed:
+        # some drawings run 1..n downward, others stack 1 at the bottom.
+        direction = 1
+        if len(nums) >= 2 and nums[-1] < nums[0]:
+            direction = -1
+
+        # Widen from the seed lines to every line in the column's vertical
+        # span, so continuations and bare flagged notes come along too.
+        top = min(l['y0'] for l in col['lines'])
+        bottom = max(l['y1'] for l in col['lines'])
+        if col.get('anchor'):
+            top = min(top, col['anchor']['y1'])
+            # Reach well past the last seed: a flagged note can close the list.
+            bottom += 160
+        band = [l for l in lines
+                if top - 4 <= l['y0'] <= bottom
+                and col['x0'] - 6 <= l['x0'] < col['x0'] + 620
+                and not is_anchor(l['text'])]
+        band.sort(key=lambda l: l['y0'])
+
+        first_expected = nums[0] if nums else None
+        all_notes += build_notes(band, col['x0'], direction, first_expected)
+
+    # A continuation column can consist ENTIRELY of flagged notes — bare
+    # numbers in triangles with no period — in which case it contains no strict
+    # seed and the clustering above never sees it. The sample drawing's "NOTES
+    # CONTINUED:" column holds only note 9 and was silently dropped.
+    #
+    # So any heading not already accounted for gets its own pass, reading
+    # downward and accepting numbers that continue the sequence found so far.
+    seen_nums = [int(n['number']) for n in all_notes]
+    for a in anchors:
+        if any(abs(a['x0'] - c['x0']) <= 80 for c in kept):
+            continue
+        right = a['x0'] + 900
+        for other in kept:
+            if other['x0'] > a['x0'] + 40:
+                right = min(right, other['x0'] - 10)
+        band = [l for l in lines
+                if l['y0'] > a['y1'] - 2
+                and a['x0'] - 6 <= l['x0'] < right
+                and not is_anchor(l['text'])]
+        band.sort(key=lambda l: (l['y0'], l['x0']))
+        if not band:
+            continue
+        # Stop before a large vertical gap: the heading's column ends where the
+        # notes end, and the rest of the sheet is below it.
+        trimmed = [band[0]]
+        for prev, cur in zip(band, band[1:]):
+            if cur['y0'] - prev['y1'] > 60:
+                break
+            trimmed.append(cur)
+        expect = (max(seen_nums) + 1) if seen_nums else None
+        all_notes += build_notes(trimmed, a['x0'], 1, expect)
+
+    # One column may continue another's numbering ("NOTES CONTINUED"), so
+    # dedupe on the number and keep the first, richer reading.
+    seen = set()
+    out = []
+    for n in sorted(all_notes, key=lambda n: int(n['number'])):
+        if n['number'] in seen:
+            continue
+        seen.add(n['number'])
+        out.append(n)
+    return out, bool(anchors)
 
 
 # --------------------------------------------------------- title block bits

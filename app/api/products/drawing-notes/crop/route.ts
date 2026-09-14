@@ -19,12 +19,20 @@ const PYTHON = process.env.PYTHON_BIN || 'python3'
 const SCANNER = path.join(process.cwd(), 'scripts', 'scan_drawing_notes.py')
 
 /**
- * Where rendered note crops live. Outside the app tree so a redeploy doesn't
- * wipe them, and cached: re-rendering a region of a D-size PDF on every page
- * view would be slow and pointless, since a released drawing doesn't change.
+ * Where rendered note crops are cached. Re-rendering a region of a D-size PDF
+ * on every view would be slow and pointless, since a released drawing doesn't
+ * change.
+ *
+ * /tmp, not /var/lib: the container runs Next.js as a non-root user, so mkdir
+ * under /var/lib fails with EACCES and every crop 500s. The deployed
+ * containers already bind-mount a writable /tmp/<app>-work, which is the
+ * natural home for a cache — it is meant to be disposable, and a lost crop
+ * just re-renders.
+ *
+ * Override with DRAWING_NOTE_IMAGE_DIR to keep them somewhere durable.
  */
 const CACHE_DIR = process.env.DRAWING_NOTE_IMAGE_DIR
-  || '/var/lib/frontend2/drawing-notes'
+  || path.join(process.env.WORK_DIR || '/tmp', 'drawing-note-crops')
 
 /**
  * GET ?source_id=N — the note as it appears on the sheet, cropped to its bbox.
@@ -75,7 +83,14 @@ export async function GET(request: NextRequest) {
     const outFile = path.join(CACHE_DIR, `${key}.png`)
 
     if (!existsSync(outFile)) {
-      await mkdir(CACHE_DIR, { recursive: true })
+      try {
+        await mkdir(CACHE_DIR, { recursive: true })
+      } catch (e: any) {
+        return NextResponse.json({
+          error: `Cannot write the image cache at ${CACHE_DIR} (${e?.code || 'error'}). `
+            + 'Set DRAWING_NOTE_IMAGE_DIR to a directory the container can write to.',
+        }, { status: 500 })
+      }
       const spec = `${s.page_no},${s.bbox_x0},${s.bbox_y0},${s.bbox_x1},${s.bbox_y1}`
       const { stdout } = await execFileAsync(
         PYTHON, [SCANNER, resolved, '--crop', spec, '--out', outFile],
@@ -85,6 +100,12 @@ export async function GET(request: NextRequest) {
       if (res.status !== 'ok') {
         return NextResponse.json({
           error: res.message || 'Could not render the note image.',
+        }, { status: 500 })
+      }
+      if (!existsSync(outFile)) {
+        return NextResponse.json({
+          error: 'The renderer reported success but produced no image. '
+            + 'Check that poppler-utils is installed in the container.',
         }, { status: 500 })
       }
       await queryPrimary(

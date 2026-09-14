@@ -52,6 +52,7 @@ export default function DrawingNoteDetail({ code, onChanged }: {
   const [draft, setDraft] = useState<Partial<Version>>({})
   const [saving, setSaving] = useState(false)
   const [imageFor, setImageFor] = useState<Source | null>(null)
+  const [imageError, setImageError] = useState<string | null>(null)
 
   const load = async () => {
     setLoading(true); setError(null)
@@ -317,7 +318,7 @@ export default function DrawingNoteDetail({ code, onChanged }: {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <button onClick={() => setImageFor(s)} disabled={s.bbox_x0 === null}
+                        <button onClick={() => { setImageError(null); setImageFor(s) }} disabled={s.bbox_x0 === null}
                           className="flex items-center gap-1 text-blue-600 hover:text-blue-800 disabled:text-slate-300"
                           title={s.bbox_x0 === null ? 'No position recorded' : 'Show the note on the drawing'}>
                           <ImageIcon size={14} /> View
@@ -371,10 +372,30 @@ export default function DrawingNoteDetail({ code, onChanged }: {
               </div>
             </div>
             <div className="p-4 overflow-auto bg-slate-50">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={getApiUrl(`/api/products/drawing-notes/crop?source_id=${imageFor.id}`)}
-                alt={`Note ${imageFor.note_number} on ${imageFor.apc_part_number}`}
-                className="max-w-full bg-white border border-slate-200" />
+              {/* The crop is rendered on demand and can fail — a missing
+                  poppler, an unwritable cache dir, a moved source PDF. A bare
+                  <img> turns all of that into a broken-image icon with no
+                  explanation, so the error is fetched and shown instead. */}
+              {imageError ? (
+                <div className="p-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">
+                  {imageError}
+                </div>
+              ) : (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={getApiUrl(`/api/products/drawing-notes/crop?source_id=${imageFor.id}`)}
+                  alt={`Note ${imageFor.note_number} on ${imageFor.apc_part_number}`}
+                  className="max-w-full bg-white border border-slate-200"
+                  onError={async () => {
+                    try {
+                      const r = await fetch(getApiUrl(
+                        `/api/products/drawing-notes/crop?source_id=${imageFor.id}`))
+                      const d = await r.json()
+                      setImageError(d.error || 'Could not render the note image.')
+                    } catch {
+                      setImageError('Could not render the note image.')
+                    }
+                  }} />
+              )}
             </div>
           </div>
         </div>
