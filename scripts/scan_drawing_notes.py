@@ -243,7 +243,7 @@ def page_words(path, page_no):
     return [w for w in words if w['text']]
 
 
-def group_lines(words, tol=3.0):
+def group_lines(words, tol=3.0, page_w=0.0):
     """
     Group words into text lines.
 
@@ -262,8 +262,23 @@ def group_lines(words, tol=3.0):
     it never matched as a note start. A drawing sheet is a 2-D canvas, not a
     page of prose, so horizontal proximity has to be enforced, not assumed.
 
-    The gap threshold scales with glyph height so it holds at any text size,
-    with a floor above the multi-space alignment used inside a line.
+    CHOOSING THE THRESHOLD is the whole difficulty, because two different
+    things produce a horizontal gap and they must not be confused:
+
+      hanging indent   the note number is its own text run, set left of the
+                       body: "9" at x=1227 and "IDENTIFICATION MARKING" at
+                       x=1276. Measured on real drawings these run 32-60pt.
+                       Splitting here is fatal — the number is separated from
+                       its own text and the line stops looking like a note at
+                       all, which is exactly how a drawing that used to yield
+                       notes came back empty.
+
+      column break     genuinely separate blocks of notes side by side.
+                       Measured at 348pt and up on the same sheets.
+
+    A threshold anywhere from 90pt to 200pt separates them cleanly, verified
+    against three real drawings; 5% of page width lands mid-plateau and scales
+    to smaller sheets. It is emphatically not a tight bound at either end.
     """
     rows = []
     for w in sorted(words, key=lambda w: (w['y0'], w['x0'])):
@@ -276,9 +291,7 @@ def group_lines(words, tol=3.0):
         else:
             rows.append({'y0': w['y0'], 'y1': w['y1'], 'words': [w]})
 
-    heights = sorted(w['y1'] - w['y0'] for w in words) or [8.0]
-    median_h = heights[len(heights) // 2] or 8.0
-    gap_limit = max(24.0, median_h * 3.0)
+    gap_limit = max(90.0, (page_w or 1224.0) * 0.05)
 
     out = []
     for r in rows:
@@ -431,14 +444,30 @@ def build_notes(col_lines, x0, direction, expect_first=None):
         text = ln['text']
         opened = False
 
+        # A note marker sits at the column's left edge; the note's body is
+        # indented past it. Anything starting at the body indent is content,
+        # however much it looks like a number.
+        #
+        # This is what separates a real note from a table row inside one. On a
+        # controlled-impedance note the layer table reads:
+        #
+        #     x=1818  "6."                                   <- note 6
+        #     x=1867  "6 .0037 .0061 100 +/- 10 DIFFERENTIAL" <- a table row
+        #
+        # Without the position test the table row is accepted as note 6, and
+        # the real note 6 is then discarded as a duplicate — so the sheet
+        # silently loses a requirement and gains a row of numbers in its place.
+        at_marker_column = ln['x0'] <= x0 + 10
+
         m = NOTE_START_STRICT.match(text)
-        if m:
+        if m and at_marker_column:
             num = int(m.group(1))
             body = m.group(2)
             opened = True
-        else:
+        elif at_marker_column:
             m = NOTE_START_LOOSE.match(text)
-            # Bare number: only trusted when it is the next one in sequence.
+            # Bare number (a flagged note in a triangle): trusted only when it
+            # is both at the marker column and next in sequence.
             if m and expected is not None and int(m.group(1)) == expected:
                 num, body, opened = int(m.group(1)), m.group(2), True
 
@@ -718,7 +747,7 @@ def ocr_page_lines(path, page_no, workdir, page_w=0.0, page_h=0.0, dpi=None):
             'x0': left * scale, 'y0': top * scale,
             'x1': (left + w) * scale, 'y1': (top + h) * scale,
         })
-    return group_lines(words), ''
+    return group_lines(words, page_w=page_w), ''
 
 
 # -------------------------------------------------------------------- crop
@@ -882,7 +911,7 @@ def scan(path, allow_ocr=False, only_page=None, grid=None):
     page_debug = []
 
     for pno in page_list:
-        lines = group_lines(page_words(scan_path, pno))
+        lines = group_lines(page_words(scan_path, pno), page_w=page_w)
         method = 'text'
 
         if not lines:
@@ -1010,7 +1039,7 @@ def main():
             'grid': list(infer_grid(pw, ph)), 'pages_dumped': [],
         }
         for pno in wanted[:12]:
-            lines = group_lines(page_words(use_path, pno))
+            lines = group_lines(page_words(use_path, pno), page_w=pw)
             if not lines and '--allow-ocr' in args:
                 with tempfile.TemporaryDirectory() as wd:
                     lines, _e = ocr_page_lines(use_path, pno, wd, pw, ph)
