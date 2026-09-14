@@ -8,7 +8,10 @@ CREATE TABLE IF NOT EXISTS drill_rout_searches (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(100) NOT NULL,
   description VARCHAR(255) DEFAULT NULL,
-  conditions JSON NOT NULL,
+  -- LONGTEXT, not JSON: the primary server is MySQL 5.6, where the JSON type
+  -- does not exist and the parser stops at the keyword. MariaDB implements
+  -- JSON as an alias for LONGTEXT, so this is identical there.
+  conditions LONGTEXT NOT NULL,
   -- conditions format: [{"field":"change","op":"contains","value":"feed","logic":"AND"},...]
   -- field: "change" | "chngeffect"
   -- op: "contains" | "equals" | "startsWith"

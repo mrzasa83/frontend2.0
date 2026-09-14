@@ -123,6 +123,12 @@ export const MODULES: Module[] = [
         path: '/products/material-mgt',
         requiredRoles: ['Admin', 'EHSadmin', 'roUser', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations', 'Program']
       },
+      {
+        id: 'drawing-notes',
+        name: 'Drawing Notes',
+        path: '/products/drawing-notes',
+        requiredRoles: ['Admin', 'roUser', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations', 'Program']
+      },
       { 
         id: 'documents', 
         name: 'Documents', 

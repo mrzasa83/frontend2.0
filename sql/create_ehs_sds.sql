@@ -47,14 +47,23 @@ CREATE TABLE IF NOT EXISTS ehs_sds_materials (
   -- Set when the ingredient table came back empty. An SDS with no disclosed
   -- ingredients is not a clean SDS, and the screen must not treat it as one.
   ingredients_known   TINYINT(1)   NOT NULL DEFAULT 0,
-  raw_json            JSON         NULL,   -- full API payload, for fields not yet mapped
+  -- LONGTEXT, not JSON. The JSON type only exists in MySQL 5.7.8+ and
+  -- MariaDB 10.2.7+; on anything older the parser stops dead at the word
+  -- JSON. MariaDB implements JSON as an alias for LONGTEXT anyway, so this
+  -- is the same storage on a modern server and portable to an old one.
+  raw_json            LONGTEXT     NULL,   -- full API payload, for fields not yet mapped
   synced_at           TIMESTAMP    NULL,
   created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (hsi_material_number),
   INDEX idx_archived (is_archived),
-  INDEX idx_manufacturer (manufacturer),
-  INDEX idx_product_numbers (product_numbers)
+  -- Prefix lengths, not whole columns. utf8mb4 is 4 bytes per character and
+  -- older InnoDB (COMPACT row format, innodb_large_prefix off) caps a single
+  -- index at 767 bytes: manufacturer VARCHAR(200) would want 800 and
+  -- product_numbers VARCHAR(400) would want 1600. 100 characters is plenty to
+  -- make either lookup selective.
+  INDEX idx_manufacturer (manufacturer(100)),
+  INDEX idx_product_numbers (product_numbers(100))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ---------------------------------------------

@@ -8,7 +8,7 @@ import {
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
   TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History,
   Search, FileCheck, X, XCircle, ArrowUp, ArrowDown, ArrowUpDown, Layers,
-  ShoppingCart } from 'lucide-react'
+  ShoppingCart, StickyNote } from 'lucide-react'
 import DataView from '@/components/ui/DataView'
 import BOMTreeNavigator from '@/components/ui/BOMTreeNavigator'
 import { 
@@ -695,6 +695,47 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
   // ========================================
   // RENDER HELPERS
   // ========================================
+  // ==========================================
+  // ARCHIVE DRAWING NOTES
+  // ==========================================
+  // Only offered on PDFs: the scanner reads a PDF text layer (and, on request,
+  // rasterises pages for OCR). There is nothing sensible to do with a DWG,
+  // a spreadsheet or a TIFF here.
+  const [archiving, setArchiving] = useState<string | null>(null)
+  const [archiveResult, setArchiveResult] = useState<any>(null)
+
+  const archiveDrawingNotes = async (file: FileInfo, allowOcr = false) => {
+    setArchiving(file.path)
+    setArchiveResult(null)
+    try {
+      const res = await fetch(getApiUrl('/api/products/drawing-notes/scan'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          file_path: file.path,
+          file_name: file.name,
+          apc_part: partNumber,
+          customer: customer || '',
+          customer_part: customerPN || '',
+          allow_ocr: allowOcr,
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok) {
+        setArchiveResult({ error: d.error || 'Scan failed', file })
+        return
+      }
+      // needsOcr is a question, not a failure: the pages carry no text layer,
+      // and OCR is slow enough (and wrong often enough) that it is the user's
+      // call rather than something to do silently.
+      setArchiveResult({ ...d, file })
+    } catch (e) {
+      setArchiveResult({ error: e instanceof Error ? e.message : String(e), file })
+    } finally {
+      setArchiving(null)
+    }
+  }
+
   const renderFileList = (files: FileInfo[], showPath: boolean = false) => {
     if (files.length === 0) {
       return (
@@ -728,6 +769,18 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
               )}
             </div>
             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+              {activeSubTab === 'final-inspection' && /\.pdf$/i.test(file.name) && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); archiveDrawingNotes(file) }}
+                  disabled={archiving === file.path}
+                  className="p-1.5 text-slate-600 hover:bg-slate-100 rounded disabled:opacity-50"
+                  title="Archive the drawing notes from this PDF"
+                >
+                  {archiving === file.path
+                    ? <RefreshCw size={16} className="animate-spin text-blue-600" />
+                    : <StickyNote size={16} />}
+                </button>
+              )}
               <button
                 onClick={(e) => { e.stopPropagation(); copyPath(file.path) }}
                 className="p-1.5 text-slate-600 hover:bg-slate-100 rounded"
@@ -1743,6 +1796,104 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
           onIndexChange={(i) => setPreview(p => p ? { ...p, index: i } : p)}
           onClose={() => setPreview(null)}
         />
+      )}
+      {archiveResult && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => setArchiveResult(null)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-lg w-full"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <h5 className="font-semibold text-slate-800">Archive Drawing Notes</h5>
+              <button onClick={() => setArchiveResult(null)} className="p-1 hover:bg-slate-100 rounded">
+                <X size={20} className="text-slate-500" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-xs text-slate-500 font-mono truncate">{archiveResult.file?.name}</p>
+
+              {archiveResult.error && (
+                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                  {archiveResult.error}
+                </p>
+              )}
+
+              {archiveResult.needsOcr && (
+                <div className="space-y-3">
+                  <p className="text-sm text-slate-700">{archiveResult.message}</p>
+                  <p className="text-xs text-slate-500">
+                    OCR output almost always needs correcting, so anything it finds
+                    will land Pending for review.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => archiveDrawingNotes(archiveResult.file, true)}
+                      className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                      Run OCR
+                    </button>
+                    <button onClick={() => setArchiveResult(null)}
+                      className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {archiveResult.success && !archiveResult.needsOcr && (
+                <div className="space-y-2">
+                  {archiveResult.found > 0 ? (
+                    <>
+                      <p className="text-sm text-slate-800">
+                        Found {archiveResult.found} note{archiveResult.found !== 1 ? 's' : ''} —{' '}
+                        {archiveResult.created} new, {archiveResult.linked} already on file.
+                      </p>
+                      {archiveResult.ocr_used && (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                          Read by OCR. Check the wording before approving.
+                        </p>
+                      )}
+                      <div className="max-h-64 overflow-auto border border-slate-200 rounded">
+                        <table className="w-full text-xs">
+                          <thead className="bg-slate-100"><tr>
+                            <th className="px-2 py-1 text-left">ID</th>
+                            <th className="px-2 py-1 text-left">#</th>
+                            <th className="px-2 py-1 text-left">Loc</th>
+                            <th className="px-2 py-1 text-left">Note</th>
+                          </tr></thead>
+                          <tbody>
+                            {(archiveResult.results || []).map((r: any) => (
+                              <tr key={r.note_code + r.note_number} className="border-t border-slate-200">
+                                <td className="px-2 py-1 font-mono whitespace-nowrap">
+                                  {r.note_code}
+                                  {r.isNew && <span className="ml-1 text-green-600">new</span>}
+                                </td>
+                                <td className="px-2 py-1">{r.note_number}</td>
+                                <td className="px-2 py-1 whitespace-nowrap">{r.zone}, p{r.page}</td>
+                                <td className="px-2 py-1 truncate max-w-xs" title={r.text}>{r.text}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                      <p className="text-xs text-slate-500">
+                        Everything lands Pending. Review and approve under Products ▸ Drawing Notes.
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-sm text-slate-700">{archiveResult.message}</p>
+                      {archiveResult.canRetryWithOcr && (
+                        <button onClick={() => archiveDrawingNotes(archiveResult.file, true)}
+                          className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">
+                          Try OCR
+                        </button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

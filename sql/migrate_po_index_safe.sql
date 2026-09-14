@@ -62,7 +62,9 @@ SET @c := (SELECT COUNT(*) FROM information_schema.STATISTICS
              AND table_name = 'customer_po_files'
              AND index_name = 'idx_file_path');
 SET @s := IF(@c = 0,
-  'ALTER TABLE customer_po_files ADD INDEX idx_file_path (file_path)',
+  -- file_path(191): VARCHAR(700) is 2800 bytes in utf8mb4, over the 767-byte
+  -- per-column index cap on MySQL 5.6. See alter_po_index_performance.sql.
+  'ALTER TABLE customer_po_files ADD INDEX idx_file_path (file_path(191))',
   'SELECT ''idx_file_path already present'' AS note');
 PREPARE st FROM @s; EXECUTE st; DEALLOCATE PREPARE st;
 
