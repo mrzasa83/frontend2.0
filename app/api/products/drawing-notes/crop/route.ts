@@ -48,7 +48,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
-  const sourceId = Number(new URL(request.url).searchParams.get('source_id') || 0)
+  const sp = new URL(request.url).searchParams
+  const sourceId = Number(sp.get('source_id') || 0)
+  // context=1 renders the whole sheet with the note outlined, so a reviewer can
+  // see where on the drawing it sits rather than just what it says.
+  const context = ['1', 'true'].includes((sp.get('context') || '').toLowerCase())
   if (!sourceId) return NextResponse.json({ error: 'source_id required' }, { status: 400 })
 
   try {
@@ -78,7 +82,7 @@ export async function GET(request: NextRequest) {
     // Cache key covers the box as well as the file, so a corrected bbox
     // renders afresh instead of serving the old crop.
     const key = crypto.createHash('sha1')
-      .update(`${s.pdf_path}|${s.page_no}|${s.bbox_x0},${s.bbox_y0},${s.bbox_x1},${s.bbox_y1}`)
+      .update(`${s.pdf_path}|${s.page_no}|${s.bbox_x0},${s.bbox_y0},${s.bbox_x1},${s.bbox_y1}|${context ? 'ctx' : 'crop'}`)
       .digest('hex')
     const outFile = path.join(CACHE_DIR, `${key}.png`)
 
@@ -92,10 +96,13 @@ export async function GET(request: NextRequest) {
         }, { status: 500 })
       }
       const spec = `${s.page_no},${s.bbox_x0},${s.bbox_y0},${s.bbox_x1},${s.bbox_y1}`
-      const { stdout } = await execFileAsync(
-        PYTHON, [SCANNER, resolved, '--crop', spec, '--out', outFile],
-        { timeout: 90_000, maxBuffer: 4 * 1024 * 1024 }
-      )
+      const args = [SCANNER, resolved, '--crop', spec, '--out', outFile]
+      if (context) args.push('--context')
+      const { stdout } = await execFileAsync(PYTHON, args, {
+        // A full-sheet render is much heavier than a crop of one note.
+        timeout: context ? 240_000 : 90_000,
+        maxBuffer: 4 * 1024 * 1024,
+      })
       const res = JSON.parse(stdout || '{}')
       if (res.status !== 'ok') {
         return NextResponse.json({
@@ -108,10 +115,12 @@ export async function GET(request: NextRequest) {
             + 'Check that poppler-utils is installed in the container.',
         }, { status: 500 })
       }
-      await queryPrimary(
-        'UPDATE drawing_note_sources SET image_path = ? WHERE id = ?',
-        [outFile, sourceId]
-      )
+      if (!context) {
+        await queryPrimary(
+          'UPDATE drawing_note_sources SET image_path = ? WHERE id = ?',
+          [outFile, sourceId]
+        )
+      }
     }
 
     const png = await readFile(outFile)
@@ -119,7 +128,7 @@ export async function GET(request: NextRequest) {
       headers: {
         'Content-Type': 'image/png',
         'Cache-Control': 'private, max-age=86400',
-        'Content-Disposition': `inline; filename="note-${sourceId}.png"`,
+        'Content-Disposition': `inline; filename="note-${sourceId}${context ? '-in-context' : ''}.png"`,
       },
     })
   } catch (error) {

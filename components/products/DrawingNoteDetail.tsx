@@ -53,6 +53,8 @@ export default function DrawingNoteDetail({ code, onChanged }: {
   const [saving, setSaving] = useState(false)
   const [imageFor, setImageFor] = useState<Source | null>(null)
   const [imageError, setImageError] = useState<string | null>(null)
+  // Tight crop of the note, or the whole sheet with the note outlined.
+  const [showContext, setShowContext] = useState(false)
 
   const load = async () => {
     setLoading(true); setError(null)
@@ -318,7 +320,7 @@ export default function DrawingNoteDetail({ code, onChanged }: {
                         )}
                       </td>
                       <td className="px-3 py-2">
-                        <button onClick={() => { setImageError(null); setImageFor(s) }} disabled={s.bbox_x0 === null}
+                        <button onClick={() => { setImageError(null); setShowContext(false); setImageFor(s) }} disabled={s.bbox_x0 === null}
                           className="flex items-center gap-1 text-blue-600 hover:text-blue-800 disabled:text-slate-300"
                           title={s.bbox_x0 === null ? 'No position recorded' : 'Show the note on the drawing'}>
                           <ImageIcon size={14} /> View
@@ -361,8 +363,21 @@ export default function DrawingNoteDetail({ code, onChanged }: {
                 </p>
               </div>
               <div className="flex items-center gap-2">
-                <a href={getApiUrl(`/api/products/drawing-notes/crop?source_id=${imageFor.id}`)}
-                  download={`note-${imageFor.apc_part_number}-${imageFor.note_number}.png`}
+                {/* A tight crop proves what the note says; the sheet view shows
+                    where it lives, which is what makes the zone reference mean
+                    something. */}
+                <div className="flex rounded-lg border border-slate-300 overflow-hidden text-xs">
+                  {([[false, 'Note'], [true, 'In context']] as [boolean, string][]).map(([v, label]) => (
+                    <button key={label}
+                      onClick={() => { setImageError(null); setShowContext(v) }}
+                      className={`px-2.5 py-1 ${showContext === v
+                        ? 'bg-blue-600 text-white' : 'bg-white text-slate-700 hover:bg-slate-50'}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <a href={getApiUrl(`/api/products/drawing-notes/crop?source_id=${imageFor.id}${showContext ? '&context=1' : ''}`)}
+                  download={`note-${imageFor.apc_part_number}-${imageFor.note_number}${showContext ? '-in-context' : ''}.png`}
                   className="flex items-center gap-1 text-sm text-blue-600 hover:text-blue-800">
                   <ExternalLink size={14} /> Save image
                 </a>
@@ -382,13 +397,14 @@ export default function DrawingNoteDetail({ code, onChanged }: {
                 </div>
               ) : (
                 /* eslint-disable-next-line @next/next/no-img-element */
-                <img src={getApiUrl(`/api/products/drawing-notes/crop?source_id=${imageFor.id}`)}
+                <img key={showContext ? 'ctx' : 'crop'}
+                  src={getApiUrl(`/api/products/drawing-notes/crop?source_id=${imageFor.id}${showContext ? '&context=1' : ''}`)}
                   alt={`Note ${imageFor.note_number} on ${imageFor.apc_part_number}`}
                   className="max-w-full bg-white border border-slate-200"
                   onError={async () => {
                     try {
                       const r = await fetch(getApiUrl(
-                        `/api/products/drawing-notes/crop?source_id=${imageFor.id}`))
+                        `/api/products/drawing-notes/crop?source_id=${imageFor.id}${showContext ? '&context=1' : ''}`))
                       const d = await r.json()
                       setImageError(d.error || 'Could not render the note image.')
                     } catch {

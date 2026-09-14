@@ -3,8 +3,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react'
 import Tabs from '@/components/ui/Tabs'
 import DrawingNoteDetail from '@/components/products/DrawingNoteDetail'
+import { useSession } from 'next-auth/react'
 import {
-  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, StickyNote,
+  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, StickyNote, Trash2, X,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
@@ -24,6 +25,11 @@ const statusBadge = (s: string) =>
       : 'bg-slate-100 text-slate-500'
 
 export default function DrawingNotesPage() {
+  const { data: session } = useSession()
+  const isAdmin = ((session?.user as any)?.roles || []).includes('Admin')
+  const [purgeOpen, setPurgeOpen] = useState(false)
+  const [purgeText, setPurgeText] = useState('')
+  const [purging, setPurging] = useState(false)
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -79,6 +85,23 @@ export default function DrawingNotesPage() {
     k !== sortKey ? <ArrowUpDown className="w-3 h-3 opacity-40" />
       : sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
 
+  const purgeAll = async () => {
+    setPurging(true); setError(null)
+    try {
+      const res = await fetch(getApiUrl('/api/products/drawing-notes/purge'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirm: 'DELETE ALL NOTES' }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Purge failed')
+      setOpenCodes([]); setActiveTab('list'); setPurgeOpen(false); setPurgeText('')
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setPurging(false) }
+  }
+
   const openNote = (code: string) => {
     setOpenCodes(c => (c.includes(code) ? c : [...c, code]))
     setActiveTab(code)
@@ -118,6 +141,14 @@ export default function DrawingNotesPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Refresh
           </button>
+          {/* Admin only. The catalogue is still being shaped, so wipe-and-rescan
+              is the working loop right now. */}
+          {isAdmin && notes.length > 0 && (
+            <button onClick={() => setPurgeOpen(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50">
+              <Trash2 className="w-4 h-4" /> Delete all
+            </button>
+          )}
         </div>
       </div>
 
@@ -197,6 +228,45 @@ export default function DrawingNotesPage() {
         <h2 className="text-xl font-bold text-slate-800">Drawing Notes</h2>
       </div>
       <Tabs tabs={tabs} activeTab={activeTab} onTabChange={setActiveTab} />
+
+      {purgeOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4"
+          onClick={() => setPurgeOpen(false)}>
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <h5 className="font-semibold text-slate-800">Delete all drawing notes</h5>
+              <button onClick={() => setPurgeOpen(false)} className="p-1 hover:bg-slate-100 rounded">
+                <X size={20} className="text-slate-500" />
+              </button>
+            </div>
+            <div className="p-4 space-y-3">
+              <p className="text-sm text-slate-700">
+                This removes all {notes.length} note{notes.length !== 1 ? 's' : ''} from the
+                database, along with every version, approval and drawing link. Note IDs
+                restart at N0000000001. It cannot be undone.
+              </p>
+              <label className="block text-xs font-semibold text-slate-600">
+                Type DELETE ALL NOTES to confirm
+              </label>
+              <input type="text" value={purgeText} autoFocus
+                onChange={e => setPurgeText(e.target.value)}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-500 outline-none" />
+              <div className="flex gap-2">
+                <button onClick={purgeAll}
+                  disabled={purging || purgeText !== 'DELETE ALL NOTES'}
+                  className="px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40">
+                  {purging ? 'Deleting…' : 'Delete everything'}
+                </button>
+                <button onClick={() => setPurgeOpen(false)}
+                  className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
