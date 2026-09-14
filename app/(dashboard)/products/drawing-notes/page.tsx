@@ -30,6 +30,7 @@ export default function DrawingNotesPage() {
   const [purgeOpen, setPurgeOpen] = useState(false)
   const [purgeText, setPurgeText] = useState('')
   const [purging, setPurging] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -85,6 +86,45 @@ export default function DrawingNotesPage() {
     k !== sortKey ? <ArrowUpDown className="w-3 h-3 opacity-40" />
       : sortAsc ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
 
+  const toggleOne = (code: string) => setSelected(prev => {
+    const next = new Set(prev)
+    if (next.has(code)) next.delete(code)
+    else next.add(code)
+    return next
+  })
+
+  // Select-all applies to what is currently VISIBLE, not the whole catalogue —
+  // ticking the header box after filtering should not quietly arm a delete on
+  // rows that were filtered out.
+  const allVisibleSelected = sorted.length > 0 && sorted.every(n => selected.has(n.note_code))
+  const toggleAllVisible = () => setSelected(prev => {
+    const next = new Set(prev)
+    if (allVisibleSelected) sorted.forEach(n => next.delete(n.note_code))
+    else sorted.forEach(n => next.add(n.note_code))
+    return next
+  })
+
+  const deleteSelected = async () => {
+    if (!selected.size) return
+    setPurging(true); setError(null)
+    try {
+      const codes = [...selected]
+      const res = await fetch(getApiUrl('/api/products/drawing-notes/purge'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ codes }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Delete failed')
+      setOpenCodes(c => c.filter(x => !selected.has(x)))
+      setActiveTab(t => (selected.has(t) ? 'list' : t))
+      setSelected(new Set())
+      await load()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setPurging(false) }
+  }
+
   const purgeAll = async () => {
     setPurging(true); setError(null)
     try {
@@ -96,6 +136,7 @@ export default function DrawingNotesPage() {
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || 'Purge failed')
       setOpenCodes([]); setActiveTab('list'); setPurgeOpen(false); setPurgeText('')
+      setSelected(new Set())
       await load()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -143,6 +184,13 @@ export default function DrawingNotesPage() {
           </button>
           {/* Admin only. The catalogue is still being shaped, so wipe-and-rescan
               is the working loop right now. */}
+          {isAdmin && selected.size > 0 && (
+            <button onClick={deleteSelected} disabled={purging}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50">
+              <Trash2 className="w-4 h-4" />
+              {purging ? 'Deleting…' : `Delete ${selected.size} selected`}
+            </button>
+          )}
           {isAdmin && notes.length > 0 && (
             <button onClick={() => setPurgeOpen(true)}
               className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-red-300 text-red-700 rounded-lg hover:bg-red-50">
@@ -169,6 +217,14 @@ export default function DrawingNotesPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-100">
               <tr>
+                {isAdmin && (
+                  <th className="px-3 py-2 w-8">
+                    <input type="checkbox" checked={allVisibleSelected}
+                      onChange={toggleAllVisible}
+                      title="Select every note currently shown"
+                      className="cursor-pointer" />
+                  </th>
+                )}
                 {([['note_code', 'ID'], ['name', 'Name'], ['customer', 'Customer'],
                   ['status', 'Status'], ['part_count', 'Parts']] as [SortKey, string][]).map(([k, label]) => (
                   <th key={k} onClick={() => toggleSort(k)}
@@ -183,8 +239,16 @@ export default function DrawingNotesPage() {
             <tbody>
               {sorted.map(n => (
                 <tr key={n.id} onClick={() => openNote(n.note_code)}
-                  className="border-t border-slate-200 hover:bg-slate-50 cursor-pointer"
+                  className={`border-t border-slate-200 hover:bg-slate-50 cursor-pointer ${
+                    selected.has(n.note_code) ? 'bg-red-50/60' : ''}`}
                   title="Open this note">
+                  {isAdmin && (
+                    <td className="px-3 py-2" onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" checked={selected.has(n.note_code)}
+                        onChange={() => toggleOne(n.note_code)}
+                        className="cursor-pointer" />
+                    </td>
+                  )}
                   <td className="px-3 py-2 font-mono text-xs font-semibold text-blue-700 whitespace-nowrap">
                     {n.note_code}
                   </td>

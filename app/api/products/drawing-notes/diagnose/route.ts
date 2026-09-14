@@ -43,10 +43,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'That path is outside the allowed shares.' }, { status: 403 })
     }
 
+    // dump=true also returns every extracted line with its coordinates. That
+    // is the artefact worth sending to someone who can't see the drawing: a
+    // screenshot shows the layout, but only the text layer shows what the
+    // scanner actually had to work with.
+    const wantDump = b?.dump === true
+    const page = Number(b?.page || 0)
+
     const { stdout } = await execFileAsync(PYTHON, [SCANNER, resolved, '--diagnose'], {
       timeout: 150_000, maxBuffer: 8 * 1024 * 1024,
     })
-    return NextResponse.json({ success: true, ...JSON.parse(stdout) })
+    const report: any = { success: true, ...JSON.parse(stdout) }
+
+    if (wantDump) {
+      const args = [SCANNER, resolved, '--dump']
+      if (page) args.push('--page', String(page))
+      try {
+        const dump = await execFileAsync(PYTHON, args, {
+          timeout: 150_000, maxBuffer: 24 * 1024 * 1024,
+        })
+        report.dump = JSON.parse(dump.stdout)
+      } catch (e) {
+        report.dump_error = e instanceof Error ? e.message : String(e)
+      }
+    }
+    return NextResponse.json(report)
   } catch (error) {
     console.error('Drawing note diagnose error:', error)
     return NextResponse.json({

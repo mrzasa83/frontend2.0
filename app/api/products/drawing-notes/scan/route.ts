@@ -93,6 +93,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         success: true, needsOcr: true, message: parsed.message,
         pages: parsed.pages, ocr_pages: parsed.ocr_pages,
+        debug: parsed.debug,
+        encrypted: parsed.encrypted,
+        extraction_allowed: parsed.extraction_allowed,
       })
     }
 
@@ -102,6 +105,19 @@ export async function POST(request: NextRequest) {
     }
 
     const notes: ScannedNote[] = parsed.notes || []
+
+    // Log the outcome of EVERY scan. A run that finds nothing is not an error,
+    // so nothing was written and the container logs showed no trace of it at
+    // all — which makes an empty result impossible to investigate after the
+    // fact.
+    console.log('[drawing-notes] scan', JSON.stringify({
+      part: apcPart, file: fileName, status: parsed.status,
+      pages: parsed.pages, notes: notes.length, ocr: !!parsed.ocr_used,
+      encrypted: parsed.encrypted, extraction_allowed: parsed.extraction_allowed,
+      decrypt_note: parsed.decrypt_note || undefined,
+      debug: parsed.debug,
+    }))
+
     if (!notes.length) {
       await recordScan({
         apcPart, customer, rawPath, fileName, user,
@@ -110,9 +126,14 @@ export async function POST(request: NextRequest) {
       })
       return NextResponse.json({
         success: true, results: [], pages: parsed.pages,
-        message: 'No numbered notes block was found in that PDF. '
-          + 'If the notes are there but unreadable, the page may be an image — try OCR.',
+        message: parsed.message
+          || 'No numbered notes block was found in that PDF. '
+             + 'If the notes are there but unreadable, the page may be an image — try OCR.',
         canRetryWithOcr: !allowOcr,
+        debug: parsed.debug,
+        encrypted: parsed.encrypted,
+        extraction_allowed: parsed.extraction_allowed,
+        decrypt_note: parsed.decrypt_note,
       })
     }
 

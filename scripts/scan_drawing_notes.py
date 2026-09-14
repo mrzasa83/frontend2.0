@@ -879,6 +879,7 @@ def scan(path, allow_ocr=False, only_page=None, grid=None):
     ocr_used = False
     empty_pages = []
     ocr_errors = []
+    page_debug = []
 
     for pno in page_list:
         lines = group_lines(page_words(scan_path, pno))
@@ -898,6 +899,27 @@ def scan(path, allow_ocr=False, only_page=None, grid=None):
             ocr_used = True
 
         notes, anchored = find_notes_block(lines)
+
+        # Always record what the page looked like, even on a hit. When a scan
+        # comes back empty the only question that matters is WHICH stage failed
+        # — no text at all, text but no numbered lines, numbered lines but no
+        # column that qualified — and without these counts that is unanswerable
+        # from the outside.
+        seeds = [l for l in lines if NOTE_START_STRICT.match(l['text'])]
+        anchor_lines = [l for l in lines if is_anchor(l['text'])]
+        page_debug.append({
+            'page': pno,
+            'method': method,
+            'lines': len(lines),
+            'numbered_lines': len(seeds),
+            'anchors': [a['text'][:60] for a in anchor_lines][:6],
+            'columns': [{'x0': round(c['x0'], 1), 'seeds': len(c['lines'])}
+                        for c in cluster_columns(seeds)][:8],
+            'notes_found': len(notes),
+            'longest_lines': sorted(
+                (l['text'] for l in lines), key=len, reverse=True)[:3],
+        })
+
         if not notes:
             continue
         tb = title_block(lines, page_w, page_h)
@@ -936,7 +958,7 @@ def scan(path, allow_ocr=False, only_page=None, grid=None):
             'pages': pages, 'ocr_pages': len(empty_pages), 'notes': [],
             'grid': [cols, rows], 'encrypted': enc.get('encrypted', False),
             'extraction_allowed': enc.get('perm_copy', True),
-            'decrypt_note': decrypt_note,
+            'decrypt_note': decrypt_note, 'debug': page_debug,
         })
 
     emit({
@@ -950,6 +972,9 @@ def scan(path, allow_ocr=False, only_page=None, grid=None):
         'grid': [cols, rows],
         'ocr_used': ocr_used,
         'decrypt_note': decrypt_note,
+        'encrypted': enc.get('encrypted', False),
+        'extraction_allowed': enc.get('perm_copy', True),
+        'debug': page_debug,
         'notes': results,
     })
 
@@ -966,6 +991,46 @@ def main():
 
     if '--diagnose' in args:
         diagnose(path)
+
+    if '--dump' in args:
+        # Every extracted line with its box, so the layout can be reasoned
+        # about off-site. When a real drawing yields nothing, the text layer
+        # itself is the evidence — guessing at it from a screenshot is how the
+        # first three wrong assumptions got made.
+        pages, pw, ph, enc = pdf_info(path)
+        use_path, note = maybe_decrypt(path, enc)
+        pg = opt('--page')
+        wanted = [int(pg)] if pg and pg.isdigit() else list(range(1, pages + 1))
+        out = {
+            'status': 'ok', 'pages': pages,
+            'page_width': round(pw, 2), 'page_height': round(ph, 2),
+            'page_inches': [round(pw / 72.0, 1), round(ph / 72.0, 1)],
+            'encrypted': enc.get('encrypted'), 'decrypt_note': note,
+            'extraction_allowed': enc.get('perm_copy'),
+            'grid': list(infer_grid(pw, ph)), 'pages_dumped': [],
+        }
+        for pno in wanted[:12]:
+            lines = group_lines(page_words(use_path, pno))
+            if not lines and '--allow-ocr' in args:
+                with tempfile.TemporaryDirectory() as wd:
+                    lines, _e = ocr_page_lines(use_path, pno, wd, pw, ph)
+            out['pages_dumped'].append({
+                'page': pno,
+                'line_count': len(lines),
+                'lines': [{
+                    'x0': round(l['x0'], 1), 'y0': round(l['y0'], 1),
+                    'x1': round(l['x1'], 1), 'y1': round(l['y1'], 1),
+                    'strict': bool(NOTE_START_STRICT.match(l['text'])),
+                    'anchor': is_anchor(l['text']),
+                    'text': l['text'][:300],
+                } for l in lines[:1200]],
+            })
+        if use_path != path:
+            try:
+                os.remove(use_path)
+            except OSError:
+                pass
+        emit(out)
 
     if '--crop' in args:
         spec = opt('--crop')

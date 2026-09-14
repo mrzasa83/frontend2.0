@@ -17,8 +17,14 @@ export const dynamic = 'force-dynamic'
  * to work right now. It is not a feature that ages well. Once real approvals
  * are on file, narrow it to Pending-only or drop it.
  *
- * Requires { confirm: "DELETE ALL NOTES" }. A destructive endpoint reachable by
- * an empty POST is one stray fetch away from an accident.
+ * Two modes:
+ *   { codes: ["N0000000001", ...] }      delete just those notes
+ *   { confirm: "DELETE ALL NOTES" }      empty the catalogue
+ *
+ * The all-notes path needs the confirmation phrase because a destructive
+ * endpoint reachable by an empty POST is one stray fetch away from an
+ * accident. The selective path doesn't: the codes ARE the confirmation, and
+ * they can only have come from someone looking at the list.
  */
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -34,6 +40,47 @@ export async function POST(request: NextRequest) {
 
   try {
     const body = await request.json().catch(() => ({}))
+    const codes: string[] = Array.isArray(body?.codes)
+      ? body.codes.map((c: any) => String(c).trim()).filter(Boolean)
+      : []
+
+    if (codes.length) {
+      // Parameterised IN list — the codes come off the wire, so they are never
+      // interpolated into the SQL even though they look like fixed-width keys.
+      const marks = codes.map(() => '?').join(', ')
+      const rows = await queryPrimary<any[]>(
+        `SELECT id, note_code FROM drawing_notes WHERE note_code IN (${marks})`, codes)
+      const ids = (rows || []).map(r => Number(r.id))
+      if (!ids.length) {
+        return NextResponse.json({ error: 'None of those notes exist.' }, { status: 404 })
+      }
+      const idMarks = ids.map(() => '?').join(', ')
+
+      // Same ordering constraint as the full purge: the RESTRICT foreign key on
+      // drawing_note_sources means children first, and active_version_id has to
+      // be cleared before its version row can go.
+      await queryPrimary(
+        `DELETE FROM drawing_note_approvals WHERE note_id IN (${idMarks})`, ids)
+      await queryPrimary(
+        `DELETE FROM drawing_note_sources WHERE note_id IN (${idMarks})`, ids)
+      await queryPrimary(
+        `UPDATE drawing_notes SET active_version_id = NULL WHERE id IN (${idMarks})`, ids)
+      await queryPrimary(
+        `DELETE FROM drawing_note_versions WHERE note_id IN (${idMarks})`, ids)
+      await queryPrimary(
+        `DELETE FROM drawing_notes WHERE id IN (${idMarks})`, ids)
+
+      // The sequence is NOT reset here. Codes already handed out stay retired,
+      // so a deleted N0000000007 can never be reused for a different note —
+      // anyone holding a printout of the old one would otherwise be reading
+      // about something else entirely.
+      console.warn(`Drawing notes deleted by ${user}: ${codes.join(', ')}`)
+      return NextResponse.json({
+        success: true, deleted: { notes: ids.length },
+        codes: (rows || []).map(r => r.note_code),
+      })
+    }
+
     if (String(body?.confirm || '') !== 'DELETE ALL NOTES') {
       return NextResponse.json({ error: 'Confirmation phrase required.' }, { status: 400 })
     }

@@ -704,6 +704,43 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
   const [archiving, setArchiving] = useState<string | null>(null)
   const [archiveResult, setArchiveResult] = useState<any>(null)
 
+  // When a scan comes back empty there is nothing useful in the container logs —
+  // "found no notes" is not an error, so nothing is written. This pulls the
+  // diagnostic report plus the raw text layer (every line with its coordinates)
+  // and saves it as a file, which is the artefact needed to work out WHY: which
+  // stage failed, what the extractor actually had to read, and whether the PDF
+  // permits extraction at all.
+  const [reporting, setReporting] = useState(false)
+  const downloadScanReport = async (file: FileInfo) => {
+    setReporting(true)
+    try {
+      const res = await fetch(getApiUrl('/api/products/drawing-notes/diagnose'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_path: file.path, dump: true }),
+      })
+      const d = await res.json()
+      const report = {
+        generated: new Date().toISOString(),
+        part: partNumber,
+        customer: customer || '',
+        file: { name: file.name, path: file.path },
+        diagnose: d,
+      }
+      const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `drawing-notes-report-${partNumber}-${file.name.replace(/\.pdf$/i, '')}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      setArchiveResult((r: any) => ({ ...r, error: e instanceof Error ? e.message : String(e) }))
+    } finally {
+      setReporting(false)
+    }
+  }
+
   const archiveDrawingNotes = async (file: FileInfo, allowOcr = false) => {
     setArchiving(file.path)
     setArchiveResult(null)
@@ -1812,9 +1849,16 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
               <p className="text-xs text-slate-500 font-mono truncate">{archiveResult.file?.name}</p>
 
               {archiveResult.error && (
-                <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                  {archiveResult.error}
-                </p>
+                <>
+                  <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded p-2">
+                    {archiveResult.error}
+                  </p>
+                  <button onClick={() => downloadScanReport(archiveResult.file)}
+                    disabled={reporting}
+                    className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+                    {reporting ? 'Building…' : 'Download report'}
+                  </button>
+                </>
               )}
 
               {archiveResult.needsOcr && (
@@ -1829,6 +1873,11 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
                       onClick={() => archiveDrawingNotes(archiveResult.file, true)}
                       className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
                       Run OCR
+                    </button>
+                    <button onClick={() => downloadScanReport(archiveResult.file)}
+                      disabled={reporting}
+                      className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+                      {reporting ? 'Building…' : 'Download report'}
                     </button>
                     <button onClick={() => setArchiveResult(null)}
                       className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">
@@ -1881,12 +1930,41 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
                   ) : (
                     <>
                       <p className="text-sm text-slate-700">{archiveResult.message}</p>
-                      {archiveResult.canRetryWithOcr && (
-                        <button onClick={() => archiveDrawingNotes(archiveResult.file, true)}
-                          className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">
-                          Try OCR
-                        </button>
+
+                      {/* Which stage failed, per page. Text but no numbered
+                          lines is a different problem from no text at all. */}
+                      {Array.isArray(archiveResult.debug) && archiveResult.debug.length > 0 && (
+                        <div className="text-xs text-slate-600 border border-slate-200 rounded p-2 space-y-1">
+                          {archiveResult.debug.map((p: any) => (
+                            <div key={p.page}>
+                              page {p.page} ({p.method}): {p.lines} lines,{' '}
+                              {p.numbered_lines} numbered,{' '}
+                              {p.anchors?.length || 0} NOTES heading
+                              {(p.anchors?.length || 0) !== 1 ? 's' : ''}
+                            </div>
+                          ))}
+                        </div>
                       )}
+                      {archiveResult.encrypted && !archiveResult.extraction_allowed && (
+                        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded p-2">
+                          This PDF disallows text extraction.{' '}
+                          {archiveResult.decrypt_note || 'Install qpdf on the host to read it.'}
+                        </p>
+                      )}
+
+                      <div className="flex gap-2">
+                        {archiveResult.canRetryWithOcr && (
+                          <button onClick={() => archiveDrawingNotes(archiveResult.file, true)}
+                            className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50">
+                            Try OCR
+                          </button>
+                        )}
+                        <button onClick={() => downloadScanReport(archiveResult.file)}
+                          disabled={reporting}
+                          className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+                          {reporting ? 'Building…' : 'Download report'}
+                        </button>
+                      </div>
                     </>
                   )}
                 </div>
