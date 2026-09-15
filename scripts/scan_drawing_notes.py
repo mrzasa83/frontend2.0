@@ -177,6 +177,18 @@ def diagnose(path):
     use_path, note = maybe_decrypt(path, info)
     out['decrypt_note'] = note
 
+    # Page boxes. pdftoppm renders the CropBox; if its origin differs from the
+    # MediaBox, a box computed in text coordinates lands offset on the raster.
+    boxes = run(['pdfinfo', '-box', use_path], timeout=60)
+    out['page_boxes'] = [l for l in boxes.split('\n')
+                         if re.search(r'(Media|Crop|Trim|Art|Bleed)Box', l)]
+    mb = re.search(r'MediaBox:\s*([\d.-]+)\s+([\d.-]+)', boxes)
+    cb = re.search(r'CropBox:\s*([\d.-]+)\s+([\d.-]+)', boxes)
+    if mb and cb:
+        out['box_origin_offset'] = [round(float(cb.group(1)) - float(mb.group(1)), 2),
+                                    round(float(cb.group(2)) - float(mb.group(2)), 2)]
+        out['box_origins_match'] = out['box_origin_offset'] == [0.0, 0.0]
+
     fonts = run(['pdffonts', use_path], timeout=60)
     out['fonts'] = fonts.strip().split('\n')[:20]
     # A font with no embedded ToUnicode map yields glyphs that render and can be
@@ -799,7 +811,7 @@ def _read_ppm(path):
 
 
 def context_image(path, page_no, box, out_file, page_w, page_h, dpi=100,
-                  colour=(220, 30, 30), thickness=3):
+                  colour=(220, 30, 30), thickness=0, pad=6.0):
     """
     Render the whole sheet with the note outlined, so a reviewer can see WHERE
     on the drawing it sits.
@@ -808,6 +820,10 @@ def context_image(path, page_no, box, out_file, page_w, page_h, dpi=100,
     where it lives — which corner, which column, what it sits next to. On a
     D-size sheet that context is most of what makes a zone reference
     meaningful.
+
+    The outline is padded off the glyphs and its thickness scales with the
+    sheet: a 3-pixel line around a 340-point note on a 3400-pixel-wide render
+    is close to invisible once the whole sheet is fitted to a screen.
     """
     if not have('pdftoppm'):
         return False, 'pdftoppm not available'
@@ -825,10 +841,12 @@ def context_image(path, page_no, box, out_file, page_w, page_h, dpi=100,
         w, h, rows = parsed
 
         s_ = dpi / 72.0
-        x0 = max(0, min(w - 1, int(box[0] * s_) - thickness))
-        y0 = max(0, min(h - 1, int(box[1] * s_) - thickness))
-        x1 = max(0, min(w - 1, int(box[2] * s_) + thickness))
-        y1 = max(0, min(h - 1, int(box[3] * s_) + thickness))
+        if not thickness:
+            thickness = max(3, int(round(max(w, h) / 500.0)))
+        x0 = max(0, min(w - 1, int((box[0] - pad) * s_) - thickness))
+        y0 = max(0, min(h - 1, int((box[1] - pad) * s_) - thickness))
+        x1 = max(0, min(w - 1, int((box[2] + pad) * s_) + thickness))
+        y1 = max(0, min(h - 1, int((box[3] + pad) * s_) + thickness))
         r, g, b = colour
 
         for y in range(y0, y1 + 1):

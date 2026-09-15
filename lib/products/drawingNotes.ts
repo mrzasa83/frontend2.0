@@ -279,3 +279,70 @@ export async function approveAspect(
   )
   return { promoted: true, status: 'Active' }
 }
+
+
+/**
+ * Drafting boilerplate that appears in nearly every note and therefore
+ * distinguishes nothing. Left in, they drag unrelated notes up the ranking:
+ * "SOLDERING SHALL BE IAW J-STD-001" and "WORKMANSHIP IAW IPC-610" share only
+ * the word "iaw", which is enough to outrank a genuine match on raw overlap.
+ */
+const NOTE_STOPWORDS = new Set([
+  'shall', 'be', 'the', 'of', 'and', 'with', 'in', 'accordance', 'iaw', 'per',
+  'as', 'is', 'are', 'to', 'for', 'all', 'any', 'this', 'that', 'on', 'or',
+  'from', 'by', 'not', 'required', 'requirements', 'used', 'using', 'shown',
+  'where', 'which', 'each', 'other', 'than', 'have', 'has', 'been', 'may',
+])
+
+/**
+ * Canonical form of a standard reference, so the same standard written two
+ * ways collides.
+ *
+ *   IPC-610, IPC-A-610, IPC A 610   ->  ipc610
+ *   J-STD-001, JSTD001              ->  jstd001
+ *
+ * Single-letter segments are dropped because they are revision or class
+ * qualifiers that move independently of the standard being cited.
+ */
+function canonStandard(tok: string): string {
+  if (!/^[a-z]+[a-z0-9-]*\d/.test(tok)) return tok
+  const parts = tok.split('-').filter(p => p.length > 1 || /\d/.test(p))
+  const joined = parts.join('')
+  return /^[a-z]+\d/.test(joined) ? joined : tok
+}
+
+function noteTokens(text: string): Set<string> {
+  const out = new Set<string>()
+  for (const raw of normalizeNote(text).split(/[^a-z0-9.\-/]+/)) {
+    if (raw.length < 3) continue
+    const tok = canonStandard(raw.replace(/^[.\-/]+|[.\-/]+$/g, ''))
+    if (tok.length < 3 || NOTE_STOPWORDS.has(tok)) continue
+    out.add(tok)
+  }
+  return out
+}
+
+/**
+ * How alike two notes read, 0..1. Used ONLY to shortlist candidates for a
+ * human to group — never to merge anything.
+ *
+ * Exact-wording duplicates never reach this: they are already collapsed into a
+ * single note by the text hash at scan time, which ignores the note number, so
+ * note 9 on one drawing and note 12 on another saying the same thing are the
+ * same record. What is left is the hard case — the same requirement worded
+ * differently — and that is a judgement call, which is why the result is a
+ * ranked list rather than an action.
+ *
+ * Cosine-style rather than Jaccard: a terse note and a verbose one can state
+ * the same requirement, and dividing by the union punishes exactly that pair.
+ * Dividing by the geometric mean keeps short-vs-long comparable without
+ * letting a two-word note score 100% against everything.
+ */
+export function similarity(a: string, b: string): number {
+  const A = noteTokens(a)
+  const B = noteTokens(b)
+  if (!A.size || !B.size) return 0
+  let hits = 0
+  for (const w of A) if (B.has(w)) hits++
+  return hits / Math.sqrt(A.size * B.size)
+}

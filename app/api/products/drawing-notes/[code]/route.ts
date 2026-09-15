@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { canReadModule } from '@/lib/config/access'
-import { approveAspect } from '@/lib/products/drawingNotes'
+import { approveAspect, similarity } from '@/lib/products/drawingNotes'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,7 +37,7 @@ export async function GET(
     const note = await loadNote(code)
     if (!note) return NextResponse.json({ error: 'Note not found' }, { status: 404 })
 
-    const [versions, approvals, sources] = await Promise.all([
+    const [versions, approvals, sources, groups] = await Promise.all([
       queryPrimary<any[]>(
         `SELECT id, version_no, status, name, description, note_text,
                 measure_description, measure_how_to, created_by, created_at,
@@ -60,6 +60,24 @@ export async function GET(
            FROM drawing_note_sources
           WHERE note_id = ?
           ORDER BY apc_part_number, page_no`, [note.id]),
+      // Groups this note belongs to, with their other members. Two queries
+      // would be tidier but 5.6 has no window function to fold the members
+      // back in, and the member list is short.
+      queryPrimary<any[]>(
+        `SELECT g.id, g.name, g.kind, g.description, g.created_by, g.created_at,
+                mm.note_id AS member_note_id, mm.is_primary,
+                n2.note_code AS member_code, n2.name AS member_name,
+                v2.note_text AS member_text
+           FROM drawing_note_group_members me
+           JOIN drawing_note_groups g ON g.id = me.group_id
+           JOIN drawing_note_group_members mm ON mm.group_id = g.id
+           JOIN drawing_notes n2 ON n2.id = mm.note_id
+           LEFT JOIN drawing_note_versions v2
+             ON v2.id = COALESCE(n2.active_version_id,
+                  (SELECT id FROM drawing_note_versions x
+                    WHERE x.note_id = n2.id ORDER BY x.version_no DESC LIMIT 1))
+          WHERE me.note_id = ?
+          ORDER BY g.id, n2.note_code`, [note.id]),
     ])
 
     // History: one dated row per transition, built from the stamps written at
@@ -90,8 +108,26 @@ export async function GET(
     }
     history.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
 
+    // Fold the flat join into one entry per group.
+    const groupMap = new Map<number, any>()
+    for (const r of groups || []) {
+      if (!groupMap.has(r.id)) {
+        groupMap.set(r.id, {
+          id: r.id, name: r.name, kind: r.kind, description: r.description,
+          created_by: r.created_by, created_at: r.created_at, members: [],
+        })
+      }
+      groupMap.get(r.id).members.push({
+        note_id: r.member_note_id, note_code: r.member_code,
+        name: r.member_name, text: r.member_text,
+        is_primary: r.is_primary === 1,
+        is_self: r.member_note_id === note.id,
+      })
+    }
+
     return NextResponse.json({
       success: true,
+      groups: [...groupMap.values()],
       note: {
         id: note.id, note_code: note.note_code, customer: note.customer,
         name: note.name, active_version_id: note.active_version_id,
@@ -206,6 +242,67 @@ export async function POST(
       }
       const out = await approveAspect(versionId, aspect, user, String(b?.comment || ''))
       return NextResponse.json({ success: true, ...out })
+    }
+
+    if (action === 'create_group' || action === 'add_to_group') {
+      let groupId = Number(b?.group_id || 0)
+      if (action === 'create_group') {
+        const name = String(b?.name || '').trim()
+        if (!name) return NextResponse.json({ error: 'A group name is required.' }, { status: 400 })
+        const kind = ['same', 'similar'].includes(String(b?.kind)) ? String(b.kind) : 'same'
+        const ins = await queryPrimary<any>(
+          `INSERT INTO drawing_note_groups (name, description, kind, created_by)
+           VALUES (?, ?, ?, ?)`,
+          [name, b?.description ?? null, kind, user])
+        groupId = Number(ins?.insertId || 0)
+        // The note the group was created from joins it automatically —
+        // a group of one other note is not what anyone meant.
+        await queryPrimary(
+          `INSERT IGNORE INTO drawing_note_group_members (group_id, note_id, added_by)
+           VALUES (?, ?, ?)`, [groupId, note.id, user])
+      }
+      if (!groupId) return NextResponse.json({ error: 'group_id required' }, { status: 400 })
+
+      // Codes of notes to add alongside this one.
+      const codes: string[] = Array.isArray(b?.codes)
+        ? b.codes.map((c: any) => String(c).trim()).filter(Boolean) : []
+      if (codes.length) {
+        const marks = codes.map(() => '?').join(', ')
+        const rows = await queryPrimary<any[]>(
+          `SELECT id FROM drawing_notes WHERE note_code IN (${marks})`, codes)
+        for (const r of rows || []) {
+          await queryPrimary(
+            `INSERT IGNORE INTO drawing_note_group_members (group_id, note_id, added_by)
+             VALUES (?, ?, ?)`, [groupId, Number(r.id), user])
+        }
+      }
+      await queryPrimary(
+        `INSERT IGNORE INTO drawing_note_group_members (group_id, note_id, added_by)
+         VALUES (?, ?, ?)`, [groupId, note.id, user])
+      return NextResponse.json({ success: true, group_id: groupId })
+    }
+
+    if (action === 'remove_from_group') {
+      const groupId = Number(b?.group_id || 0)
+      const targetCode = String(b?.code || '').trim()
+      if (!groupId) return NextResponse.json({ error: 'group_id required' }, { status: 400 })
+      let targetId = note.id
+      if (targetCode && targetCode !== note.note_code) {
+        const rows = await queryPrimary<any[]>(
+          'SELECT id FROM drawing_notes WHERE note_code = ?', [targetCode])
+        if (!rows?.length) return NextResponse.json({ error: 'Note not found' }, { status: 404 })
+        targetId = Number(rows[0].id)
+      }
+      await queryPrimary(
+        'DELETE FROM drawing_note_group_members WHERE group_id = ? AND note_id = ?',
+        [groupId, targetId])
+      // A group with nothing left in it is noise in every future search.
+      const left = await queryPrimary<any[]>(
+        'SELECT COUNT(*) AS c FROM drawing_note_group_members WHERE group_id = ?', [groupId])
+      if (Number(left?.[0]?.c || 0) < 2) {
+        await queryPrimary('DELETE FROM drawing_note_groups WHERE id = ?', [groupId])
+      }
+      return NextResponse.json({ success: true })
     }
 
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })

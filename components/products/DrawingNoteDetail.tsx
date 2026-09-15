@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo } from 'react'
 import {
   RefreshCw, Save, Plus, Check, FileText, ExternalLink, Image as ImageIcon,
-  ClipboardList, Ruler, ShieldCheck, Package, History, X,
+  ClipboardList, Ruler, ShieldCheck, Package, History, X, Link2, Search, Trash2,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
@@ -55,6 +55,13 @@ export default function DrawingNoteDetail({ code, onChanged }: {
   const [imageError, setImageError] = useState<string | null>(null)
   // Tight crop of the note, or the whole sheet with the note outlined.
   const [showContext, setShowContext] = useState(false)
+  // Grouping tab state
+  const [candidates, setCandidates] = useState<any[]>([])
+  const [candQuery, setCandQuery] = useState('')
+  const [candLoading, setCandLoading] = useState(false)
+  const [picked, setPicked] = useState<Set<string>>(new Set())
+  const [newGroupName, setNewGroupName] = useState('')
+  const [newGroupKind, setNewGroupKind] = useState('same')
 
   const load = async () => {
     setLoading(true); setError(null)
@@ -137,6 +144,68 @@ export default function DrawingNoteDetail({ code, onChanged }: {
     finally { setSaving(false) }
   }
 
+  const groups: any[] = data?.groups || []
+
+  const loadCandidates = async (q = '') => {
+    setCandLoading(true)
+    try {
+      const res = await fetch(getApiUrl(
+        `/api/products/drawing-notes/similar?code=${encodeURIComponent(code)}`
+        + (q ? `&q=${encodeURIComponent(q)}` : '')))
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Search failed')
+      setCandidates(d.candidates || [])
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setCandLoading(false) }
+  }
+
+  useEffect(() => {
+    if (tab === 'similar' && candidates.length === 0 && !candLoading) loadCandidates()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab])
+
+  const togglePick = (c: string) => setPicked(p => {
+    const n = new Set(p)
+    if (n.has(c)) n.delete(c)
+    else n.add(c)
+    return n
+  })
+
+  const createGroup = async () => {
+    if (!newGroupName.trim() || !picked.size) return
+    setSaving(true); setError(null)
+    try {
+      await post({
+        action: 'create_group', name: newGroupName.trim(),
+        kind: newGroupKind, codes: [...picked],
+      })
+      setNewGroupName(''); setPicked(new Set())
+      await load(); await loadCandidates(candQuery); onChanged?.()
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setSaving(false) }
+  }
+
+  const addToGroup = async (groupId: number) => {
+    if (!picked.size) return
+    setSaving(true); setError(null)
+    try {
+      await post({ action: 'add_to_group', group_id: groupId, codes: [...picked] })
+      setPicked(new Set())
+      await load(); await loadCandidates(candQuery); onChanged?.()
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setSaving(false) }
+  }
+
+  const removeFromGroup = async (groupId: number, memberCode: string) => {
+    setSaving(true); setError(null)
+    try {
+      await post({ action: 'remove_from_group', group_id: groupId, code: memberCode })
+      await load(); await loadCandidates(candQuery); onChanged?.()
+    } catch (e) { setError(e instanceof Error ? e.message : String(e)) }
+    finally { setSaving(false) }
+  }
+
   const approvedAspects = new Set(
     approvals.filter(a => a.version_id === selectedVersionId).map(a => a.aspect)
   )
@@ -149,6 +218,7 @@ export default function DrawingNoteDetail({ code, onChanged }: {
     { id: 'measure', label: 'Measure', icon: Ruler },
     { id: 'approvals', label: 'Approvals', icon: ShieldCheck },
     { id: 'parts', label: `APC Parts (${new Set(sources.map(s => s.apc_part_number)).size})`, icon: Package },
+    { id: 'similar', label: `Similar${groups.length ? ` (${groups.length})` : ''}`, icon: Link2 },
     { id: 'history', label: 'History', icon: History },
   ]
 
@@ -330,6 +400,138 @@ export default function DrawingNoteDetail({ code, onChanged }: {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        )}
+
+        {tab === 'similar' && (
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-lg font-semibold text-slate-800">Similar Notes</h3>
+              <p className="text-sm text-slate-600">
+                Notes with identical wording are already merged automatically on scan.
+                Group notes here when they mean the same thing but are worded differently —
+                both records stay intact.
+              </p>
+            </div>
+
+            {groups.length > 0 && (
+              <div className="space-y-3">
+                {groups.map(g => (
+                  <div key={g.id} className="border border-slate-200 rounded-lg">
+                    <div className="flex items-center justify-between px-3 py-2 bg-slate-50 border-b border-slate-200">
+                      <div>
+                        <span className="font-semibold text-slate-800">{g.name}</span>
+                        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs ${
+                          g.kind === 'same' ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>
+                          {g.kind}
+                        </span>
+                      </div>
+                      <span className="text-xs text-slate-500">
+                        {g.members.length} notes · by {g.created_by}
+                      </span>
+                    </div>
+                    <table className="w-full text-sm">
+                      <tbody>
+                        {g.members.map((mem: any) => (
+                          <tr key={mem.note_code} className="border-t border-slate-100">
+                            <td className="px-3 py-2 font-mono text-xs font-semibold whitespace-nowrap">
+                              {mem.note_code}
+                              {mem.is_self && <span className="ml-1 text-blue-600">(this)</span>}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 truncate max-w-md" title={mem.text}>
+                              {mem.text || mem.name || '—'}
+                            </td>
+                            <td className="px-3 py-2 w-8">
+                              <button onClick={() => removeFromGroup(g.id, mem.note_code)}
+                                disabled={saving}
+                                title="Remove from this group"
+                                className="text-slate-400 hover:text-red-600">
+                                <Trash2 size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div className="border border-slate-200 rounded-lg p-3 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input type="text" value={candQuery}
+                    placeholder="Search all notes, or leave blank for closest wording…"
+                    onChange={e => setCandQuery(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') loadCandidates(candQuery) }}
+                    className="w-full pl-8 pr-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none" />
+                </div>
+                <button onClick={() => loadCandidates(candQuery)} disabled={candLoading}
+                  className="px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+                  {candLoading ? 'Searching…' : 'Search'}
+                </button>
+              </div>
+
+              {candidates.length === 0 ? (
+                <p className="text-sm text-slate-500 italic">
+                  {candLoading ? 'Looking…' : 'No candidates. Try a search term.'}
+                </p>
+              ) : (
+                <div className="max-h-72 overflow-auto border border-slate-200 rounded">
+                  <table className="w-full text-sm">
+                    <tbody>
+                      {candidates.map(c => (
+                        <tr key={c.note_code}
+                          onClick={() => togglePick(c.note_code)}
+                          className={`border-t border-slate-100 cursor-pointer hover:bg-slate-50 ${
+                            picked.has(c.note_code) ? 'bg-blue-50' : ''}`}>
+                          <td className="px-2 py-2 w-8">
+                            <input type="checkbox" readOnly checked={picked.has(c.note_code)} />
+                          </td>
+                          <td className="px-2 py-2 font-mono text-xs font-semibold whitespace-nowrap">
+                            {c.note_code}
+                          </td>
+                          <td className="px-2 py-2 w-16 text-xs text-slate-500 tabular-nums"
+                            title="Word overlap — a shortlist, not a verdict">
+                            {Math.round(c.score * 100)}%
+                          </td>
+                          <td className="px-2 py-2 text-slate-600 truncate max-w-md" title={c.text}>
+                            {c.text || c.name}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              {picked.size > 0 && (
+                <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-slate-200">
+                  <span className="text-sm text-slate-600">{picked.size} selected:</span>
+                  {groups.map(g => (
+                    <button key={g.id} onClick={() => addToGroup(g.id)} disabled={saving}
+                      className="px-2.5 py-1 text-xs border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+                      Add to &ldquo;{g.name}&rdquo;
+                    </button>
+                  ))}
+                  <input type="text" value={newGroupName}
+                    placeholder="New group name"
+                    onChange={e => setNewGroupName(e.target.value)}
+                    className="px-2 py-1 text-sm border border-slate-300 rounded-lg" />
+                  <select value={newGroupKind} onChange={e => setNewGroupKind(e.target.value)}
+                    className="px-2 py-1 text-sm border border-slate-300 rounded-lg">
+                    <option value="same">same</option>
+                    <option value="similar">similar</option>
+                  </select>
+                  <button onClick={createGroup} disabled={saving || !newGroupName.trim()}
+                    className="px-2.5 py-1 text-xs bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40">
+                    Create group
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
