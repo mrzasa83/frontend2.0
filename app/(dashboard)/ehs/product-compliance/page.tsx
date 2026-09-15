@@ -1,13 +1,13 @@
 'use client'
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
 import { useSession } from 'next-auth/react'
 import Tabs from '@/components/ui/Tabs'
 import {
-  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Download, Plus, X,
-  ShieldCheck, Layers, Package, Route as RouteIcon, History as HistoryIcon, Save, AlertTriangle, CheckCircle2,
+  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Download, Plus, X, ShieldCheck, Layers, Package, Route as RouteIcon, History as HistoryIcon, Save, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import PartPanel from '@/components/ehs/PartPanel'
 import { hasRole } from '@/lib/config/access'
 import { rollUpAll, materialPasses, type MaterialLine } from '@/lib/ehs/productCompliance'
 
@@ -564,6 +564,19 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
 function BomTab({ bom, materials }: { bom: BomNode[]; materials: MaterialLine[] }) {
   const [filter, setFilter] = useState('')
   const [purchasedOnly, setPurchasedOnly] = useState(true)
+  // Which BOM lines are expanded into the full part view. Several can be open
+  // at once — comparing two materials side by side is the normal way an
+  // assessment gets made.
+  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const { data: session } = useSession()
+  const canEdit = hasRole((session?.user as any)?.roles || [], 'Admin', 'EHSadmin')
+
+  const toggle = (key: string) => setExpanded(prev => {
+    const next = new Set(prev)
+    if (next.has(key)) next.delete(key)
+    else next.add(key)
+    return next
+  })
 
   // Family lookup, so purchased rows can show where they landed.
   const familyOf = new Map(materials.map(m => [m.part_number.toUpperCase(), m]))
@@ -610,16 +623,24 @@ function BomTab({ bom, materials }: { bom: BomNode[]; materials: MaterialLine[] 
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Manufacturer</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-16">Lvl</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-44">Family</th>
+              <th className="px-3 py-2 w-8"></th>
             </tr>
           </thead>
           <tbody>
             {shown.length === 0 ? (
-              <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-400 text-sm">No materials.</td></tr>
+              <tr><td colSpan={6} className="px-3 py-6 text-center text-slate-400 text-sm">No materials.</td></tr>
             ) : shown.map((r, i) => {
               const m = familyOf.get(r.part_number.toUpperCase())
               const manufactured = r.pm === 'M'
+              const key = `${r.part_number}-${i}`
+              const open = expanded.has(key)
               return (
-                <tr key={`${r.part_number}-${i}`} className="border-t border-slate-100 hover:bg-slate-50">
+                <Fragment key={key}>
+                <tr
+                  className={`border-t border-slate-100 hover:bg-slate-50 cursor-pointer ${
+                    open ? 'bg-blue-50/50' : ''}`}
+                  onClick={() => toggle(key)}
+                  title={open ? 'Collapse' : 'Open the full part view'}>
                   <td className="px-3 py-1.5">
                     <span className="flex items-center gap-1.5">
                       {manufactured
@@ -642,7 +663,24 @@ function BomTab({ bom, materials }: { bom: BomNode[]; materials: MaterialLine[] 
                         ? <span className="text-slate-700">{m.family_name}</span>
                         : <span className="text-amber-600 text-xs">unassigned</span>}
                   </td>
+                  <td className="px-3 py-1.5 text-slate-400">
+                    {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                  </td>
                 </tr>
+                {open && (
+                  <tr className="border-t border-slate-100 bg-slate-50/60">
+                    <td colSpan={6} className="px-3 py-3">
+                      {/* The same panel Material Mgt uses, so classification,
+                          evidence and where-used stay in one implementation
+                          rather than drifting apart in two places. */}
+                      <div className="bg-white border border-slate-200 rounded-lg p-3">
+                        <PartPanel partNumber={r.part_number} canEdit={canEdit}
+                          onChanged={() => { /* the row's family label refreshes on reload */ }} />
+                      </div>
+                    </td>
+                  </tr>
+                )}
+                </Fragment>
               )
             })}
           </tbody>

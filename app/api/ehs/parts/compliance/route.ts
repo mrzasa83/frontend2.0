@@ -83,6 +83,15 @@ export async function PUT(request: NextRequest) {
     invalidatePartsCache()   // per-part classification changed
     return NextResponse.json({ success: true, updated_by: user })
   } catch (error) {
+    // ER_NO_SUCH_TABLE means a migration was never run on this database. That
+    // is a deployment step, not a bug, and naming the file turns a trip through
+    // the container logs into a one-line fix.
+    if ((error as any)?.code === 'ER_NO_SUCH_TABLE') {
+      return NextResponse.json({
+        error: 'The ehs_part_compliance table does not exist on this database. '
+          + 'Run sql/create_ehs_part_compliance.sql against node_app.',
+      }, { status: 500 })
+    }
     console.error('EHS part compliance save error:', error)
     return NextResponse.json({
       error: 'Failed to save the classification',
