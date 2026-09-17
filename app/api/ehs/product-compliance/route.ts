@@ -28,11 +28,11 @@ export async function GET(request: NextRequest) {
     const rows = await queryPrimary<any[]>(
       all
         ? `SELECT id, apc_part, customer_part, part_type, reach_status, rohs_status,
-                  prop65_status, material_count, covered_count, assessed_by, assessed_at
+                  prop65_status, pfas_status, material_count, covered_count, assessed_by, assessed_at
            FROM ehs_product_assessments
            ORDER BY assessed_at DESC`
         : `SELECT a.id, a.apc_part, a.customer_part, a.part_type, a.reach_status, a.rohs_status,
-                  a.prop65_status, a.material_count, a.covered_count, a.assessed_by, a.assessed_at
+                  a.prop65_status, a.pfas_status, a.material_count, a.covered_count, a.assessed_by, a.assessed_at
            FROM ehs_product_assessments a
            JOIN (
              SELECT apc_part, MAX(id) AS latest_id
@@ -133,13 +133,13 @@ export async function POST(request: NextRequest) {
 
     const res: any = await queryPrimary(
       `INSERT INTO ehs_product_assessments
-         (apc_part, customer_part, part_type, reach_status, rohs_status, prop65_status,
+         (apc_part, customer_part, part_type, reach_status, rohs_status, prop65_status, pfas_status,
           material_count, covered_count, notes, assessed_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [apcResolved,
        customerResolved.slice(0, 120),
        productTypeFromPart(apcResolved),
-       verdict(b?.reach_status), verdict(b?.rohs_status), verdict(b?.prop65_status),
+       verdict(b?.reach_status), verdict(b?.rohs_status), verdict(b?.prop65_status), verdict(b?.pfas_status),
        materials.length,
        materials.filter(m => m.family_name).length,
        String(b?.notes ?? ''),
@@ -151,8 +151,8 @@ export async function POST(request: NextRequest) {
       await queryPrimary(
         `INSERT INTO ehs_product_assessment_lines
            (assessment_id, part_number, description, manufacturer, family_name,
-            reach_status, rohs_status, prop65_status, per_part_evidence)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            reach_status, rohs_status, prop65_status, pfas_status, per_part_evidence)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [id,
          String(m.part_number ?? '').slice(0, 120),
          String(m.description ?? '').slice(0, 300),
@@ -161,6 +161,7 @@ export async function POST(request: NextRequest) {
          String(m.reach_status ?? '').slice(0, 30),
          String(m.rohs_status ?? '').slice(0, 30),
          String(m.prop65_status ?? '').slice(0, 30),
+         String(m.pfas_status ?? '').slice(0, 30),
          m.per_part_evidence ? 1 : 0]
       )
     }

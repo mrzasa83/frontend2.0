@@ -33,6 +33,7 @@ export type ResolvedPart = {
   reach_status: string
   rohs_status: string
   prop65_status: string
+  pfas_status: string
   per_part_evidence: boolean
   overlap: string[] | null
 }
@@ -88,6 +89,7 @@ async function build(): Promise<ResolvedPart[]> {
       reach_status: inherits ? (fam?.reach_status || '') : '',
       rohs_status: inherits ? (fam?.rohs_status || '') : '',
       prop65_status: inherits ? (fam?.prop65_status || '') : '',
+      pfas_status: inherits ? (fam?.pfas_status || '') : '',
       per_part_evidence: fam ? !inherits : false,
       overlap: all.length > 1 ? all.map(f => f.family_name) : null,
     }

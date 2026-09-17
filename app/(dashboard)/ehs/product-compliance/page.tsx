@@ -13,7 +13,7 @@ import { rollUpAll, materialPasses, type MaterialLine } from '@/lib/ehs/productC
 
 type Assessment = {
   id: number; apc_part: string; customer_part: string; part_type: string
-  reach_status: string; rohs_status: string; prop65_status: string
+  reach_status: string; rohs_status: string; prop65_status: string; pfas_status: string
   material_count: number; covered_count: number
   assessed_by: string; assessed_at: string
   notes?: string
@@ -27,7 +27,7 @@ type ProductDetail = {
   materials: MaterialLine[]
   bom?: BomNode[]
   bom_total: number; purchased_count: number; manufactured_count?: number
-  rollup: { reach: string; rohs: string; prop65: string }
+  rollup: { reach: string; rohs: string; prop65: string; pfas: string }
   route: any[]
   history: Assessment[]
 }
@@ -109,6 +109,7 @@ const LIST_COLS = [
   { key: 'reach_status', label: 'REACH', w: 90 },
   { key: 'rohs_status', label: 'RoHS', w: 90 },
   { key: 'prop65_status', label: 'Prop 65', w: 90 },
+  { key: 'pfas_status', label: 'PFAS', w: 80 },
   { key: 'assessed_at', label: 'Date Assessed', w: 130 },
 ]
 
@@ -150,7 +151,7 @@ function AssessedList({ canEdit, onOpen }: { canEdit: boolean; onOpen: (p: strin
     const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(shown.map(r => ({
       'Part Number': r.apc_part, Type: r.part_type, 'Customer Part Number': r.customer_part,
-      REACH: r.reach_status, RoHS: r.rohs_status, 'Prop 65': r.prop65_status,
+      REACH: r.reach_status, RoHS: r.rohs_status, 'Prop 65': r.prop65_status, PFAS: r.pfas_status,
       Materials: r.material_count, 'In a family': r.covered_count,
       'Assessed By': r.assessed_by, 'Date Assessed': fmtDate(r.assessed_at),
     })))
@@ -225,7 +226,7 @@ function AssessedList({ canEdit, onOpen }: { canEdit: boolean; onOpen: (p: strin
                   <span className={`text-xs px-1.5 py-0.5 rounded ${r.part_type === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>{r.part_type}</span>
                 </td>
                 <td className="px-3 py-1.5 font-mono text-slate-700">{r.customer_part}</td>
-                {[r.reach_status, r.rohs_status, r.prop65_status].map((v, i) => (
+                {[r.reach_status, r.rohs_status, r.prop65_status, r.pfas_status].map((v, i) => (
                   <td key={i} className="px-3 py-1.5">
                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${verdictBadge(v)}`}>{v}</span>
                   </td>
@@ -444,6 +445,7 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
         body: JSON.stringify({
           apc_part: apcPart, customer_part: customerPart,
           reach_status: rollup.reach, rohs_status: rollup.rohs, prop65_status: rollup.prop65,
+          pfas_status: rollup.pfas,
           materials: data.materials, notes,
         }),
       })
@@ -461,8 +463,8 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
       {err && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{err}</div>}
       {msg && <div className="p-3 mb-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">{msg}</div>}
 
-      <div className="grid grid-cols-3 gap-3 mb-4">
-        {([['REACH', rollup.reach], ['RoHS', rollup.rohs], ['Prop 65', rollup.prop65]] as const).map(([label, v]) => (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        {([['REACH', rollup.reach], ['RoHS', rollup.rohs], ['Prop 65', rollup.prop65], ['PFAS', rollup.pfas]] as const).map(([label, v]) => (
           <div key={label} className="bg-white border border-slate-200 rounded-xl p-4 text-center">
             <div className="text-xs uppercase tracking-wide text-slate-400 mb-1">{label}</div>
             <div className={`inline-block px-3 py-1 rounded-lg text-lg font-bold ${verdictBadge(v)}`}>{v}</div>
@@ -490,6 +492,7 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">REACH</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">RoHS</th>
               <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Prop 65</th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">PFAS</th>
               <th className="px-3 py-2 text-center text-xs font-medium text-slate-600 w-16">OK</th>
             </tr>
           </thead>
@@ -499,7 +502,7 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
                 No purchased materials found on this BOM.
               </td></tr>
             ) : data.materials.map((m, i) => {
-              const ok = (['reach', 'rohs', 'prop65'] as const).every(c => materialPasses(m, c))
+              const ok = (['reach', 'rohs', 'prop65', 'pfas'] as const).every(c => materialPasses(m, c))
               return (
                 <tr key={i} className="border-t border-slate-100 hover:bg-slate-50">
                   <td className="px-3 py-1.5">
@@ -514,7 +517,7 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
                       <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-purple-100 text-purple-700">per part</span>
                     )}
                   </td>
-                  {[m.reach_status, m.rohs_status, m.prop65_status].map((v, j) => (
+                  {[m.reach_status, m.rohs_status, m.prop65_status, m.pfas_status].map((v, j) => (
                     <td key={j} className="px-3 py-1.5">
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusBadge(v)}`}>{v || '—'}</span>
                     </td>
@@ -545,7 +548,7 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-sm text-slate-700">
                 Record that on today’s date the evidence supports
-                <strong> REACH {rollup.reach} · RoHS {rollup.rohs} · Prop 65 {rollup.prop65}</strong>?
+                <strong> REACH {rollup.reach} · RoHS {rollup.rohs} · Prop 65 {rollup.prop65} · PFAS {rollup.pfas}</strong>?
               </span>
               <button onClick={save} disabled={busy}
                 className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
@@ -760,6 +763,7 @@ function HistoryTab({ history }: { history: Assessment[] }) {
                 <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-24">REACH</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-24">RoHS</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-24">Prop 65</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-24">PFAS</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-28">Materials</th>
                 <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Notes</th>
               </tr>
@@ -769,7 +773,7 @@ function HistoryTab({ history }: { history: Assessment[] }) {
                 <tr key={h.id} className="border-t border-slate-100">
                   <td className="px-3 py-1.5 text-slate-700">{fmtDate(h.assessed_at)}</td>
                   <td className="px-3 py-1.5 text-slate-700">{h.assessed_by}</td>
-                  {[h.reach_status, h.rohs_status, h.prop65_status].map((v, i) => (
+                  {[h.reach_status, h.rohs_status, h.prop65_status, h.pfas_status].map((v, i) => (
                     <td key={i} className="px-3 py-1.5">
                       <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${verdictBadge(v)}`}>{v}</span>
                     </td>

@@ -29,10 +29,10 @@ const ext = (n: string) => { const m = /\.([^.]+)$/.exec(n || ''); return m ? m[
 
 export type PartDetailData = {
   part: { rkey: number; part_number: string; description: string; manufacturer: string; active_flag: string; pm: string }
-  family: { id: number; family_name: string; inherit_compliance: number; reach_status: string; rohs_status: string; prop65_status: string } | null
+  family: { id: number; family_name: string; inherit_compliance: number; reach_status: string; rohs_status: string; prop65_status: string; pfas_status: string } | null
   compliance_source: string
-  compliance: { reach_status: string; rohs_status: string; prop65_status: string }
-  part_compliance: { reach_status: string; rohs_status: string; prop65_status: string; notes: string | null; updated_by: string; updated_at: string } | null
+  compliance: { reach_status: string; rohs_status: string; prop65_status: string; pfas_status: string }
+  part_compliance: { reach_status: string; rohs_status: string; prop65_status: string; pfas_status: string; notes: string | null; updated_by: string; updated_at: string } | null
   notepad: string
   attachments: { name: string; description: string; path: string; windows_path: string; extension: string; print_on_traveller: boolean; servable?: boolean; reason?: string }[]
 }
@@ -224,6 +224,7 @@ function PartGeneralTab({ data, canEdit, reload }:
   const [reach, setReach] = useState(data.compliance.reach_status || 'Unknown')
   const [rohs, setRohs] = useState(data.compliance.rohs_status || 'Unknown')
   const [prop65, setProp65] = useState(data.compliance.prop65_status || 'Unknown')
+  const [pfas, setPfas] = useState(data.compliance.pfas_status || 'Unknown')
   const [notes, setNotes] = useState(data.part_compliance?.notes || '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -236,7 +237,8 @@ function PartGeneralTab({ data, canEdit, reload }:
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           part_number: data.part.part_number,
-          reach_status: reach, rohs_status: rohs, prop65_status: prop65, notes,
+          reach_status: reach, rohs_status: rohs, prop65_status: prop65,
+          pfas_status: pfas, notes,
         }),
       })
       const r = await res.json()
@@ -290,8 +292,8 @@ function PartGeneralTab({ data, canEdit, reload }:
             <p className="text-xs text-slate-500 mb-3">
               “{data.family.family_name}” doesn’t pass its classification down, so this part carries its own.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-3">
-              {([['REACH', reach, setReach], ['RoHS', rohs, setRohs], ['Prop 65', prop65, setProp65]] as const).map(([label, v, setter]) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-3">
+              {([['REACH', reach, setReach], ['RoHS', rohs, setRohs], ['Prop 65', prop65, setProp65], ['PFAS', pfas, setPfas]] as const).map(([label, v, setter]) => (
                 <div key={label}>
                   <label className="block text-xs font-medium text-slate-500 mb-1">{label}</label>
                   {canEdit ? (
@@ -323,8 +325,8 @@ function PartGeneralTab({ data, canEdit, reload }:
             <p className="text-xs text-slate-500 mb-3">
               Inherited from “{data.family.family_name}”. Change it on the family to change it here.
             </p>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              {([['REACH', data.compliance.reach_status], ['RoHS', data.compliance.rohs_status], ['Prop 65', data.compliance.prop65_status]] as const).map(([label, v]) => (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {([['REACH', data.compliance.reach_status], ['RoHS', data.compliance.rohs_status], ['Prop 65', data.compliance.prop65_status], ['PFAS', data.compliance.pfas_status]] as const).map(([label, v]) => (
                 <div key={label}>
                   <div className="text-xs font-medium text-slate-500 mb-1">{label}</div>
                   <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusBadge(v)}`}>{v || 'Unknown'}</span>
@@ -435,7 +437,7 @@ function PartAttachmentsTab({ attachments }:
  * Distinct from the Attachments tab, which lists what Paradigm already has
  * against the item. These are documents an EHS reviewer uploads — a
  * certificate of compliance, a declaration, a supplier statement — and they are
- * the evidence behind the part's own REACH / RoHS / Prop 65 classification when
+ * the evidence behind the part's own REACH / RoHS / Prop 65 / PFAS classification when
  * the family does not supply one.
  */
 function PartDocumentsTab({ partNumber, canEdit }:
@@ -499,7 +501,7 @@ function PartDocumentsTab({ partNumber, canEdit }:
         <div className="flex flex-wrap items-center gap-2 p-2 border border-slate-200 rounded-lg">
           <select value={docType} onChange={e => setDocType(e.target.value)}
             className="px-2 py-1 text-sm border border-slate-300 rounded">
-            {['General', 'REACH', 'RoHS', 'Prop 65', 'SDS'].map(t =>
+            {['General', 'REACH', 'RoHS', 'Prop 65', 'PFAS', 'SDS'].map(t =>
               <option key={t} value={t}>{t}</option>)}
           </select>
           <input type="text" value={title} placeholder="Title (optional)"

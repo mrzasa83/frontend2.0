@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS ehs_part_families (
   reach_status   VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
   rohs_status    VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
   prop65_status  VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
+  pfas_status    VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
   classification_notes TEXT   NULL,
   -- 1 = parts inherit this family's classification.
   -- 0 = the classification does NOT flow down; every part in the family needs

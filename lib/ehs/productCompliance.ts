@@ -7,7 +7,7 @@
  * classification down, cannot be vouched for from the family definitions alone.
  */
 
-export type Category = 'reach' | 'rohs' | 'prop65'
+export type Category = 'reach' | 'rohs' | 'prop65' | 'pfas'
 
 export type MaterialLine = {
   part_number: string
@@ -19,6 +19,7 @@ export type MaterialLine = {
   reach_status: string
   rohs_status: string
   prop65_status: string
+  pfas_status: string
   per_part_evidence: boolean
 }
 
@@ -39,7 +40,10 @@ export function materialPasses(m: MaterialLine, cat: Category): boolean {
   if (!m.family_name) return false
   if (m.per_part_evidence) return false
   const v = String(
-    cat === 'reach' ? m.reach_status : cat === 'rohs' ? m.rohs_status : m.prop65_status
+    cat === 'reach' ? m.reach_status
+      : cat === 'rohs' ? m.rohs_status
+        : cat === 'prop65' ? m.prop65_status
+          : m.pfas_status
   ).toLowerCase()
   return v === 'compliant' || v === 'exempt'
 }
@@ -60,5 +64,6 @@ export function rollUpAll(materials: MaterialLine[]) {
     reach: rollUp(materials, 'reach'),
     rohs: rollUp(materials, 'rohs'),
     prop65: rollUp(materials, 'prop65'),
+    pfas: rollUp(materials, 'pfas'),
   }
 }

@@ -24,6 +24,7 @@ type Part = {
   reach_status: string
   rohs_status: string
   prop65_status: string
+  pfas_status: string
   per_part_evidence?: boolean
   overlap: string[] | null
 }
@@ -34,6 +35,7 @@ type Family = {
   reach_status: string
   rohs_status: string
   prop65_status: string
+  pfas_status: string
   classification_notes: string | null
   inherit_compliance?: number
   sort_order: number
@@ -127,7 +129,7 @@ export default function MaterialMgtPage() {
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-slate-800">Material Mgt</h1>
         <p className="text-sm text-slate-600">
-          Bucket purchased parts into material families and record their REACH / RoHS / Prop 65 position
+          Bucket purchased parts into material families and record their REACH / RoHS / Prop 65 / PFAS position
           {!canEdit && <span className="text-slate-400"> · view only</span>}
         </p>
       </div>
@@ -206,7 +208,7 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
     const ws = XLSX.utils.json_to_sheet(rows.map(r => ({
       RKEY: r.RKEY, 'Part Number': r.INV_PART_NUMBER, Description: r.INV_PART_DESCRIPTION,
       Manufacturer: r.MANUFACTURER_NAME, 'Product Family': r.PRODUCT_FAMILY,
-      REACH: r.reach_status, RoHS: r.rohs_status, 'Prop 65': r.prop65_status, Active: r.ACTIVE_FLAG,
+      REACH: r.reach_status, RoHS: r.rohs_status, 'Prop 65': r.prop65_status, PFAS: r.pfas_status, Active: r.ACTIVE_FLAG,
     })))
     ws['!cols'] = [{ wch: 10 }, { wch: 20 }, { wch: 46 }, { wch: 24 }, { wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }]
     const wb = XLSX.utils.book_new()
@@ -383,6 +385,7 @@ function FamiliesTab({ canEdit, onOpen, onChanged }: { canEdit: boolean; onOpen:
     { key: 'reach_status', label: 'REACH', w: 120 },
     { key: 'rohs_status', label: 'RoHS', w: 120 },
     { key: 'prop65_status', label: 'Prop 65', w: 120 },
+    { key: 'pfas_status', label: 'PFAS', w: 110 },
   ]
 
   const valueOf = (f: Family, key: string) =>
@@ -418,7 +421,7 @@ function FamiliesTab({ canEdit, onOpen, onChanged }: { canEdit: boolean; onOpen:
     const XLSX = await import('xlsx')
     const ws = XLSX.utils.json_to_sheet(sorted.map(f => ({
       Family: f.family_name, 'Search Criteria': criteriaText(f), Description: f.description,
-      Parts: f.match_count ?? '', REACH: f.reach_status, RoHS: f.rohs_status, 'Prop 65': f.prop65_status,
+      Parts: f.match_count ?? '', REACH: f.reach_status, RoHS: f.rohs_status, 'Prop 65': f.prop65_status, PFAS: f.pfas_status,
       'Parts inherit': (f.inherit_compliance ?? 1) ? 'Yes' : 'No — per part',
     })))
     ws['!cols'] = [{ wch: 22 }, { wch: 48 }, { wch: 34 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }]
@@ -511,7 +514,7 @@ function FamiliesTab({ canEdit, onOpen, onChanged }: { canEdit: boolean; onOpen:
                 </td>
                 <td className="px-3 py-1.5 text-slate-600 truncate max-w-xs">{f.description}</td>
                 <td className="px-3 py-1.5 tabular-nums text-slate-700">{f.match_count ?? '—'}</td>
-                {[f.reach_status, f.rohs_status, f.prop65_status].map((v, i) => (
+                {[f.reach_status, f.rohs_status, f.prop65_status, f.pfas_status].map((v, i) => (
                   <td key={i} className="px-3 py-1.5">
                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusBadge(v)}`}>{v || 'Unknown'}</span>
                   </td>
@@ -789,7 +792,7 @@ function EditFamilyModal({ family, onClose, onSaved }:
               Parts cannot inherit this family’s compliance level
               <span className="block text-xs text-slate-500 mt-0.5">
                 Every part in the family needs its own supporting documents. The family-level
-                REACH / RoHS / Prop 65 values stop flowing down to the parts list.
+                REACH / RoHS / Prop 65 / PFAS values stop flowing down to the parts list.
               </span>
             </span>
           </label>
@@ -810,6 +813,7 @@ function ClassificationTab({ family, canEdit, reload }: { family: Family; canEdi
   const [reach, setReach] = useState(family.reach_status || 'Unknown')
   const [rohs, setRohs] = useState(family.rohs_status || 'Unknown')
   const [prop65, setProp65] = useState(family.prop65_status || 'Unknown')
+  const [pfas, setPfas] = useState(family.pfas_status || 'Unknown')
   const [notes, setNotes] = useState(family.classification_notes || '')
   const [busy, setBusy] = useState(false)
   const [msg, setMsg] = useState('')
@@ -822,7 +826,7 @@ function ClassificationTab({ family, canEdit, reload }: { family: Family; canEdi
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: family.id, reach_status: reach, rohs_status: rohs,
-          prop65_status: prop65, classification_notes: notes,
+          prop65_status: prop65, pfas_status: pfas, classification_notes: notes,
         }),
       })
       const r = await res.json()
@@ -861,10 +865,11 @@ function ClassificationTab({ family, canEdit, reload }: { family: Family; canEdi
       )}
       {err && <div className="p-2 mb-3 bg-red-50 border border-red-200 text-red-700 rounded text-sm">{err}</div>}
       {msg && <div className="p-2 mb-3 bg-green-50 border border-green-200 text-green-700 rounded text-sm">{msg}</div>}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
         <Row label="REACH" value={reach} onChange={setReach} />
         <Row label="RoHS" value={rohs} onChange={setRohs} />
         <Row label="Prop 65" value={prop65} onChange={setProp65} />
+        <Row label="PFAS" value={pfas} onChange={setPfas} />
       </div>
       <div className="mb-4">
         <label className="block text-xs font-medium text-slate-500 mb-1">
@@ -931,7 +936,7 @@ function DocumentsTab({ family, docs, canEdit, reload }: { family: Family; docs:
             <label className="block text-xs font-medium text-slate-500 mb-1">Type</label>
             <select value={docType} onChange={e => setDocType(e.target.value)}
               className="px-2 py-1.5 text-sm border border-slate-200 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-blue-400">
-              {['General', 'REACH', 'RoHS', 'Prop 65'].map(t => <option key={t} value={t}>{t}</option>)}
+              {['General', 'REACH', 'RoHS', 'Prop 65', 'PFAS'].map(t => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
           <div className="flex-1 min-w-[180px]">

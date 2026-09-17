@@ -163,6 +163,7 @@ export async function GET(request: NextRequest) {
         reach_status: inherits ? (fam?.reach_status || '') : '',
         rohs_status: inherits ? (fam?.rohs_status || '') : '',
         prop65_status: inherits ? (fam?.prop65_status || '') : '',
+        pfas_status: inherits ? (fam?.pfas_status || '') : '',
         per_part_evidence: fam ? !inherits : false,
       }
     })
@@ -185,7 +186,7 @@ export async function GET(request: NextRequest) {
     }
 
     const history = await queryPrimary<any[]>(
-      `SELECT id, apc_part, customer_part, reach_status, rohs_status, prop65_status,
+      `SELECT id, apc_part, customer_part, reach_status, rohs_status, prop65_status, pfas_status,
               material_count, covered_count, notes, assessed_by, assessed_at
        FROM ehs_product_assessments
        WHERE apc_part = ?

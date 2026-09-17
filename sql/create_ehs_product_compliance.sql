@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS ehs_product_assessments (
   reach_status   VARCHAR(20)  NOT NULL DEFAULT 'Fail',  -- Pass | Fail
   rohs_status    VARCHAR(20)  NOT NULL DEFAULT 'Fail',
   prop65_status  VARCHAR(20)  NOT NULL DEFAULT 'Fail',
+  pfas_status    VARCHAR(20)  NOT NULL DEFAULT 'Fail',
   material_count INT          NOT NULL DEFAULT 0,
   covered_count  INT          NOT NULL DEFAULT 0,   -- materials resolved to a family
   notes          TEXT         NULL,
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS ehs_product_assessment_lines (
   reach_status  VARCHAR(30)  NOT NULL DEFAULT '',
   rohs_status   VARCHAR(30)  NOT NULL DEFAULT '',
   prop65_status VARCHAR(30)  NOT NULL DEFAULT '',
+  pfas_status   VARCHAR(30)  NOT NULL DEFAULT '',
   per_part_evidence TINYINT(1) NOT NULL DEFAULT 0,  -- family did not flow down
   INDEX idx_assessment (assessment_id),
   CONSTRAINT fk_line_assessment FOREIGN KEY (assessment_id)

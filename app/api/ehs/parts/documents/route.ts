@@ -3,7 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { canReadModule, hasRole } from '@/lib/config/access'
-import { MTRL_COMP_PATH } from '@/lib/config/drives'
+import { EHS_DOCS_PATH } from '@/lib/config/drives'
 import fs from 'fs/promises'
 import path from 'path'
 
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'file and part are required' }, { status: 400 })
     }
 
-    const dir = MTRL_COMP_PATH()
+    const dir = EHS_DOCS_PATH(part)
     try {
       await fs.mkdir(dir, { recursive: true })
     } catch (e: any) {
@@ -78,15 +78,18 @@ export async function POST(request: NextRequest) {
       // bare ENOENT.
       return NextResponse.json({
         error: `Cannot write to the evidence folder (${dir}): ${e?.code || e}. `
-          + 'Check the S drive is mounted and writable by the container.',
+          + (e?.code === 'EROFS'
+            ? 'That mount is read-only in the container — check docker-compose.yml.'
+            : 'Check the J drive is mounted and writable by the container.'),
       }, { status: 500 })
     }
 
-    // {partNumber}-{date}.{ext}, counter-suffixed when a part gets more than
-    // one document on the same day.
+    // {docType}-{date}.{ext} inside the part's own folder, counter-suffixed
+    // when a part gets more than one document of a type on the same day. The
+    // part number is the folder, so repeating it in the file name adds nothing.
     const extn = (path.extname(file.name) || '.pdf').toLowerCase()
     const date = new Date().toISOString().slice(0, 10)
-    const base = `${safeName(part)}-${date}`
+    const base = `${safeName(doc_type)}-${date}`
     let fileName = `${base}${extn}`
     let n = 2
     // eslint-disable-next-line no-constant-condition
@@ -96,7 +99,16 @@ export async function POST(request: NextRequest) {
     }
     const full = path.join(dir, fileName)
     const bytes = Buffer.from(await file.arrayBuffer())
-    await fs.writeFile(full, bytes)
+    try {
+      await fs.writeFile(full, bytes)
+    } catch (e: any) {
+      // mkdir can succeed on a path that already exists while the write still
+      // fails, so the read-only case has to be caught here too.
+      return NextResponse.json({
+        error: `Could not write ${full}: ${e?.code || e}.`
+          + (e?.code === 'EROFS' ? ' That mount is read-only in the container.' : ''),
+      }, { status: 500 })
+    }
 
     const ins = await queryPrimary<any>(
       `INSERT INTO ehs_part_documents

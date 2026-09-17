@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS ehs_part_compliance (
   reach_status   VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
   rohs_status    VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
   prop65_status  VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
+  pfas_status    VARCHAR(30)  NOT NULL DEFAULT 'Unknown',
   notes          TEXT         NULL,
   updated_by     VARCHAR(50)  NOT NULL DEFAULT '',
   created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,

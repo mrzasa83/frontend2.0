@@ -62,7 +62,7 @@ export async function GET(request: NextRequest) {
       }),
       loadFamilies(),
       queryPrimary<any[]>(
-        `SELECT reach_status, rohs_status, prop65_status, notes, updated_by, updated_at
+        `SELECT reach_status, rohs_status, prop65_status, pfas_status, notes, updated_by, updated_at
          FROM ehs_part_compliance WHERE part_number = ? LIMIT 1`, [clean(p.INV_PART_NUMBER)]
       ).catch(() => []),
     ])
@@ -88,14 +88,16 @@ export async function GET(request: NextRequest) {
           reach_status: fam!.reach_status || 'Unknown',
           rohs_status: fam!.rohs_status || 'Unknown',
           prop65_status: fam!.prop65_status || 'Unknown',
+          pfas_status: fam!.pfas_status || 'Unknown',
         }
       : source === 'Part'
         ? {
             reach_status: own?.reach_status || 'Unknown',
             rohs_status: own?.rohs_status || 'Unknown',
             prop65_status: own?.prop65_status || 'Unknown',
+            pfas_status: own?.pfas_status || 'Unknown',
           }
-        : { reach_status: '', rohs_status: '', prop65_status: '' }
+        : { reach_status: '', rohs_status: '', prop65_status: '', pfas_status: '' }
 
     // Paradigm stores absolute Windows paths. Anything on a share we don't map
     // comes back unconverted, and the file-serve whitelist would reject it with a
@@ -135,6 +137,7 @@ export async function GET(request: NextRequest) {
         id: fam.id, family_name: fam.family_name,
         inherit_compliance: inherits ? 1 : 0,
         reach_status: fam.reach_status, rohs_status: fam.rohs_status, prop65_status: fam.prop65_status,
+        pfas_status: fam.pfas_status,
       } : null,
       compliance_source: source,      // 'Family' | 'Part' | ''
       compliance,

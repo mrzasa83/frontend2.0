@@ -68,15 +68,16 @@ export async function PUT(request: NextRequest) {
 
     await queryPrimary(
       `INSERT INTO ehs_part_compliance
-         (part_number, reach_status, rohs_status, prop65_status, notes, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?)
+         (part_number, reach_status, rohs_status, prop65_status, pfas_status, notes, updated_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          reach_status = VALUES(reach_status),
          rohs_status  = VALUES(rohs_status),
          prop65_status = VALUES(prop65_status),
+         pfas_status  = VALUES(pfas_status),
          notes        = VALUES(notes),
          updated_by   = VALUES(updated_by)`,
-      [asPart.INV_PART_NUMBER, val(b?.reach_status), val(b?.rohs_status), val(b?.prop65_status),
+      [asPart.INV_PART_NUMBER, val(b?.reach_status), val(b?.rohs_status), val(b?.prop65_status), val(b?.pfas_status),
        String(b?.notes ?? ''), user]
     )
 

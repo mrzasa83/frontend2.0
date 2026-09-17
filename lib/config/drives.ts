@@ -96,6 +96,24 @@ export const COC_ROOTS = (): { site: string; path: string }[] => [
 // Sits under FrontEndQCFolders, which is already whitelisted for file-serve.
 export const MTRL_COMP_PATH   = () => `${SDRIVE()}/FrontEndQCFolders/MtrlComp`
 
+/**
+ * Where EHS evidence documents are written, one folder per part.
+ *
+ * On the J drive, not the S drive: S is bind-mounted READ-ONLY into the
+ * containers (see docker-compose.yml), so an upload there fails with EROFS no
+ * matter what the share permissions say. J is mounted rw because batch cards
+ * are already written into job folders.
+ *
+ * A folder per part rather than one flat directory — a part can accumulate
+ * several certificates over time, and they stay together instead of being
+ * distinguishable only by a date suffix.
+ */
+export const EHS_DOCS_PATH = (partNumber?: string) => {
+  const base = `${JDRIVE()}/APC EngJobs/00 DocControl/_feFiles/EHS`
+  const safe = String(partNumber || '').trim().replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '')
+  return safe ? `${base}/${safe}` : base
+}
+
 // Purchase-order certificate root. Single source of truth — lib/certs/poParser
 // re-exports this as PO_ROOT, and it is whitelisted for the file-serve API below
 // so PO certs can be previewed/downloaded the same way as other documents.

@@ -52,7 +52,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const families = await queryPrimary<any[]>(
-      `SELECT id, family_name, description, reach_status, rohs_status, prop65_status,
+      `SELECT id, family_name, description, reach_status, rohs_status, prop65_status, pfas_status,
               classification_notes, inherit_compliance, sort_order, active, created_by, updated_by, updated_at
        FROM ehs_part_families
        ${id ? 'WHERE id = ?' : ''}
@@ -122,14 +122,15 @@ export async function POST(request: NextRequest) {
 
     const res: any = await queryPrimary(
       `INSERT INTO ehs_part_families
-         (family_name, description, reach_status, rohs_status, prop65_status,
+         (family_name, description, reach_status, rohs_status, prop65_status, pfas_status,
           classification_notes, inherit_compliance, sort_order, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [family_name,
        String(b?.description ?? '').slice(0, 500),
        String(b?.reach_status ?? 'Unknown').slice(0, 30),
        String(b?.rohs_status ?? 'Unknown').slice(0, 30),
        String(b?.prop65_status ?? 'Unknown').slice(0, 30),
+       String(b?.pfas_status ?? 'Unknown').slice(0, 30),
        String(b?.classification_notes ?? ''),
        b?.inherit_compliance === false || b?.inherit_compliance === 0 ? 0 : 1,
        Number(b?.sort_order) || 100,
@@ -182,6 +183,7 @@ export async function PUT(request: NextRequest) {
     if (b.reach_status !== undefined && (COMPLIANCE_VALUES as readonly string[]).includes(b.reach_status)) put('reach_status', b.reach_status, 30)
     if (b.rohs_status !== undefined && (COMPLIANCE_VALUES as readonly string[]).includes(b.rohs_status)) put('rohs_status', b.rohs_status, 30)
     if (b.prop65_status !== undefined && (COMPLIANCE_VALUES as readonly string[]).includes(b.prop65_status)) put('prop65_status', b.prop65_status, 30)
+    if (b.pfas_status !== undefined && (COMPLIANCE_VALUES as readonly string[]).includes(b.pfas_status)) put('pfas_status', b.pfas_status, 30)
     if (b.classification_notes !== undefined) { sets.push('classification_notes = ?'); vals.push(String(b.classification_notes)) }
     if (b.inherit_compliance !== undefined) {
       sets.push('inherit_compliance = ?'); vals.push(b.inherit_compliance ? 1 : 0)
