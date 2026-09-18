@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo, Fragment } from 'react'
 import { useSession } from 'next-auth/react'
 import Tabs from '@/components/ui/Tabs'
 import {
-  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Download, Plus, X, ShieldCheck, Layers, Package, Route as RouteIcon, History as HistoryIcon, Save, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight,
+  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Download, Plus, X, ShieldCheck, Layers, Package, Route as RouteIcon, History as HistoryIcon, Save, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, Paperclip, Upload, Eye, Trash2,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import PartPanel from '@/components/ehs/PartPanel'
@@ -351,7 +351,7 @@ function ProductPicker({ onClose, onPick }: { onClose: () => void; onPick: (p: s
 // ---------------- Product detail (rail on the RIGHT) ----------------
 function ProductDetailView({ apcPart, customerPart, canEdit, onSaved }:
   { apcPart: string; customerPart: string; canEdit: boolean; onSaved: () => void }) {
-  const [tab, setTab] = useState<'compliance' | 'bom' | 'route' | 'history'>('compliance')
+  const [tab, setTab] = useState<'compliance' | 'bom' | 'attachments' | 'route' | 'history'>('compliance')
   const [data, setData] = useState<ProductDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -371,6 +371,7 @@ function ProductDetailView({ apcPart, customerPart, canEdit, onSaved }:
   const RAIL = [
     { id: 'compliance', label: 'Compliance', icon: ShieldCheck },
     { id: 'bom', label: 'BOM', icon: Layers },
+    { id: 'attachments', label: 'Attachments', icon: Paperclip },
     { id: 'route', label: 'Route', icon: RouteIcon },
     { id: 'history', label: 'History', icon: HistoryIcon },
   ] as const
@@ -417,6 +418,7 @@ function ProductDetailView({ apcPart, customerPart, canEdit, onSaved }:
               canEdit={canEdit} onSaved={() => { load(); onSaved() }} />
           )}
           {tab === 'bom' && <BomTab bom={data.bom || []} materials={data.materials} />}
+          {tab === 'attachments' && <ProductDocsTab apcPart={apcPart} canEdit={canEdit} />}
           {tab === 'route' && <RouteTab route={data.route} />}
           {tab === 'history' && <HistoryTab history={data.history} />}
         </div>
@@ -437,6 +439,64 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
   const unassigned = data.materials.filter(m => !m.family_name)
   const perPart = data.materials.filter(m => m.per_part_evidence)
 
+  // The assessor's conclusion for the finished assembly, which may differ from
+  // what the materials computed — a route step can remove or qualify the
+  // offending material. Defaults to the roll-up until someone changes it.
+  const [ov, setOv] = useState<Record<string, string>>({})
+  const [ovReason, setOvReason] = useState('')
+  const [ovStep, setOvStep] = useState('')
+  const [ovLoaded, setOvLoaded] = useState(false)
+  const [ovBusy, setOvBusy] = useState(false)
+  const [ovMsg, setOvMsg] = useState('')
+
+  const asStatus = (v: string) =>
+    v === 'Pass' ? 'Compliant' : v === 'Fail' ? 'Non-Compliant' : 'Unknown'
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(getApiUrl(
+          `/api/ehs/product-compliance/override?part=${encodeURIComponent(apcPart)}`))
+        const d = await res.json()
+        if (cancelled) return
+        const o = d?.override
+        setOv({
+          reach: o?.reach_status || asStatus(rollup.reach),
+          rohs: o?.rohs_status || asStatus(rollup.rohs),
+          prop65: o?.prop65_status || asStatus(rollup.prop65),
+          pfas: o?.pfas_status || asStatus(rollup.pfas),
+        })
+        setOvReason(o?.reason || '')
+        setOvStep(o?.route_step || '')
+      } catch { /* the roll-up still stands on its own */ }
+      finally { if (!cancelled) setOvLoaded(true) }
+    })()
+    return () => { cancelled = true }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [apcPart])
+
+  const saveOverride = async () => {
+    setOvBusy(true); setErr(''); setOvMsg('')
+    try {
+      const res = await fetch(getApiUrl('/api/ehs/product-compliance/override'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          part: apcPart,
+          reach_status: ov.reach, rohs_status: ov.rohs,
+          prop65_status: ov.prop65, pfas_status: ov.pfas,
+          computed: rollup, reason: ovReason, route_step: ovStep,
+        }),
+      })
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.error || 'Failed to save')
+      setOvMsg(r.diverged?.length
+        ? `Saved — differs from the materials on ${r.diverged.join(', ')}`
+        : 'Saved')
+    } catch (e: any) { setErr(e.message) }
+    setOvBusy(false)
+  }
+
   const save = async () => {
     setBusy(true); setErr(''); setMsg('')
     try {
@@ -444,8 +504,12 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           apc_part: apcPart, customer_part: customerPart,
-          reach_status: rollup.reach, rohs_status: rollup.rohs, prop65_status: rollup.prop65,
-          pfas_status: rollup.pfas,
+          // Sign off on what the assessor concluded, falling back to the
+          // material roll-up when no assembly-level position has been set.
+          reach_status: ov.reach || rollup.reach,
+          rohs_status: ov.rohs || rollup.rohs,
+          prop65_status: ov.prop65 || rollup.prop65,
+          pfas_status: ov.pfas || rollup.pfas,
           materials: data.materials, notes,
         }),
       })
@@ -463,6 +527,9 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
       {err && <div className="p-3 mb-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{err}</div>}
       {msg && <div className="p-3 mb-3 bg-green-50 border border-green-200 text-green-700 rounded-lg text-sm">{msg}</div>}
 
+      <p className="text-xs text-slate-500 mb-2">
+        From the purchased materials on the BOM.
+      </p>
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
         {([['REACH', rollup.reach], ['RoHS', rollup.rohs], ['Prop 65', rollup.prop65], ['PFAS', rollup.pfas]] as const).map(([label, v]) => (
           <div key={label} className="bg-white border border-slate-200 rounded-xl p-4 text-center">
@@ -471,6 +538,75 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
           </div>
         ))}
       </div>
+
+
+      {/* Assembly-level conclusion.
+          The roll-up above answers "do the materials clear each category". This
+          answers "does the finished assembly", which is not the same question:
+          a route step can strip or qualify the offending material. Both numbers
+          are stored, and a divergence without a reason is rejected — an
+          unexplained override reads as a considered judgement when it isn't. */}
+      {canEdit && ovLoaded && (
+        <div className="border border-slate-200 rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="font-semibold text-slate-800">This assembly</h4>
+            {ovMsg && <span className="text-xs text-green-700">{ovMsg}</span>}
+          </div>
+          <p className="text-xs text-slate-500 mb-3">
+            Set what the finished assembly is, if a route step removes or qualifies a material.
+          </p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-3">
+            {([['REACH', 'reach', rollup.reach], ['RoHS', 'rohs', rollup.rohs],
+               ['Prop 65', 'prop65', rollup.prop65], ['PFAS', 'pfas', rollup.pfas]] as const)
+              .map(([label, key, computed]) => {
+                const chosen = ov[key] || 'Unknown'
+                const passes = (v: string) => v === 'Compliant' || v === 'Exempt' || v === 'Pass'
+                const differs = !!computed && passes(chosen) !== passes(computed)
+                return (
+                  <div key={key}>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">
+                      {label}
+                      {differs && (
+                        <span className="ml-1 text-amber-600" title={`Materials computed ${computed}`}>
+                          ≠ {computed}
+                        </span>
+                      )}
+                    </label>
+                    <select value={chosen}
+                      onChange={e => setOv(o => ({ ...o, [key]: e.target.value }))}
+                      className={`w-full px-2 py-1.5 text-sm border rounded-lg ${
+                        differs ? 'border-amber-400 bg-amber-50' : 'border-slate-300'}`}>
+                      {['Compliant', 'Non-Compliant', 'Exempt', 'Unknown'].map(v =>
+                        <option key={v} value={v}>{v}</option>)}
+                    </select>
+                  </div>
+                )
+              })}
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+            <div className="sm:col-span-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
+                Route step (if applicable)
+              </label>
+              <input type="text" value={ovStep} onChange={e => setOvStep(e.target.value)}
+                placeholder="e.g. op 40 — strip & etch"
+                className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded-lg" />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="block text-xs font-medium text-slate-500 mb-1">
+                Why — required when this differs from the materials
+              </label>
+              <textarea value={ovReason} onChange={e => setOvReason(e.target.value)} rows={2}
+                placeholder="What removes or qualifies the material in the finished assembly."
+                className="w-full px-2 py-1.5 text-sm border border-slate-300 rounded-lg" />
+            </div>
+          </div>
+          <button onClick={saveOverride} disabled={ovBusy}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
+            <Save size={15} /> {ovBusy ? 'Saving…' : 'Save assembly classification'}
+          </button>
+        </div>
+      )}
 
       {(unassigned.length > 0 || perPart.length > 0) && (
         <div className="p-3 mb-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex gap-2">
@@ -788,6 +924,133 @@ function HistoryTab({ history }: { history: Assessment[] }) {
           </table>
         </div>
       )}
+    </div>
+  )
+}
+
+
+/**
+ * Evidence held against the finished assembly.
+ *
+ * Separate from a material's own documents: a customer declaration for the
+ * assembly says nothing about any one purchased material on its BOM, and filing
+ * it against a part would imply that it did. Files land under the part's EHS
+ * folder in an `assembly` subfolder.
+ */
+function ProductDocsTab({ apcPart, canEdit }: { apcPart: string; canEdit: boolean }) {
+  const [docs, setDocs] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [docType, setDocType] = useState('General')
+  const [title, setTitle] = useState('')
+
+  const load = useCallback(async () => {
+    setLoading(true); setErr('')
+    try {
+      const res = await fetch(getApiUrl(
+        `/api/ehs/product-compliance/documents?part=${encodeURIComponent(apcPart)}`))
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Failed to load')
+      setDocs(d.documents || [])
+    } catch (e: any) { setErr(e.message) } finally { setLoading(false) }
+  }, [apcPart])
+  useEffect(() => { load() }, [load])
+
+  const upload = async (file: File) => {
+    setBusy(true); setErr('')
+    try {
+      const fd = new FormData()
+      fd.append('file', file); fd.append('part', apcPart)
+      fd.append('doc_type', docType)
+      if (title) fd.append('title', title)
+      const res = await fetch(getApiUrl('/api/ehs/product-compliance/documents'),
+        { method: 'POST', body: fd })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Upload failed')
+      setTitle(''); await load()
+    } catch (e: any) { setErr(e.message) } finally { setBusy(false) }
+  }
+
+  const remove = async (id: number) => {
+    try {
+      const res = await fetch(getApiUrl(`/api/ehs/product-compliance/documents?id=${id}`),
+        { method: 'DELETE' })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Delete failed')
+      await load()
+    } catch (e: any) { setErr(e.message) }
+  }
+
+  return (
+    <div>
+      <h3 className="text-lg font-semibold text-slate-800 mb-1">Attachments</h3>
+      <p className="text-xs text-slate-500 mb-3">
+        Evidence for the finished assembly — declarations, test reports, or the
+        process spec behind a route-step justification.
+      </p>
+      {err && <div className="p-2 mb-3 bg-red-50 border border-red-200 rounded text-sm text-red-700">{err}</div>}
+
+      {canEdit && (
+        <div className="flex flex-wrap items-center gap-2 p-2 mb-3 border border-slate-200 rounded-lg">
+          <select value={docType} onChange={e => setDocType(e.target.value)}
+            className="px-2 py-1 text-sm border border-slate-300 rounded">
+            {['General', 'REACH', 'RoHS', 'Prop 65', 'PFAS', 'Route'].map(t =>
+              <option key={t} value={t}>{t}</option>)}
+          </select>
+          <input type="text" value={title} placeholder="Title (optional)"
+            onChange={e => setTitle(e.target.value)}
+            className="px-2 py-1 text-sm border border-slate-300 rounded flex-1 min-w-[10rem]" />
+          <label className={`flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg cursor-pointer ${
+            busy ? 'bg-slate-200 text-slate-500' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+            <Upload size={16} /> {busy ? 'Uploading…' : 'Add document'}
+            <input type="file" className="hidden" disabled={busy}
+              onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = '' }} />
+          </label>
+        </div>
+      )}
+
+      {loading ? <p className="text-sm text-slate-500 italic">Loading…</p>
+        : docs.length === 0 ? (
+          <p className="text-sm text-slate-500 italic">No assembly-level evidence on file.</p>
+        ) : (
+          <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50">
+                <tr>{['Type', 'Title', 'File', 'Uploaded', 'Actions'].map(h => (
+                  <th key={h} className="px-3 py-2 text-left text-xs font-medium text-slate-600">{h}</th>
+                ))}</tr>
+              </thead>
+              <tbody>
+                {docs.map(d => (
+                  <tr key={d.id} className="border-t border-slate-100">
+                    <td className="px-3 py-2">
+                      <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-700 text-xs">{d.doc_type}</span>
+                    </td>
+                    <td className="px-3 py-2">{d.title || '—'}</td>
+                    <td className="px-3 py-2 font-mono text-xs" title={d.file_path}>{d.file_name}</td>
+                    <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">
+                      {d.uploaded_by} · {String(d.uploaded_at || '').slice(0, 10)}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span className="flex items-center gap-2">
+                        <a href={getApiUrl(`/api/files/serve?path=${encodeURIComponent(d.file_path)}`)}
+                          target="_blank" rel="noopener noreferrer" title="Open"
+                          className="text-blue-600 hover:text-blue-800"><Eye size={14} /></a>
+                        <a href={getApiUrl(`/api/files/serve?path=${encodeURIComponent(d.file_path)}&download=true`)}
+                          title="Download" className="text-blue-600 hover:text-blue-800"><Download size={14} /></a>
+                        {canEdit && (
+                          <button onClick={() => remove(d.id)} title="Remove this row (the file is kept)"
+                            className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
+                        )}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
     </div>
   )
 }

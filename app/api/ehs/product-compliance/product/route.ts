@@ -142,6 +142,33 @@ export async function GET(request: NextRequest) {
         return true
       })
 
+    // Part-level classifications for everything on this BOM, in one query.
+    //
+    // A family flagged inherit_compliance = 0 does NOT pass its classification
+    // down; each part carries its own in ehs_part_compliance. Without this the
+    // Compliance tab showed a dash for every such material even after somebody
+    // had classified it on the BOM tab — the data was saved and simply never
+    // read back. Matches the rule in /api/ehs/parts/detail so the two views
+    // cannot disagree.
+    const partNumbers = purchased
+      .map(r => String(r.part_number || '').trim())
+      .filter(Boolean)
+    const ownByPart = new Map<string, any>()
+    for (let i = 0; i < partNumbers.length; i += 200) {
+      const batch = partNumbers.slice(i, i + 200)
+      const marks = batch.map(() => '?').join(', ')
+      try {
+        const rows = await queryPrimary<any[]>(
+          `SELECT part_number, reach_status, rohs_status, prop65_status, pfas_status,
+                  notes, updated_by, updated_at
+             FROM ehs_part_compliance WHERE part_number IN (${marks})`, batch)
+        for (const r of rows || []) ownByPart.set(String(r.part_number).trim(), r)
+      } catch (e) {
+        // Missing table or a bad row shouldn't sink the whole assessment view.
+        console.error('EHS part compliance lookup failed:', e)
+      }
+    }
+
     const materials: MaterialLine[] = purchased.map(r => {
       const asPart: PartRow = {
         RKEY: r.component_rkey ?? 0,
@@ -152,6 +179,11 @@ export async function GET(request: NextRequest) {
       }
       const fam = familyForPart(asPart, families)
       const inherits = fam ? (fam.inherit_compliance ?? 1) : 1
+      const own = ownByPart.get(asPart.INV_PART_NUMBER)
+      // Inheriting family -> the family's position. Per-part family -> the
+      // part's own record, which is blank until someone classifies it.
+      const val = (famVal: string | undefined, ownVal: string | undefined) =>
+        inherits ? (famVal || '') : (ownVal || '')
       return {
         part_number: asPart.INV_PART_NUMBER,
         description: asPart.INV_PART_DESCRIPTION,
@@ -160,11 +192,13 @@ export async function GET(request: NextRequest) {
         level: r.lvl ?? 1,
         family_id: fam?.id ?? null,
         family_name: fam?.family_name || '',
-        reach_status: inherits ? (fam?.reach_status || '') : '',
-        rohs_status: inherits ? (fam?.rohs_status || '') : '',
-        prop65_status: inherits ? (fam?.prop65_status || '') : '',
-        pfas_status: inherits ? (fam?.pfas_status || '') : '',
+        reach_status: val(fam?.reach_status, own?.reach_status),
+        rohs_status: val(fam?.rohs_status, own?.rohs_status),
+        prop65_status: val(fam?.prop65_status, own?.prop65_status),
+        pfas_status: val(fam?.pfas_status, own?.pfas_status),
         per_part_evidence: fam ? !inherits : false,
+        part_notes: own?.notes || '',
+        part_classified_by: own?.updated_by || '',
       }
     })
 

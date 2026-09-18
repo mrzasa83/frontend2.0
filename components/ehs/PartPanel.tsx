@@ -528,7 +528,7 @@ function PartDocumentsTab({ partNumber, canEdit }:
           <table className="w-full text-sm">
             <thead className="bg-slate-100">
               <tr>
-                {['Type', 'Title', 'File', 'Uploaded', ''].map(h => (
+                {['Type', 'Title', 'File', 'Uploaded', 'Actions'].map(h => (
                   <th key={h} className="px-3 py-2 text-left font-semibold text-slate-700">{h}</th>
                 ))}
               </tr>
@@ -546,14 +546,32 @@ function PartDocumentsTab({ partNumber, canEdit }:
                   <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">
                     {d.uploaded_by} · {String(d.uploaded_at || '').slice(0, 10)}
                   </td>
-                  <td className="px-3 py-2 w-8">
-                    {canEdit && (
-                      <button onClick={() => remove(d.id)}
-                        title="Remove this row (the file itself is kept)"
-                        className="text-slate-400 hover:text-red-600">
-                        <Trash2 size={14} />
-                      </button>
-                    )}
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {/* The EHS folder sits under the J drive, which is already
+                        on the file-serve whitelist, so these need no new
+                        endpoint. */}
+                    <span className="flex items-center gap-2">
+                      <a href={getApiUrl(
+                          `/api/files/serve?path=${encodeURIComponent(d.file_path)}`)}
+                        target="_blank" rel="noopener noreferrer"
+                        title="Open in a new tab"
+                        className="text-blue-600 hover:text-blue-800">
+                        <Eye size={14} />
+                      </a>
+                      <a href={getApiUrl(
+                          `/api/files/serve?path=${encodeURIComponent(d.file_path)}&download=true`)}
+                        title="Download"
+                        className="text-blue-600 hover:text-blue-800">
+                        <Download size={14} />
+                      </a>
+                      {canEdit && (
+                        <button onClick={() => remove(d.id)}
+                          title="Remove this row (the file itself is kept)"
+                          className="text-slate-400 hover:text-red-600">
+                          <Trash2 size={14} />
+                        </button>
+                      )}
+                    </span>
                   </td>
                 </tr>
               ))}
