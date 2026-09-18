@@ -437,7 +437,6 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
 
   const rollup = useMemo(() => rollUpAll(data.materials), [data.materials])
   const unassigned = data.materials.filter(m => !m.family_name)
-  const perPart = data.materials.filter(m => m.per_part_evidence)
 
   // The assessor's conclusion for the finished assembly, which may differ from
   // what the materials computed — a route step can remove or qualify the
@@ -608,12 +607,15 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
         </div>
       )}
 
-      {(unassigned.length > 0 || perPart.length > 0) && (
+      {/* Only an unassigned material is a caution. How a qualified material got
+          its classification — by family or on its own record — is a fact about
+          the evidence, not a problem, so it is stated on the row and not
+          flagged here. */}
+      {unassigned.length > 0 && (
         <div className="p-3 mb-4 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800 flex gap-2">
           <AlertTriangle size={15} className="mt-0.5 shrink-0" />
           <span>
-            {unassigned.length > 0 && <>{unassigned.length} material{unassigned.length === 1 ? '' : 's'} not in any family. </>}
-            {perPart.length > 0 && <>{perPart.length} in a family that needs per-part evidence. </>}
+            {unassigned.length} material{unassigned.length === 1 ? '' : 's'} not in any family.
             A category only passes when every material clears it.
           </span>
         </div>
@@ -649,8 +651,16 @@ function ComplianceTab({ data, apcPart, customerPart, canEdit, onSaved }:
                     {m.family_name
                       ? <span className="text-slate-700">{m.family_name}</span>
                       : <span className="text-amber-600 text-xs">unassigned</span>}
-                    {m.per_part_evidence && (
-                      <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-purple-100 text-purple-700">per part</span>
+                    {m.family_name && (
+                      <span className={`ml-1 text-[10px] px-1 py-0.5 rounded ${
+                        m.per_part_evidence
+                          ? 'bg-blue-50 text-blue-700'
+                          : 'bg-slate-100 text-slate-600'}`}
+                        title={m.per_part_evidence
+                          ? 'Classified on this exact material — more precise than a family position'
+                          : 'Classified at family level, inherited by every part in the family'}>
+                        {m.per_part_evidence ? 'Qualified by individual Part' : 'Qualified by Family'}
+                      </span>
                     )}
                   </td>
                   {[m.reach_status, m.rohs_status, m.prop65_status, m.pfas_status].map((v, j) => (
@@ -799,7 +809,17 @@ function BomTab({ bom, materials }: { bom: BomNode[]; materials: MaterialLine[] 
                     {manufactured
                       ? <span className="text-xs text-slate-400">sub-assembly</span>
                       : m?.family_name
-                        ? <span className="text-slate-700">{m.family_name}</span>
+                        ? (
+                          <span className="flex items-center gap-1 flex-wrap">
+                            <span className="text-slate-700">{m.family_name}</span>
+                            <span className={`text-[10px] px-1 py-0.5 rounded ${
+                              m.per_part_evidence
+                                ? 'bg-blue-50 text-blue-700'
+                                : 'bg-slate-100 text-slate-600'}`}>
+                              {m.per_part_evidence ? 'Qualified by individual Part' : 'Qualified by Family'}
+                            </span>
+                          </span>
+                        )
                         : <span className="text-amber-600 text-xs">unassigned</span>}
                   </td>
                   <td className="px-3 py-1.5 text-slate-400">

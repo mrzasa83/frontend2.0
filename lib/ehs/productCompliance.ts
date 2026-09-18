@@ -33,12 +33,23 @@ export function productTypeFromPart(part: string): string {
 
 /**
  * Does one material clear a category?
- * Compliant and Exempt both clear it. Unknown, Non-Compliant, no family, or a
- * family that requires per-part evidence do not.
+ *
+ * Compliant and Exempt clear it; Unknown, Non-Compliant and an unassigned
+ * material do not.
+ *
+ * How the material was qualified — by its family, or on its own record — does
+ * NOT enter into it. An earlier version failed every material in a per-part
+ * family outright, which made sense only while such materials had no
+ * classification to read: the status was always blank, so treating the
+ * qualification route as the verdict happened to give the right answer.
+ *
+ * It no longer does. Once a part carries its own Compliant record, a
+ * part-level qualification is the MORE precise of the two — it is evidence
+ * about that exact material rather than an inherited family position — and
+ * failing it was rejecting the better data.
  */
 export function materialPasses(m: MaterialLine, cat: Category): boolean {
   if (!m.family_name) return false
-  if (m.per_part_evidence) return false
   const v = String(
     cat === 'reach' ? m.reach_status
       : cat === 'rohs' ? m.rohs_status

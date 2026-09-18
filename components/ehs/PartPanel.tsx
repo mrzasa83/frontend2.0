@@ -79,14 +79,14 @@ export default function PartPanel({ partNumber, canEdit, onChanged }:
               "class: Family" on a part read as though the part were a family. */}
           {data.compliance_source === 'Family' && data.family && (
             <span className="text-xs px-1.5 py-0.5 rounded font-sans font-normal bg-slate-100 text-slate-600"
-              title={`Compliance inherited from the ${data.family.family_name} family`}>
-              compliance from family
+              title={`Classified at family level on ${data.family.family_name}, inherited by every part in it`}>
+              Qualified by Family
             </span>
           )}
           {data.compliance_source === 'Part' && (
-            <span className="text-xs px-1.5 py-0.5 rounded font-sans font-normal bg-purple-100 text-purple-700"
-              title="This family doesn't flow its classification down, so this part carries its own">
-              compliance per part
+            <span className="text-xs px-1.5 py-0.5 rounded font-sans font-normal bg-blue-50 text-blue-700"
+              title="Classified on this exact part — more precise than an inherited family position">
+              Qualified by individual Part
             </span>
           )}
         </h2>

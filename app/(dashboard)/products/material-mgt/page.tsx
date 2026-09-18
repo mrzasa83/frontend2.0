@@ -320,10 +320,13 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
                       )}
                     </span>
                   ) : <span className="text-amber-600 text-xs">unassigned</span>}
-                  {r.per_part_evidence && (
-                    <span className="ml-1 text-[10px] px-1 py-0.5 rounded bg-purple-100 text-purple-700"
-                      title="This family does not flow its classification down — this part needs its own evidence">
-                      per part
+                  {r.PRODUCT_FAMILY && (
+                    <span className={`ml-1 text-[10px] px-1 py-0.5 rounded ${
+                      r.per_part_evidence ? 'bg-blue-50 text-blue-700' : 'bg-slate-100 text-slate-600'}`}
+                      title={r.per_part_evidence
+                        ? 'Classified on this exact material — more precise than a family position'
+                        : 'Classified at family level'}>
+                      {r.per_part_evidence ? 'Qualified by individual Part' : 'Qualified by Family'}
                     </span>
                   )}
                 </td>
@@ -422,7 +425,7 @@ function FamiliesTab({ canEdit, onOpen, onChanged }: { canEdit: boolean; onOpen:
     const ws = XLSX.utils.json_to_sheet(sorted.map(f => ({
       Family: f.family_name, 'Search Criteria': criteriaText(f), Description: f.description,
       Parts: f.match_count ?? '', REACH: f.reach_status, RoHS: f.rohs_status, 'Prop 65': f.prop65_status, PFAS: f.pfas_status,
-      'Parts inherit': (f.inherit_compliance ?? 1) ? 'Yes' : 'No — per part',
+      Qualification: (f.inherit_compliance ?? 1) ? 'By Family' : 'By individual Part',
     })))
     ws['!cols'] = [{ wch: 22 }, { wch: 48 }, { wch: 34 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 16 }]
     const wb = XLSX.utils.book_new()
@@ -504,7 +507,7 @@ function FamiliesTab({ canEdit, onOpen, onChanged }: { canEdit: boolean; onOpen:
                   {f.family_name}
                   {!(f.inherit_compliance ?? 1) && (
                     <span className="ml-1.5 text-[10px] px-1 py-0.5 rounded bg-purple-100 text-purple-700 font-normal"
-                      title="Parts do not inherit this family's compliance level">per part</span>
+                      title="Each part in this family is classified on its own record">Qualified by individual Part</span>
                   )}
                 </td>
                 <td className="px-3 py-1.5">
@@ -698,11 +701,17 @@ function FamilyDetail({ familyId, canEdit, onChanged }: { familyId: number; canE
         <div>
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
             {family.family_name}
-            {!(family.inherit_compliance ?? 1) && (
-              <span className="text-xs px-1.5 py-0.5 rounded bg-purple-100 text-purple-700 font-normal">
-                per-part evidence
-              </span>
-            )}
+            <span className={`text-xs px-1.5 py-0.5 rounded font-normal ${
+              (family.inherit_compliance ?? 1)
+                ? 'bg-slate-100 text-slate-600'
+                : 'bg-blue-50 text-blue-700'}`}
+              title={(family.inherit_compliance ?? 1)
+                ? 'This family\u2019s classification flows down to every part in it'
+                : 'Each part in this family is classified on its own record'}>
+              {(family.inherit_compliance ?? 1)
+                ? 'Qualified by Family'
+                : 'Qualified by individual Part'}
+            </span>
           </h2>
           <p className="text-sm text-slate-600">
             {family.description || <span className="text-slate-400">No description</span>}
