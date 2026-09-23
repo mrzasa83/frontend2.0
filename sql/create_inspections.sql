@@ -12,7 +12,11 @@ CREATE TABLE IF NOT EXISTS inspections (
   work_order VARCHAR(50) DEFAULT NULL,
   start_date DATE DEFAULT NULL,
   owner VARCHAR(100) DEFAULT NULL,
-  phase ENUM('Setup','Measurement','Verify','Submitted','Rework','Completed','Canceled') NOT NULL DEFAULT 'Setup',
+  -- VARCHAR, not ENUM: the phase list lives in lib/inspections/phases.ts so it
+  -- can change without a migration. An ENUM also stores an unlisted value as
+  -- the empty string on a server without STRICT mode rather than erroring,
+  -- which loses the phase silently. The API validates against PHASES.
+  phase VARCHAR(40) NOT NULL DEFAULT 'Setup',
   site VARCHAR(50) DEFAULT NULL,
   dependency_id INT DEFAULT NULL,           -- e.g. ASM depends on a PCB inspection
   notes TEXT DEFAULT NULL,

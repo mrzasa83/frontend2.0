@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { PIPELINE, displayPhase } from '@/lib/inspections/phases'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
@@ -8,10 +9,12 @@ import { canWriteScope } from '@/lib/config/access'
 export const dynamic = 'force-dynamic'
 
 // Ordered phase pipeline. Approving a phase advances to the next.
-const PHASE_ORDER = ['Setup', 'Measurement', 'Verify', 'Submitted', 'Completed']
+
 const nextPhase = (p: string) => {
-  const i = PHASE_ORDER.indexOf(p)
-  return i >= 0 && i < PHASE_ORDER.length - 1 ? PHASE_ORDER[i + 1] : p
+  // displayPhase so a row still holding a legacy value advances correctly
+  // instead of falling off the pipeline and never moving on.
+  const i = PIPELINE.indexOf(displayPhase(p))
+  return i >= 0 && i < PIPELINE.length - 1 ? PIPELINE[i + 1] : p
 }
 
 const SIGNOFF_ROLES = ['Admin', 'Quality Control']
@@ -33,7 +36,7 @@ export async function GET(request: NextRequest) {
       'SELECT phase, approved_by, approved_at, note FROM inspection_signoffs WHERE inspection_id = ? ORDER BY approved_at ASC',
       [inspectionId]
     )
-    return NextResponse.json({ success: true, signoffs: signoffs || [], phaseOrder: PHASE_ORDER })
+    return NextResponse.json({ success: true, signoffs: signoffs || [], phaseOrder: PIPELINE })
   } catch (error) {
     return NextResponse.json({ error: 'Failed', details: error instanceof Error ? error.message : String(error) }, { status: 500 })
   }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo } from 'react'
+import { PHASES, PHASE_COLORS, CHART_COLORS, displayPhase } from '@/lib/inspections/phases'
 import { useSession } from 'next-auth/react'
 import {
   RefreshCw, Search, Plus, ArrowLeft, X, ClipboardCheck,
@@ -20,23 +21,10 @@ type Inspection = {
   notes: string | null; created_by: string; created_at: string
 }
 
-const PHASES = ['Setup', 'Measurement', 'Verify', 'Submitted', 'Rework', 'Completed', 'Canceled']
-const PHASE_COLORS: Record<string, string> = {
-  Setup: 'bg-slate-100 text-slate-600',
-  Measurement: 'bg-blue-100 text-blue-700',
-  Verify: 'bg-indigo-100 text-indigo-700',
-  Submitted: 'bg-yellow-100 text-yellow-700',
-  Rework: 'bg-orange-100 text-orange-700',
-  Completed: 'bg-green-100 text-green-700',
-  Canceled: 'bg-red-100 text-red-700',
-}
-const CHART_COLORS: Record<string, string> = {
-  Setup: '#94a3b8', Measurement: '#3b82f6', Verify: '#6366f1',
-  Submitted: '#eab308', Rework: '#f97316', Completed: '#22c55e', Canceled: '#ef4444',
-}
 
 function PhaseBadge({ phase }: { phase: string }) {
-  return <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${PHASE_COLORS[phase] || 'bg-slate-100 text-slate-600'}`}>{phase}</span>
+  const label = displayPhase(phase)
+  return <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${PHASE_COLORS[label] || 'bg-slate-100 text-slate-600'}`}>{label}</span>
 }
 
 function Panel({ title, icon, defaultOpen, children }: {

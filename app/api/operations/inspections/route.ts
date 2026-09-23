@@ -1,10 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { PHASES } from '@/lib/inspections/phases'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { canWriteScope } from '@/lib/config/access'
 
 // Write access is matrix-driven (operations/inspections scope).
+/**
+ * Phase is validated here because it no longer is in the database.
+ *
+ * The column was an ENUM, which rejected an unknown value — and on a server
+ * without STRICT mode stored it as an empty string instead of erroring, which
+ * is worse. It is now VARCHAR so the phase list can change without a
+ * migration, and this is the guard that replaces it.
+ */
+function validPhase(v: any): boolean {
+  return (PHASES as readonly string[]).includes(String(v))
+}
+
 function canEdit(roles: string[], _phase: string): boolean {
   return canWriteScope(roles, 'operations/inspections')
 }
@@ -90,7 +103,7 @@ export async function POST(request: NextRequest) {
       partNumber || null, pcbNumber || null, workOrder || null, startDate || null,
       dueDate || null, netInspectNumber || null, reportType || null, reportDestination || null,
       reportDestinationOther || null, sourceFlag ? 1 : 0,
-      owner || username, phase || 'Setup', site || null,
+      owner || username, validPhase(phase) ? phase : 'Setup', site || null,
       dependencyId || null, notes || null, username
     ])
 
@@ -143,6 +156,11 @@ export async function PUT(request: NextRequest) {
     const updates: string[] = []
     const params: any[] = []
     const changes: { field: string; old: any; new: any }[] = []
+    if ('phase' in fields && !validPhase(fields.phase)) {
+      return NextResponse.json({
+        error: `Unknown phase "${fields.phase}". Valid phases: ${PHASES.join(', ')}.`,
+      }, { status: 400 })
+    }
     for (const key of allowed) {
       if (key in fields) {
         const val = key === 'source_flag' ? (fields[key] ? 1 : 0) : (fields[key] || null)

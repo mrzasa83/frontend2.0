@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useCallback } from 'react'
+import { PIPELINE, TERMINAL_PHASES, displayPhase } from '@/lib/inspections/phases'
 import { useSession } from 'next-auth/react'
 import { CheckCircle2, Circle, Lock, X, ShieldCheck } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
@@ -8,8 +9,7 @@ import { canWriteScope } from '@/lib/config/access'
 
 type Signoff = { phase: string; approved_by: string; approved_at: string; note: string | null }
 
-// Phases that participate in the signoff pipeline (Rework/Canceled are off-pipeline)
-const PIPELINE = ['Setup', 'Measurement', 'Verify', 'Submitted', 'Completed']
+
 
 export default function SignoffTab({ inspectionId, currentPhase, onChanged }: {
   inspectionId: number; currentPhase: string; onChanged?: () => void
@@ -40,9 +40,9 @@ export default function SignoffTab({ inspectionId, currentPhase, onChanged }: {
   useEffect(() => { load() }, [load])
 
   const signoffFor = (phase: string) => signoffs.find(s => s.phase === phase)
-  const currentIdx = PIPELINE.indexOf(currentPhase)
-  const isTerminal = ['Completed', 'Canceled'].includes(currentPhase)
-  const canApproveNow = canSignoff && currentIdx >= 0 && currentPhase !== 'Completed' && currentPhase !== 'Canceled'
+  const currentIdx = PIPELINE.indexOf(displayPhase(currentPhase))
+  const isTerminal = TERMINAL_PHASES.includes(displayPhase(currentPhase))
+  const canApproveNow = canSignoff && currentIdx >= 0 && !isTerminal
 
   const approve = async () => {
     if (!password) { setModalError('Password is required'); return }

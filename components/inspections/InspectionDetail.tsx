@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { PHASES, PHASE_COLORS, displayPhase } from '@/lib/inspections/phases'
 import { useSession } from 'next-auth/react'
 import { RefreshCw, ArrowLeft, Database, Pencil, Save, X, Eye, Download, Maximize2, Minimize2, Trash2, Search } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
@@ -16,18 +17,12 @@ type Props = {
   onDataChange?: () => void
 }
 
-const PHASE_COLORS: Record<string, string> = {
-  Setup: 'bg-slate-100 text-slate-600',
-  Measurement: 'bg-blue-100 text-blue-700',
-  Verify: 'bg-indigo-100 text-indigo-700',
-  Submitted: 'bg-yellow-100 text-yellow-700',
-  Rework: 'bg-orange-100 text-orange-700',
-  Completed: 'bg-green-100 text-green-700',
-  Canceled: 'bg-red-100 text-red-700',
-}
 
 function PhaseBadge({ phase }: { phase: string }) {
-  return <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${PHASE_COLORS[phase] || 'bg-slate-100 text-slate-600'}`}>{phase}</span>
+  // displayPhase keeps a pre-migration row readable rather than rendering an
+  // unstyled badge with a name no longer in the list.
+  const label = displayPhase(phase)
+  return <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${PHASE_COLORS[label] || 'bg-slate-100 text-slate-600'}`}>{label}</span>
 }
 
 const TABS = [
@@ -41,7 +36,7 @@ const TABS = [
   { id: 'history', label: 'History' },
 ]
 
-const PHASE_OPTIONS = ['Setup', 'Measurement', 'Verify', 'Submitted', 'Rework', 'Completed', 'Canceled']
+
 
 export default function InspectionDetail({ inspectionId, onClose, onDataChange }: Props) {
   const { data: session } = useSession()
@@ -329,7 +324,7 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
                 <label className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1 block">Phase</label>
                 <select value={editVals.phase} onChange={e => setEditVals((v: any) => ({ ...v, phase: e.target.value }))}
                   className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                  {PHASE_OPTIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                  {PHASES.map(p => <option key={p} value={p}>{p}</option>)}
                 </select>
               </div>
               <div>
