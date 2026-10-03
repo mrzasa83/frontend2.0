@@ -5,7 +5,24 @@ import { queryMSSQL } from '@/lib/db/mssql'
 
 const READ_CONN = '1'
 
-// Material certs (purchased parts with lot/PO/supplier) for a work order BOM
+/**
+ * DEPRECATED — superseded by ../raw-material-traceability.
+ *
+ * This walks the BOM and then joins DATA0020 on the inventory pointer alone:
+ *
+ *     JOIN DATA0020 lot ON lot.INVENTORY_POINTER = d17.RKEY
+ *
+ * Nothing constrains the lot to the work order, so it returns every lot ever
+ * received for every part on the BOM. Measured on -354516-01-000: 374 rows,
+ * 340 distinct lots, expiry dates spanning 2008-2029, and none of the 4 lots
+ * actually issued to the job. It answers "what could have been used", not
+ * "what was used", which is not a traceability answer.
+ *
+ * Kept only so nothing referencing it breaks — it currently has no caller in
+ * the app. Use /api/operations/inspections/raw-material-traceability, which
+ * walks the material issue ledger (DATA0153) the way Paradigm does. Do not
+ * build anything new on this route.
+ */
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })

@@ -296,7 +296,7 @@ def main():
     roots = args or ['sql', 'lib', 'app']
 
     findings = []
-    sql_files = ts_files = 0
+    sql_files = ts_files = mssql_files = 0
     sql_texts = []
 
     for root in roots:
@@ -311,8 +311,17 @@ def main():
 
         for path in sorted(paths):
             if path.endswith('.sql'):
-                sql_files += 1
                 text = open(path, encoding='utf-8', errors='replace').read()
+                # Some files in sql/ are T-SQL for Paradigm (MSSQL), not for the
+                # MySQL primary. CTEs and window functions are perfectly legal
+                # there, so auditing them against 5.6 produces noise that
+                # trains people to ignore this tool. Opt out with a marker on
+                # one of the first few lines.
+                head = '\n'.join(text.split('\n')[:12]).lower()
+                if 'target: mssql' in head or 'pdmliv' in head:
+                    mssql_files += 1
+                    continue
+                sql_files += 1
                 sql_texts.append((path, text))
             elif path.endswith(('.ts', '.tsx')) and not sql_only:
                 ts_files += 1
@@ -331,6 +340,8 @@ def main():
         check_index_widths(text, path, findings)
         check_alter_indexes(text, path, findings)
 
+    if mssql_files:
+        print(f'(skipped {mssql_files} MSSQL/Paradigm .sql file(s) — not for the MySQL primary)')
     print(f'Scanned {sql_files} .sql files'
           + ('' if sql_only else f' and {ts_files} .ts/.tsx files')
           + ' against MySQL 5.6.\n')

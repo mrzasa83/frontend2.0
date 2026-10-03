@@ -10,6 +10,7 @@ import ReviewsTab from './ReviewsTab'
 import SignoffTab from './SignoffTab'
 import ReleasedFileSection from './ReleasedFileSection'
 import CertInventoryTab from './CertInventoryTab'
+import RawMaterialTraceabilityTab from './RawMaterialTraceabilityTab'
 
 type Props = {
   inspectionId: number
@@ -48,6 +49,11 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [activeTab, setActiveTab] = useState('general')
+  // Material Certs holds two views that answer different questions: the cert
+  // archive ("find me any cert and attach it") and raw material traceability
+  // ("what was actually issued to this job"). Defaulting to the archive keeps
+  // the tab behaving as it did before traceability was added.
+  const [certSubTab, setCertSubTab] = useState<'archive' | 'raw-material'>('archive')
   const [customerName, setCustomerName] = useState('')
   const [analysisCode3, setAnalysisCode3] = useState('')
   const [showDelete, setShowDelete] = useState(false)
@@ -306,7 +312,26 @@ export default function InspectionDetail({ inspectionId, onClose, onDataChange }
   const renderTab = (tabId: string) => {
     // Material Certs: browse the certificate archive and tie certs to this FAI.
     if (tabId === 'material-certs') {
-      return <CertInventoryTab inspectionId={inspectionId} />
+      const SubTab = ({ id, label }: { id: 'archive' | 'raw-material'; label: string }) => (
+        <button onClick={() => setCertSubTab(id)}
+          className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
+            certSubTab === id
+              ? 'bg-blue-600 text-white'
+              : 'text-slate-600 hover:bg-slate-100'}`}>
+          {label}
+        </button>
+      )
+      return (
+        <div>
+          <div className="flex items-center gap-1 mb-4 p-1 bg-slate-50 border border-slate-200 rounded-lg w-fit">
+            <SubTab id="archive" label="Cert Archive" />
+            <SubTab id="raw-material" label="Raw Material" />
+          </div>
+          {certSubTab === 'archive'
+            ? <CertInventoryTab inspectionId={inspectionId} />
+            : <RawMaterialTraceabilityTab workOrder={record?.work_order} />}
+        </div>
+      )
     }
     if (tabId === 'general') {
       const editable = canEditNow(record.phase)
