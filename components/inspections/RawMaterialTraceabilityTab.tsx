@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
-  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Download,
+  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Download, FileText,
   AlertTriangle, Layers,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
@@ -40,6 +40,12 @@ type Material = {
   issueRkey: number | null
   poPtr: number | null
   roPtr: number | null
+  certs: {
+    id: number; poNumber: string; lot: string; apcPart: string
+    materialType: string; fileName: string; filePath: string
+    fileMtime: string | null; partMatches: boolean
+  }[]
+  poNumberSource?: 'paradigm' | 'cert-archive'
   locationCode: string
   locationName: string
   warehouseCode: string
@@ -70,6 +76,7 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
   const [deepestLevel, setDeepestLevel] = useState(0)
   const [maxWorkOrdersPerRow, setMaxWorkOrdersPerRow] = useState(1)
   const [diagnostics, setDiagnostics] = useState<any>(null)
+  const [certsFound, setCertsFound] = useState(0)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
@@ -101,6 +108,7 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
       setDeepestLevel(d.deepestLevel || 0)
       setMaxWorkOrdersPerRow(d.maxWorkOrdersPerRow || 1)
       setDiagnostics(d.diagnostics || null)
+      setCertsFound(d.certsFound || 0)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setMaterials([])
@@ -157,22 +165,25 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
 
       const headers = concise
         ? ['Part Number', 'Description', 'Lot / Batch', 'RO/P.O. Number',
-           'Supplier', 'Supplier Code', 'Location', 'C of O', 'Exp Date',
+           'Supplier', 'Supplier Code', 'Cert File', 'Cert Path',
+           'Location', 'C of O', 'Exp Date',
            'Qty Issued', 'Issues', 'First Issue', 'Last Issue', 'Level']
         : ['Level', 'Issued To Work Order', 'Issued From', 'Part Number',
            'Description', 'P/M', 'Lot / Batch', 'Qty Issued', 'Issue Date',
-           'RO/P.O. Number', 'Supplier', 'Supplier Code', 'Warehouse',
-           'Location', 'C of O', 'Exp Date']
+           'RO/P.O. Number', 'Supplier', 'Supplier Code', 'Cert File', 'Cert Path',
+           'Warehouse', 'Location', 'C of O', 'Exp Date']
 
       const body = sorted.map(m => concise
         ? [m.partNumber, m.description, m.batchSerial, m.poNumber,
            m.supplierName, m.supplierCode,
+           m.certs?.[0]?.fileName || '', m.certs?.[0]?.filePath || '',
            [m.locationCode, m.locationName].filter(Boolean).join(' '),
            m.countryOfOrigin, fmtDate(m.expDate), fmtQty(m.quantity),
            m.issueCount ?? '', fmtDate(m.firstIssueDate), fmtDate(m.lastIssueDate), m.level]
         : [m.level, m.issuedToWorkOrder, m.issuedFrom, m.partNumber,
            m.description, m.purchasedOrMade, m.batchSerial, fmtQty(m.quantity),
            fmtDate(m.issueDate), m.poNumber, m.supplierName, m.supplierCode,
+           m.certs?.[0]?.fileName || '', m.certs?.[0]?.filePath || '',
            m.warehouseCode,
            [m.locationCode, m.locationName].filter(Boolean).join(' '),
            m.countryOfOrigin, fmtDate(m.expDate)])
@@ -416,6 +427,7 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                   {...{ toggleSort, SortIcon }} right />
                 <Th k="poNumber" label="RO/P.O." {...{ toggleSort, SortIcon }} />
                 <Th k="supplierName" label="Supplier" {...{ toggleSort, SortIcon }} />
+                <th className="px-3 py-2">Cert</th>
                 <Th k="locationCode" label="Location" {...{ toggleSort, SortIcon }} />
                 <Th k="countryOfOrigin" label="C of O" {...{ toggleSort, SortIcon }} />
                 <Th k="expDate" label="Exp Date" {...{ toggleSort, SortIcon }} />
@@ -445,7 +457,13 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                       pointer exists but doesn't resolve, say so. */}
                   <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
                     {m.poNumber
-                      ? m.poNumber
+                      ? <span title={m.poNumberSource === 'cert-archive'
+                          ? 'From the certificate archive — Paradigm does not resolve this PO'
+                          : 'From Paradigm'}>
+                          {m.poNumber}
+                          {m.poNumberSource === 'cert-archive' &&
+                            <span className="ml-1 text-blue-500" aria-hidden>*</span>}
+                        </span>
                       : (m.poPtr || m.roPtr)
                         ? <span className="text-amber-700" title="A purchase/repair order is referenced but could not be resolved">
                             ref {m.poPtr || m.roPtr} <span className="text-amber-500">(unresolved)</span>
@@ -454,6 +472,29 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                   </td>
                   <td className="px-3 py-2 max-w-[14rem] truncate" title={m.supplierName}>
                     {m.supplierName || <span className="text-slate-300">—</span>}
+                  </td>
+                  {/* The point of the whole exercise: the certificate itself,
+                      one click from the material that needs it. */}
+                  <td className="px-3 py-2 whitespace-nowrap">
+                    {m.certs?.length ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <a href={getApiUrl(`/api/operations/inspections/material-certs/download?path=${encodeURIComponent(m.certs[0].filePath)}`)}
+                          target="_blank" rel="noreferrer"
+                          title={m.certs[0].fileName}
+                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800">
+                          <FileText size={14} /> View
+                        </a>
+                        <a href={getApiUrl(`/api/operations/inspections/material-certs/download?path=${encodeURIComponent(m.certs[0].filePath)}&download=true`)}
+                          title={`Download ${m.certs[0].fileName}`}
+                          className="text-slate-400 hover:text-slate-700">
+                          <Download size={14} />
+                        </a>
+                        {m.certs.length > 1 &&
+                          <span className="text-xs text-slate-400" title={`${m.certs.length} certs for this lot`}>
+                            +{m.certs.length - 1}
+                          </span>}
+                      </span>
+                    ) : <span className="text-slate-300">—</span>}
                   </td>
                   {/* Paradigm prints location as code + name, e.g.
                       "NASKT N ASSY KIT". Matching that makes the two reports
@@ -482,6 +523,15 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
           own page shows a country on every line, so it falls back to a source
           we have not identified yet. A bare dash in a compliance column reads
           as "no restriction", which is not what a blank here means. */}
+      {!!sorted.length && (
+        <p className="mt-2 text-xs text-slate-500">
+          {certsFound} of {materials.length} row{materials.length === 1 ? '' : 's'} matched a
+          certificate in the archive, by lot number.
+          {sorted.some(m => m.poNumberSource === 'cert-archive') &&
+            ' PO numbers marked * come from the certificate file rather than Paradigm.'}
+        </p>
+      )}
+
       {!!sorted.length && sorted.some(m => !m.countryOfOrigin) && (
         <p className="mt-2 text-xs text-amber-700">
           Country of origin is recorded per lot and is often missing. A blank

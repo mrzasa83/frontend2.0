@@ -5,6 +5,7 @@ import { queryMSSQL } from '@/lib/db/mssql'
 import {
   buildTraceabilityQuery, buildEmptyResultProbes, normalizeWorkOrder,
 } from '@/lib/inspections/rawMaterialTraceability'
+import { findCertsForLots, normalizePoNumber } from '@/lib/inspections/certLookup'
 
 const READ_CONN = '1'
 
@@ -97,6 +98,44 @@ export async function GET(request: NextRequest) {
     }))
 
     /**
+     * Tie each row to the certificate archive.
+     *
+     * This does two jobs at once. It supplies the PO number, which Paradigm's
+     * own tables could not (DATA0070's RKEY range stops well short of the
+     * PO_PTR values on real lots), and it supplies the certificate PDF, which
+     * is what a reviewer is actually after. The archive is keyed by lot, so
+     * the lots we already have are the whole input.
+     *
+     * Failure here is not failure of the report: findCertsForLots swallows
+     * its own errors and returns what it has, so an unreachable archive costs
+     * the cert links and nothing else.
+     */
+    const partsByLot: Record<string, string[]> = {}
+    for (const m of materials) {
+      if (!m.batchSerial) continue
+      ;(partsByLot[m.batchSerial] ||= []).push(m.partNumber)
+    }
+    const certsByLot = await findCertsForLots(Object.keys(partsByLot), partsByLot)
+
+    for (const m of materials as any[]) {
+      const certs = certsByLot[m.batchSerial] || []
+      m.certs = certs
+      // Paradigm's PO never resolves today, so the archive is the only source
+      // of a PO number. Flagged rather than silently substituted: a reviewer
+      // should know the number came from the cert file, not from the ERP.
+      if (!m.poNumber && certs.length) {
+        const fromCert = certs.find(c => c.poNumber)
+        if (fromCert) {
+          m.poNumber = fromCert.poNumber
+          m.poNumberSource = 'cert-archive'
+        }
+      } else if (m.poNumber) {
+        m.poNumberSource = 'paradigm'
+      }
+      m.poNumberNormalized = normalizePoNumber(m.poNumber || '')
+    }
+
+    /**
      * Splits present in the result. The printed Paradigm report for
      * -354516-01-000 carries S3's quantities while its header shows the base
      * number, so which split a row belongs to is load-bearing information,
@@ -186,6 +225,7 @@ export async function GET(request: NextRequest) {
       options: opts,
       splits,
       maxWorkOrdersPerRow,
+      certsFound: materials.reduce((n, m: any) => n + (m.certs?.length ? 1 : 0), 0),
       deepestLevel: materials.reduce((d, m) => Math.max(d, m.level), 0),
       diagnostics,
       materials,
