@@ -40,6 +40,10 @@ type Material = {
   issueRkey: number | null
   poPtr: number | null
   roPtr: number | null
+  locationCode: string
+  locationName: string
+  warehouseCode: string
+  countryOfOrigin: string
   workOrderCount: number | null
   firstWorkOrder: string
   lastWorkOrder: string
@@ -47,6 +51,7 @@ type Material = {
 
 type SortKey = 'level' | 'issuedToWorkOrder' | 'partNumber' | 'description'
   | 'batchSerial' | 'quantity' | 'issueDate' | 'poNumber' | 'supplierName' | 'expDate'
+  | 'locationCode' | 'countryOfOrigin'
 
 const fmtDate = (v: any) => {
   if (!v) return ''
@@ -64,6 +69,7 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
   const [splits, setSplits] = useState<string[]>([])
   const [deepestLevel, setDeepestLevel] = useState(0)
   const [maxWorkOrdersPerRow, setMaxWorkOrdersPerRow] = useState(1)
+  const [diagnostics, setDiagnostics] = useState<any>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
@@ -94,10 +100,12 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
       setSplits(d.splits || [])
       setDeepestLevel(d.deepestLevel || 0)
       setMaxWorkOrdersPerRow(d.maxWorkOrdersPerRow || 1)
+      setDiagnostics(d.diagnostics || null)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
       setMaterials([])
       setSplits([])
+      setDiagnostics(null)
     } finally {
       setLoading(false)
     }
@@ -110,7 +118,8 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
     const filtered = q
       ? materials.filter(m =>
           [m.partNumber, m.description, m.batchSerial, m.poNumber,
-           m.supplierName, m.issuedToWorkOrder]
+           m.supplierName, m.issuedToWorkOrder, m.locationCode,
+           m.locationName, m.countryOfOrigin]
             .some(v => (v || '').toLowerCase().includes(q)))
       : materials
     const dir = sortAsc ? 1 : -1
@@ -148,20 +157,25 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
 
       const headers = concise
         ? ['Part Number', 'Description', 'Lot / Batch', 'RO/P.O. Number',
-           'Supplier', 'Supplier Code', 'Exp Date', 'Qty Issued', 'Issues',
-           'First Issue', 'Last Issue', 'Level']
+           'Supplier', 'Supplier Code', 'Location', 'C of O', 'Exp Date',
+           'Qty Issued', 'Issues', 'First Issue', 'Last Issue', 'Level']
         : ['Level', 'Issued To Work Order', 'Issued From', 'Part Number',
            'Description', 'P/M', 'Lot / Batch', 'Qty Issued', 'Issue Date',
-           'RO/P.O. Number', 'Supplier', 'Supplier Code', 'Exp Date']
+           'RO/P.O. Number', 'Supplier', 'Supplier Code', 'Warehouse',
+           'Location', 'C of O', 'Exp Date']
 
       const body = sorted.map(m => concise
         ? [m.partNumber, m.description, m.batchSerial, m.poNumber,
-           m.supplierName, m.supplierCode, fmtDate(m.expDate), fmtQty(m.quantity),
+           m.supplierName, m.supplierCode,
+           [m.locationCode, m.locationName].filter(Boolean).join(' '),
+           m.countryOfOrigin, fmtDate(m.expDate), fmtQty(m.quantity),
            m.issueCount ?? '', fmtDate(m.firstIssueDate), fmtDate(m.lastIssueDate), m.level]
         : [m.level, m.issuedToWorkOrder, m.issuedFrom, m.partNumber,
            m.description, m.purchasedOrMade, m.batchSerial, fmtQty(m.quantity),
            fmtDate(m.issueDate), m.poNumber, m.supplierName, m.supplierCode,
-           fmtDate(m.expDate)])
+           m.warehouseCode,
+           [m.locationCode, m.locationName].filter(Boolean).join(' '),
+           m.countryOfOrigin, fmtDate(m.expDate)])
 
       // Provenance block above the table. Keeps the file self-describing.
       const meta = [
@@ -309,11 +323,83 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
           <RefreshCw size={18} className="animate-spin" /> Loading…
         </div>
       ) : !sorted.length ? (
-        <div className="py-12 text-center text-sm text-slate-500">
-          {materials.length
-            ? 'No rows match that search.'
-            : `No material issues recorded against ${workOrder}.`}
-        </div>
+        materials.length ? (
+          <div className="py-12 text-center text-sm text-slate-500">
+            No rows match that search.
+          </div>
+        ) : (
+          /* An empty report is a real answer, but "nothing found" alone leaves
+             the user with nothing to do. The probes distinguish a spelling
+             difference (fixable from here) from a job with nothing issued,
+             a bad number, or a ledger that does not reach back far enough. */
+          <div className="py-10 px-4 max-w-2xl mx-auto text-sm text-slate-600 space-y-3">
+            <p className="text-center font-medium text-slate-700">
+              No material issues recorded against {workOrder}.
+            </p>
+
+            {diagnostics?.reason === 'spelling' && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+                The ledger records this job under a different spelling:{' '}
+                <span className="font-mono">{diagnostics.sameJobSpellings.join(', ')}</span>.
+                {exactWorkOrder
+                  ? <> Turn off <em>This work order only</em> to match them all.</>
+                  : <> This should have matched — worth reporting, the normalising rule has a gap.</>}
+              </div>
+            )}
+
+            {diagnostics?.reason === 'job-exists-no-issues' && (
+              <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-amber-900">
+                <div className="font-medium mb-1">
+                  The work order exists in Paradigm, but not in the issue ledger.
+                </div>
+                {/* DATA0153 was measured at 15,674 rows ALL inside a single
+                    month. It is a rolling window, not a historical ledger, so
+                    a job that ran before it shows nothing here while Paradigm's
+                    own report still prints its material. Saying "no material
+                    issued" would be flatly wrong in that case. */}
+                The ledger behind this tab only covers the window shown below. A job
+                that ran before it will show nothing here even though Paradigm's own
+                report has material for it — that is a limit of this source, not a
+                statement that no material was issued. For an older job, run the
+                report in Paradigm.
+              </div>
+            )}
+
+            {diagnostics?.reason === 'not-found' && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                No work order matching this number exists in Paradigm. Check the
+                number on the General tab.
+              </div>
+            )}
+
+            {diagnostics?.reason === 'related-only' && !!diagnostics.spellings?.length && (
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                <div className="mb-1">
+                  Nothing under this number, but the ledger has related jobs:
+                </div>
+                <ul className="font-mono text-xs space-y-0.5">
+                  {diagnostics.spellings.slice(0, 10).map((sp: any) => (
+                    <li key={sp.tranSource}>
+                      {sp.tranSource} · {sp.rows} row{sp.rows === 1 ? '' : 's'} · {fmtDate(sp.lastTran)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {/* A ledger that starts after the job ran is a data boundary, not a
+                missing job, and it is the difference between "look harder" and
+                "this data is not here". */}
+            {diagnostics?.ledgerCoverage && (
+              <p className="text-xs text-slate-500 text-center">
+                Issue ledger holds {diagnostics.ledgerCoverage.totalRows?.toLocaleString()} rows,{' '}
+                covering {fmtDate(diagnostics.ledgerCoverage.oldest)} to{' '}
+                {fmtDate(diagnostics.ledgerCoverage.newest)} only.
+                Work issued before that window is not recorded here.
+              </p>
+            )}
+          </div>
+        )
       ) : (
         <div className="overflow-x-auto border border-slate-200 rounded-lg">
           <table className="min-w-full text-sm">
@@ -330,6 +416,8 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                   {...{ toggleSort, SortIcon }} right />
                 <Th k="poNumber" label="RO/P.O." {...{ toggleSort, SortIcon }} />
                 <Th k="supplierName" label="Supplier" {...{ toggleSort, SortIcon }} />
+                <Th k="locationCode" label="Location" {...{ toggleSort, SortIcon }} />
+                <Th k="countryOfOrigin" label="C of O" {...{ toggleSort, SortIcon }} />
                 <Th k="expDate" label="Exp Date" {...{ toggleSort, SortIcon }} />
                 <Th k="issueDate" label={concise ? 'Last Issue' : 'Issue Date'} {...{ toggleSort, SortIcon }} />
                 {concise && <th className="px-3 py-2 text-right">Issues</th>}
@@ -367,6 +455,18 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                   <td className="px-3 py-2 max-w-[14rem] truncate" title={m.supplierName}>
                     {m.supplierName || <span className="text-slate-300">—</span>}
                   </td>
+                  {/* Paradigm prints location as code + name, e.g.
+                      "NASKT N ASSY KIT". Matching that makes the two reports
+                      comparable line for line. */}
+                  <td className="px-3 py-2 whitespace-nowrap text-xs">
+                    {m.locationCode
+                      ? <><span className="font-mono">{m.locationCode}</span>{' '}
+                          <span className="text-slate-500">{m.locationName}</span></>
+                      : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">
+                    {m.countryOfOrigin || <span className="text-slate-300">—</span>}
+                  </td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtDate(m.expDate)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtDate(concise ? m.lastIssueDate : m.issueDate)}</td>
                   {concise && <td className="px-3 py-2 text-right text-slate-500">{m.issueCount ?? ''}</td>}
@@ -375,6 +475,19 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
             </tbody>
           </table>
         </div>
+      )}
+
+      {/* C of O comes from DATA9432, which is keyed per lot and only about
+          30% populated — correct where present, absent otherwise. Paradigm's
+          own page shows a country on every line, so it falls back to a source
+          we have not identified yet. A bare dash in a compliance column reads
+          as "no restriction", which is not what a blank here means. */}
+      {!!sorted.length && sorted.some(m => !m.countryOfOrigin) && (
+        <p className="mt-2 text-xs text-amber-700">
+          Country of origin is recorded per lot and is often missing. A blank
+          means not recorded against that lot — not that the origin is
+          unrestricted. Check Paradigm before relying on it for compliance.
+        </p>
       )}
 
       {!!sorted.length && includeSubLevels && (

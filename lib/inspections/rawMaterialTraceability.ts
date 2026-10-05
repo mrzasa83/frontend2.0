@@ -116,64 +116,145 @@ const MAX_LEVEL = 10
  * the two SELECT shapes can sit on top of the same traversal rather than
  * drifting apart.
  */
+/**
+ * Normalises a work order or lot number to its comparable core.
+ *
+ *   -357152-01-100      -> 357152-01-100
+ *   S3-354516-01-000    -> 354516-01-000
+ *   354516-01-000       -> 354516-01-000
+ *
+ * Paradigm writes the same job several ways: a base number, S0-/S1-/S2-/S3-
+ * splits of it, and lot numbers that carry the producing job's number with a
+ * leading dash. Comparing the normalised forms matches all of them exactly,
+ * which is both safer and broader than a wildcard.
+ *
+ * It has to agree character for character with NORM_SQL below — if the two
+ * ever drift, the query silently returns nothing, which is the failure this
+ * function exists to prevent.
+ */
+export function normalizeWorkOrder(wo: string): string {
+  return wo.trim().toUpperCase()
+    // Split/alternate prefix. NOT just S: the ledger also carries A1-, A5-
+    // (e.g. A5-350167-01-100, A1-356192-01-100) alongside S0-/S1-. An
+    // S-only rule silently dropped every A-prefixed job.
+    .replace(/^[A-Z]\d{1,2}-/, '')
+    .replace(/^-/, '')           // leading dash on lots and job numbers
+}
+
+/** The SQL twin of normalizeWorkOrder. `v` must already be trimmed and
+ *  uppercased. Kept as one expression so Ledger computes it once per row. */
+const NORM_SQL = (v: string) => `
+        CASE WHEN (CASE
+                     WHEN ${v} LIKE '[A-Z][0-9]-%'      THEN SUBSTRING(${v}, 4, 40)
+                     WHEN ${v} LIKE '[A-Z][0-9][0-9]-%' THEN SUBSTRING(${v}, 5, 40)
+                     ELSE ${v}
+                   END) LIKE '-%'
+             THEN SUBSTRING(CASE
+                     WHEN ${v} LIKE '[A-Z][0-9]-%'      THEN SUBSTRING(${v}, 4, 40)
+                     WHEN ${v} LIKE '[A-Z][0-9][0-9]-%' THEN SUBSTRING(${v}, 5, 40)
+                     ELSE ${v}
+                   END, 2, 40)
+             ELSE CASE
+                     WHEN ${v} LIKE '[A-Z][0-9]-%'      THEN SUBSTRING(${v}, 4, 40)
+                     WHEN ${v} LIKE '[A-Z][0-9][0-9]-%' THEN SUBSTRING(${v}, 5, 40)
+                     ELSE ${v}
+                   END
+        END`
+
+/**
+ * The recursive walk, shared by both output modes. Emitted as a CTE body so
+ * the two SELECT shapes sit on one traversal rather than drifting apart.
+ *
+ * WHY THERE IS NO WILDCARD HERE ANY MORE
+ *
+ * The first cut matched the root with LIKE '%' + @workOrder and recursed with
+ * LIKE '%' + i.BatchSerial. That over-matches: any work order whose number
+ * happens to END with the search string comes back as if it were the same
+ * job. It is the same class of bug as the old BOM-walk in material-certs,
+ * which returned 374 rows of unrelated lots. Widening it further to
+ * '%' + wo + '%' would make that worse, not better.
+ *
+ * Normalising both sides and comparing for equality is broader AND stricter:
+ * it matches the base job, every S-split and the lot form in one comparison,
+ * and matches nothing else.
+ *
+ * Ledger is a plain (non-recursive) CTE so the trimming, uppercasing and
+ * normalising happen once per row instead of once per recursion step. A
+ * recursive member may reference another CTE as a table, which it could not
+ * do with the CROSS APPLY this would otherwise need — T-SQL forbids subqueries
+ * and APPLY inside a recursive member.
+ */
 function issuesCte(includeSubLevels: boolean, exactWorkOrder: boolean): string {
-  // Suffix match pulls the base job and its S-splits together; exact match
-  // pins one. Either way the value is a parameter, never interpolated.
+  // Exact pins one spelling, splits included or not. Otherwise the normalised
+  // forms are compared, which gathers the base job and all of its splits.
   const rootMatch = exactWorkOrder
-    ? 'LTRIM(RTRIM(t.TRAN_SOURCE)) = @workOrder'
-    : `LTRIM(RTRIM(t.TRAN_SOURCE)) LIKE '%' + @workOrder`
+    ? 't.Src = @workOrderExact'
+    : 't.SrcNorm = @workOrderNorm'
 
   return `
+Ledger AS (
+    SELECT
+        t.DATA0017_PTR, t.QUANTITY, t.TDATE,
+        t.LOC_PTR, t.WHSE_PTR, t.UNIT_PTR, t.RKEY,
+        CAST(UPPER(LTRIM(RTRIM(t.TRAN_SOURCE)))     AS VARCHAR(40))
+            COLLATE DATABASE_DEFAULT AS Src,
+        CAST(UPPER(LTRIM(RTRIM(t.BATCH_SERIAL_NO))) AS VARCHAR(40))
+            COLLATE DATABASE_DEFAULT AS Batch,
+        CAST(${NORM_SQL('UPPER(LTRIM(RTRIM(t.TRAN_SOURCE)))')} AS VARCHAR(40))
+            COLLATE DATABASE_DEFAULT AS SrcNorm,
+        CAST(${NORM_SQL('UPPER(LTRIM(RTRIM(t.BATCH_SERIAL_NO)))')} AS VARCHAR(40))
+            COLLATE DATABASE_DEFAULT AS BatchNorm
+    FROM DATA0153 t
+    WHERE LTRIM(RTRIM(t.TRAN_TYPE)) IN ('Stock To Work Order',
+                                        'Stock To Work Center')
+),
 Issues AS (
     SELECT
-        CAST(LTRIM(RTRIM(t.TRAN_SOURCE))     AS VARCHAR(40))
-            COLLATE DATABASE_DEFAULT AS TranSource,
-        CAST(@workOrder                      AS VARCHAR(40))
-            COLLATE DATABASE_DEFAULT AS ParentSource,
-        CAST(LTRIM(RTRIM(t.BATCH_SERIAL_NO)) AS VARCHAR(40))
-            COLLATE DATABASE_DEFAULT AS BatchSerial,
+        t.Src                                AS TranSource,
+        CAST(@workOrderExact AS VARCHAR(40))
+            COLLATE DATABASE_DEFAULT         AS ParentSource,
+        t.Batch                              AS BatchSerial,
+        t.BatchNorm                          AS BatchNorm,
         t.DATA0017_PTR, t.QUANTITY, t.TDATE,
         t.LOC_PTR, t.WHSE_PTR, t.UNIT_PTR, t.RKEY,
         CAST(0 AS INT) AS Lvl,
-        CAST('|' + @workOrder + '|' AS VARCHAR(4000))
+        CAST('|' + @workOrderNorm + '|' AS VARCHAR(4000))
             COLLATE DATABASE_DEFAULT AS Visited
-    FROM DATA0153 t
+    FROM Ledger t
     WHERE ${rootMatch}
-      AND LTRIM(RTRIM(t.TRAN_TYPE)) IN ('Stock To Work Order',
-                                        'Stock To Work Center')
 
     UNION ALL
 
     SELECT
-        CAST(LTRIM(RTRIM(t.TRAN_SOURCE))     AS VARCHAR(40))
-            COLLATE DATABASE_DEFAULT,
-        CAST(i.BatchSerial                   AS VARCHAR(40))
-            COLLATE DATABASE_DEFAULT,
-        CAST(LTRIM(RTRIM(t.BATCH_SERIAL_NO)) AS VARCHAR(40))
-            COLLATE DATABASE_DEFAULT,
+        t.Src,
+        i.BatchSerial,
+        t.Batch,
+        t.BatchNorm,
         t.DATA0017_PTR, t.QUANTITY, t.TDATE,
         t.LOC_PTR, t.WHSE_PTR, t.UNIT_PTR, t.RKEY,
         i.Lvl + 1,
-        CAST(i.Visited + i.BatchSerial + '|' AS VARCHAR(4000))
+        CAST(i.Visited + i.BatchNorm + '|' AS VARCHAR(4000))
             COLLATE DATABASE_DEFAULT
     FROM Issues i
-    JOIN DATA0153 t
-      ON LTRIM(RTRIM(t.TRAN_SOURCE)) COLLATE DATABASE_DEFAULT
-         LIKE '%' + i.BatchSerial
+    JOIN Ledger t
+      -- The lot issued at level n-1 names the job that produced it, so the
+      -- producing job's issues are the ones whose normalised source equals
+      -- the normalised lot. Equality, not LIKE: this picks up every split of
+      -- the producing job and nothing else.
+      ON t.SrcNorm = i.BatchNorm
     WHERE ${includeSubLevels ? '1 = 1' : '1 = 0'}
       AND i.Lvl < ${MAX_LEVEL}
-      -- Only a work-order-style lot can have issues of its own. A supplier
-      -- batch is a leaf; without this it LIKE-matches unrelated jobs.
+      -- Only a work-order-style lot can have issues of its own; a supplier
+      -- batch is a leaf. Also keeps the recursion off a 15k-row table once
+      -- per purchased lot.
       AND i.BatchSerial LIKE '-%'
-      AND LTRIM(RTRIM(t.TRAN_TYPE)) IN ('Stock To Work Order',
-                                        'Stock To Work Center')
       -- Cycle guard. A reworked lot can otherwise re-enter its own branch.
-      AND i.Visited NOT LIKE '%|' + i.BatchSerial + '|%'
+      AND i.Visited NOT LIKE '%|' + i.BatchNorm + '|%'
 ),
 OneRowPerIssue AS (
-    -- The recursion dedupe (see note 3 in the header). PARTITION BY RKEY
-    -- alone is deliberate: the key is the ledger row, so duplicates
-    -- collapse regardless of which level or parent reached it first.
+    -- The recursion dedupe. PARTITION BY RKEY alone is deliberate: the key is
+    -- the ledger row, so duplicates collapse regardless of which level or
+    -- parent reached it first.
     SELECT i.*,
            ROW_NUMBER() OVER (
                PARTITION BY i.RKEY
@@ -217,12 +298,16 @@ export function buildTraceabilityQuery(opts: TraceabilityOptions): {
   const exactWorkOrder = opts.exactWorkOrder === true
   const workOrder = opts.workOrder.trim()
 
-  const params = { workOrder }
+  const params = {
+    workOrderExact: workOrder.toUpperCase(),
+    workOrderNorm: normalizeWorkOrder(workOrder),
+  }
   const cte = issuesCte(includeSubLevels, exactWorkOrder)
 
-  // READ UNCOMMITTED: PDMLIV is live ERP and this is a read-only report, so
-  // we take no locks on tables Paradigm users are transacting against.
-  const prefix = 'SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED;\n\n;WITH '
+  // queryMSSQL already prepends SET TRANSACTION ISOLATION LEVEL READ
+  // UNCOMMITTED per batch, so this must not repeat it. The leading semicolon
+  // terminates that statement before WITH.
+  const prefix = ';WITH '
 
   if (concise) {
     /**
@@ -274,12 +359,42 @@ SELECT
     -- Surfaced unresolved so the UI can distinguish "no PO" from "PO exists
     -- but we cannot resolve it" (see PO_PTR 174187 / DATA0070).
     MAX(lot.PO_PTR)                        AS PoPtr,
-    MAX(lot.RO_PTR)                        AS RoPtr
+    MAX(lot.RO_PTR)                        AS RoPtr,
+    -- Aggregated rather than grouped: location varies per issue, and adding
+    -- it to GROUP BY would split one lot into several concise lines, which
+    -- is exactly what concise exists to avoid.
+    MAX(LTRIM(RTRIM(loc.CODE)))            AS LocationCode,
+    MAX(LTRIM(RTRIM(loc.LOCATION)))        AS LocationName,
+    MAX(LTRIM(RTRIM(wh.WAREHOUSE_CODE)))   AS WarehouseCode,
+    MAX(LTRIM(RTRIM(ctry.COUNTRY_CODE)))   AS CountryOfOrigin
 FROM OneRowPerIssue i
 JOIN DATA0017 d17 ON d17.RKEY = i.DATA0017_PTR
 ${LOT_APPLY}
+-- KNOWN BROKEN, kept only so the shape stays stable until the right table
+-- is found. DATA0070 holds 141,509 rows with RKEY 1..143,116, while every
+-- PO_PTR on real lots runs 148,420..176,498 — past the end of the table. Not
+-- one of them can resolve, which is why PONumber is NULL on every purchased
+-- row. PO_PTR is not a DATA0070 key. The UI shows the raw pointer as
+-- "ref NNNNNN (unresolved)" so a blank is never read as "never purchased".
 LEFT JOIN DATA0070 po   ON po.RKEY = lot.PO_PTR
 LEFT JOIN DATA0023 supp ON supp.RKEY = po.SUPPLIER_POINTER
+-- Resolved in round 5, all three verified against known values:
+--   DATA0016  RKEY 286 -> NASKT / N ASSY KIT, 3490 -> NBW22 / N HARDWARE,
+--             439 -> NPP01 / PPG PREP. This is DATA0153.LOC_PTR's table.
+--   DATA0015  RKEY 1 -> WHSE1 / NASHUA - APC WAREHOUSE, matching the
+--             printed report's header exactly.
+--   DATA9432  keyed DATA0020_PTR -> C_OF_O_PTR, i.e. country of origin per
+--             LOT. DATA9419 is per customer part and DATA9421 per inventory
+--             part, so neither answers "where did this lot come from".
+LEFT JOIN DATA0016 loc  ON loc.RKEY = i.LOC_PTR
+LEFT JOIN DATA0015 wh   ON wh.RKEY  = i.WHSE_PTR
+OUTER APPLY (
+    SELECT TOP 1 c.C_OF_O_PTR
+    FROM DATA9432 c
+    WHERE c.DATA0020_PTR = lot.RKEY
+    ORDER BY c.RKEY DESC
+) coo
+LEFT JOIN DATA0250 ctry ON ctry.COUNTRY_RKEY = coo.C_OF_O_PTR
 WHERE i.rn = 1
   AND d17.P_M = 'P'
 GROUP BY
@@ -319,15 +434,109 @@ SELECT
     LTRIM(RTRIM(supp.SUPPLIER_NAME))       AS SupplierName,
     LTRIM(RTRIM(supp.CODE))                AS SupplierCode,
     lot.EXPIRED_DATE                       AS ExpDate,
+    LTRIM(RTRIM(loc.CODE))                 AS LocationCode,
+    LTRIM(RTRIM(loc.LOCATION))             AS LocationName,
+    LTRIM(RTRIM(wh.WAREHOUSE_CODE))        AS WarehouseCode,
+    LTRIM(RTRIM(ctry.COUNTRY_CODE))        AS CountryOfOrigin,
     i.RKEY                                 AS IssueRkey
 FROM OneRowPerIssue i
 LEFT JOIN DATA0017 d17 ON d17.RKEY = i.DATA0017_PTR
 ${LOT_APPLY}
+-- KNOWN BROKEN, kept only so the shape stays stable until the right table
+-- is found. DATA0070 holds 141,509 rows with RKEY 1..143,116, while every
+-- PO_PTR on real lots runs 148,420..176,498 — past the end of the table. Not
+-- one of them can resolve, which is why PONumber is NULL on every purchased
+-- row. PO_PTR is not a DATA0070 key. The UI shows the raw pointer as
+-- "ref NNNNNN (unresolved)" so a blank is never read as "never purchased".
 LEFT JOIN DATA0070 po   ON po.RKEY = lot.PO_PTR
 LEFT JOIN DATA0023 supp ON supp.RKEY = po.SUPPLIER_POINTER
+-- Resolved in round 5, all three verified against known values:
+--   DATA0016  RKEY 286 -> NASKT / N ASSY KIT, 3490 -> NBW22 / N HARDWARE,
+--             439 -> NPP01 / PPG PREP. This is DATA0153.LOC_PTR's table.
+--   DATA0015  RKEY 1 -> WHSE1 / NASHUA - APC WAREHOUSE, matching the
+--             printed report's header exactly.
+--   DATA9432  keyed DATA0020_PTR -> C_OF_O_PTR, i.e. country of origin per
+--             LOT. DATA9419 is per customer part and DATA9421 per inventory
+--             part, so neither answers "where did this lot come from".
+LEFT JOIN DATA0016 loc  ON loc.RKEY = i.LOC_PTR
+LEFT JOIN DATA0015 wh   ON wh.RKEY  = i.WHSE_PTR
+OUTER APPLY (
+    SELECT TOP 1 c.C_OF_O_PTR
+    FROM DATA9432 c
+    WHERE c.DATA0020_PTR = lot.RKEY
+    ORDER BY c.RKEY DESC
+) coo
+LEFT JOIN DATA0250 ctry ON ctry.COUNTRY_RKEY = coo.C_OF_O_PTR
 WHERE i.rn = 1
 ORDER BY i.Lvl, i.TranSource, InventoryPart, i.TDATE
 OPTION (MAXRECURSION 32)`,
     params,
+  }
+}
+
+/**
+ * Extracts the leading job number from a work order or lot, e.g. '357152'
+ * from '-357152-01-100'. Used only to widen a diagnostic probe, never the
+ * report itself.
+ */
+export function workOrderCore(wo: string): string {
+  const m = normalizeWorkOrder(wo).match(/\d{4,}/)
+  return m ? m[0] : normalizeWorkOrder(wo)
+}
+
+/**
+ * Why did that come back empty?
+ *
+ * An empty traceability result has several very different causes and they
+ * need different responses from whoever is looking at it:
+ *
+ *   the number is spelled differently in the ledger   -> show the spellings
+ *   the job exists but nothing was issued against it  -> say so
+ *   the job does not exist at all                     -> it's a bad number
+ *   the ledger does not go back that far              -> a data boundary
+ *
+ * "No material issues recorded" covers all four and distinguishes none, which
+ * leaves the user with nothing to do. These probes are deliberately wide —
+ * a substring match on the job number — because that is safe for a diagnostic
+ * in a way it would never be for the report, where it would silently fold in
+ * unrelated jobs.
+ */
+export function buildEmptyResultProbes(workOrder: string): {
+  ledger: { sql: string; params: Record<string, unknown> }
+  header: { sql: string; params: Record<string, unknown> }
+  coverage: { sql: string; params: Record<string, unknown> }
+} {
+  const core = workOrderCore(workOrder)
+  return {
+    // Every spelling of this job number the issue ledger knows about.
+    ledger: {
+      sql: `SELECT TOP 25
+    LTRIM(RTRIM(t.TRAN_SOURCE)) AS TranSource,
+    LTRIM(RTRIM(t.TRAN_TYPE))   AS TranType,
+    COUNT(*)                    AS Rows,
+    MIN(t.TDATE)                AS FirstTran,
+    MAX(t.TDATE)                AS LastTran
+FROM DATA0153 t
+WHERE LTRIM(RTRIM(t.TRAN_SOURCE)) LIKE '%' + @core + '%'
+GROUP BY LTRIM(RTRIM(t.TRAN_SOURCE)), LTRIM(RTRIM(t.TRAN_TYPE))
+ORDER BY TranSource`,
+      params: { core },
+    },
+    // Does the work order exist as a job at all?
+    header: {
+      sql: `SELECT TOP 25
+    LTRIM(RTRIM(wo.WORK_ORDER_NUMBER)) AS WorkOrderNumber
+FROM DATA0006 wo
+WHERE LTRIM(RTRIM(wo.WORK_ORDER_NUMBER)) LIKE '%' + @core + '%'
+ORDER BY WorkOrderNumber`,
+      params: { core },
+    },
+    // How far back the ledger goes, so a date boundary is visible as one
+    // rather than being mistaken for a missing job.
+    coverage: {
+      sql: `SELECT COUNT(*) AS TotalRows, MIN(t.TDATE) AS Oldest, MAX(t.TDATE) AS Newest
+FROM DATA0153 t`,
+      params: {},
+    },
   }
 }

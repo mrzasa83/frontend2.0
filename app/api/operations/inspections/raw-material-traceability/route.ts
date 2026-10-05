@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryMSSQL } from '@/lib/db/mssql'
-import { buildTraceabilityQuery } from '@/lib/inspections/rawMaterialTraceability'
+import {
+  buildTraceabilityQuery, buildEmptyResultProbes, normalizeWorkOrder,
+} from '@/lib/inspections/rawMaterialTraceability'
 
 const READ_CONN = '1'
 
@@ -81,6 +83,13 @@ export async function GET(request: NextRequest) {
       // material was never purchased", which is the opposite of the truth.
       poPtr: num(r.PoPtr),
       roPtr: num(r.RoPtr),
+      // Resolved round 5: DATA0016 (location), DATA0015 (warehouse),
+      // DATA9432 -> DATA0250 (country of origin per lot). These are three of
+      // the printed report's own columns.
+      locationCode: str(r.LocationCode),
+      locationName: str(r.LocationName),
+      warehouseCode: str(r.WarehouseCode),
+      countryOfOrigin: str(r.CountryOfOrigin),
       // Concise only: how many work orders the summed quantity spans.
       workOrderCount: num(r.WorkOrderCount),
       firstWorkOrder: str(r.FirstWorkOrder),
@@ -115,6 +124,62 @@ export async function GET(request: NextRequest) {
       (n, m) => Math.max(n, m.workOrderCount ?? 1), 1
     )
 
+    /**
+     * An empty result has four very different causes — a different spelling
+     * in the ledger, a job with nothing issued against it, a bad number, or a
+     * ledger that does not reach back that far — and "no material issues
+     * recorded" distinguishes none of them. Probe only on empty, so the
+     * normal path costs nothing.
+     *
+     * Each probe is independent: one failing must not turn a legitimately
+     * empty report into a 500, because empty is a valid answer.
+     */
+    let diagnostics: any = null
+    if (!materials.length) {
+      const probes = buildEmptyResultProbes(workOrder)
+      const run = async (q: { sql: string; params: Record<string, unknown> }) => {
+        try { return await queryMSSQL<any[]>(READ_CONN, q.sql, q.params) }
+        catch { return null }
+      }
+      const [ledger, header, coverage] = await Promise.all([
+        run(probes.ledger), run(probes.header), run(probes.coverage),
+      ])
+
+      const spellings = (ledger || []).map((r: any) => ({
+        tranSource: str(r.TranSource),
+        tranType: str(r.TranType),
+        rows: num(r.Rows),
+        firstTran: r.FirstTran ?? null,
+        lastTran: r.LastTran ?? null,
+      }))
+      const headers = (header || []).map((r: any) => str(r.WorkOrderNumber)).filter(Boolean)
+      const cov = coverage?.[0] || null
+
+      // The one spelling worth offering as a retry: same normalised job
+      // number, different text. That is a search problem we can fix with a
+      // click rather than a data problem.
+      const wantNorm = normalizeWorkOrder(workOrder)
+      const sameJob = spellings.filter(sp => normalizeWorkOrder(sp.tranSource) === wantNorm)
+
+      diagnostics = {
+        reason: sameJob.length
+          ? 'spelling'
+          : spellings.length
+            ? 'related-only'
+            : headers.length
+              ? 'job-exists-no-issues'
+              : 'not-found',
+        spellings,
+        sameJobSpellings: sameJob.map(sp => sp.tranSource),
+        workOrderHeaders: headers,
+        ledgerCoverage: cov && {
+          totalRows: num(cov.TotalRows),
+          oldest: cov.Oldest ?? null,
+          newest: cov.Newest ?? null,
+        },
+      }
+    }
+
     return NextResponse.json({
       success: true,
       workOrder,
@@ -122,6 +187,7 @@ export async function GET(request: NextRequest) {
       splits,
       maxWorkOrdersPerRow,
       deepestLevel: materials.reduce((d, m) => Math.max(d, m.level), 0),
+      diagnostics,
       materials,
     })
   } catch (error) {
