@@ -50,6 +50,9 @@ type Material = {
   locationName: string
   warehouseCode: string
   countryOfOrigin: string
+  countryOfOriginSource: string
+  qtyReturned: number | null
+  tranType: number | null
   workOrderCount: number | null
   firstWorkOrder: string
   lastWorkOrder: string
@@ -368,11 +371,10 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                     a job that ran before it shows nothing here while Paradigm's
                     own report still prints its material. Saying "no material
                     issued" would be flatly wrong in that case. */}
-                The ledger behind this tab only covers the window shown below. A job
-                that ran before it will show nothing here even though Paradigm's own
-                report has material for it — that is a limit of this source, not a
-                statement that no material was issued. For an older job, run the
-                report in Paradigm.
+                No stock has been issued against it. Material appears here once it
+                is issued to the floor, so a job that is released but not yet kitted
+                shows nothing. The transaction history itself goes back to 2006, so
+                age is not the reason.
               </div>
             )}
 
@@ -403,10 +405,10 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                 "this data is not here". */}
             {diagnostics?.ledgerCoverage && (
               <p className="text-xs text-slate-500 text-center">
-                Issue ledger holds {diagnostics.ledgerCoverage.totalRows?.toLocaleString()} rows,{' '}
-                covering {fmtDate(diagnostics.ledgerCoverage.oldest)} to{' '}
-                {fmtDate(diagnostics.ledgerCoverage.newest)} only.
-                Work issued before that window is not recorded here.
+                Transaction history holds{' '}
+                {diagnostics.ledgerCoverage.totalRows?.toLocaleString()} issue rows,{' '}
+                {fmtDate(diagnostics.ledgerCoverage.oldest)} to{' '}
+                {fmtDate(diagnostics.ledgerCoverage.newest)}.
               </p>
             )}
           </div>
@@ -506,7 +508,15 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                       : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap font-mono text-xs">
-                    {m.countryOfOrigin || <span className="text-slate-300">—</span>}
+                    {m.countryOfOrigin
+                      ? <span title={m.countryOfOriginSource === 'lot'
+                          ? 'Recorded against this specific lot'
+                          : "The part's default origin — not lot-specific"}>
+                          {m.countryOfOrigin}
+                          {m.countryOfOriginSource === 'part' &&
+                            <span className="ml-1 text-slate-400" aria-hidden>†</span>}
+                        </span>
+                      : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtDate(m.expDate)}</td>
                   <td className="px-3 py-2 whitespace-nowrap">{fmtDate(concise ? m.lastIssueDate : m.issueDate)}</td>
@@ -518,25 +528,26 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
         </div>
       )}
 
-      {/* C of O comes from DATA9432, which is keyed per lot and only about
-          30% populated — correct where present, absent otherwise. Paradigm's
-          own page shows a country on every line, so it falls back to a source
-          we have not identified yet. A bare dash in a compliance column reads
-          as "no restriction", which is not what a blank here means. */}
-      {!!sorted.length && (
-        <p className="mt-2 text-xs text-slate-500">
-          {certsFound} of {materials.length} row{materials.length === 1 ? '' : 's'} matched a
-          certificate in the archive, by lot number.
-          {sorted.some(m => m.poNumberSource === 'cert-archive') &&
-            ' PO numbers marked * come from the certificate file rather than Paradigm.'}
+      {/* Lot-level origin is the stronger claim; part-level is the part's
+          default and may not reflect what this particular lot shipped as. A
+          quality submission should know which one it is citing, so the two
+          are marked rather than blended. */}
+      {/* TRAN_TP 14 reverses an issue with a negative quantity, so a lot that
+          was issued and then returned nets to zero. Showing it as consumed
+          would overstate the material in the product. */}
+      {!!sorted.length && sorted.some(m => (m.quantity ?? 0) <= 0) && (
+        <p className="mt-2 text-xs text-amber-700">
+          Rows with a zero or negative quantity were issued and then returned.
+          They touched the job but were not consumed — exclude them from a
+          certificate pack unless you mean to show the reversal.
         </p>
       )}
 
-      {!!sorted.length && sorted.some(m => !m.countryOfOrigin) && (
-        <p className="mt-2 text-xs text-amber-700">
-          Country of origin is recorded per lot and is often missing. A blank
-          means not recorded against that lot — not that the origin is
-          unrestricted. Check Paradigm before relying on it for compliance.
+      {!!sorted.length && sorted.some(m => m.countryOfOriginSource === 'part') && (
+        <p className="mt-2 text-xs text-slate-500">
+          † Country of origin shown from the part's default record, not from this
+          lot. Lot-specific origin is recorded for only some lots; where it exists
+          it is used and shown without a mark.
         </p>
       )}
 

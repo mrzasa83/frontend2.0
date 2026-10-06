@@ -91,6 +91,15 @@ export async function GET(request: NextRequest) {
       locationName: str(r.LocationName),
       warehouseCode: str(r.WarehouseCode),
       countryOfOrigin: str(r.CountryOfOrigin),
+      // 'lot' = specific to this batch; 'part' = the part's default origin.
+      // Worth distinguishing: a part-level origin is a weaker claim and a
+      // quality reviewer should know which one they are citing.
+      countryOfOriginSource: str(r.CountryOfOriginSource),
+      // TRAN_TP 14 is a reversal carrying a negative quantity, so Quantity is
+      // already net. qtyReturned is surfaced so a fully-returned lot is
+      // visible rather than reading as consumed.
+      qtyReturned: num(r.QtyReturned),
+      tranType: num(r.TranType),
       // Concise only: how many work orders the summed quantity spans.
       workOrderCount: num(r.WorkOrderCount),
       firstWorkOrder: str(r.FirstWorkOrder),
