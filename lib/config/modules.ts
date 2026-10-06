@@ -124,6 +124,12 @@ export const MODULES: Module[] = [
         requiredRoles: ['Admin', 'EHSadmin', 'roUser', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations', 'Program']
       },
       {
+        id: 'gold-standard',
+        name: 'Gold Standard',
+        path: '/products/gold-standard',
+        requiredRoles: ['Admin', 'roUser', 'ProductEng', 'ProcessEng', 'NPIEng', 'Operations', 'Program']
+      },
+      {
         id: 'drawing-notes',
         name: 'Drawing Notes',
         path: '/products/drawing-notes',

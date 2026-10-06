@@ -1,0 +1,549 @@
+'use client'
+
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import {
+  RefreshCw, ArrowLeft, Search, Plus, Trash2, GitCompare, Layers,
+  AlertTriangle, CheckCircle2,
+} from 'lucide-react'
+import { getApiUrl } from '@/lib/api'
+
+/**
+ * One gold standard: General, BOM, Route, Like Parts.
+ *
+ * The captured data is shown per CARD LEVEL, because that is how a batch card
+ * set is built — level 0 is the customer part, each level below it a
+ * manufactured sub-assembly with its own BOM and route. Flattening them into
+ * one list would lose the thing being standardised.
+ *
+ * Read-only for now by design. The tables are editable (every row carries its
+ * id and history is wired), but editing is held back until the layout is
+ * settled — shipping an editor over a shape that is about to change would
+ * mean migrating edits nobody asked for yet.
+ */
+
+const TABS = [
+  { id: 'general', label: 'General' },
+  { id: 'bom', label: 'BOM' },
+  { id: 'route', label: 'Route' },
+  { id: 'like-parts', label: 'Like Parts' },
+] as const
+type TabId = typeof TABS[number]['id']
+
+const fmtDate = (v: any) => {
+  if (!v) return ''
+  const d = new Date(v)
+  return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString()
+}
+
+export default function GoldStandardDetail(
+  { id, onClose, onChanged }: { id: number; onClose: () => void; onChanged?: () => void }
+) {
+  const [data, setData] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [tab, setTab] = useState<TabId>('general')
+  const [cardIdx, setCardIdx] = useState(0)
+  const [recapturing, setRecapturing] = useState(false)
+
+  const load = useCallback(async () => {
+    setLoading(true); setError('')
+    try {
+      const res = await fetch(getApiUrl(`/api/products/gold-standard/${id}`))
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+      setData(d)
+      setCardIdx(i => Math.min(i, Math.max((d.cards?.length || 1) - 1, 0)))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setLoading(false) }
+  }, [id])
+
+  useEffect(() => { load() }, [load])
+
+  const recapture = async () => {
+    setRecapturing(true); setError('')
+    try {
+      const res = await fetch(getApiUrl(`/api/products/gold-standard/${id}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'recapture' }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+      if (d.partial) {
+        setError(`Captured ${d.captured.cards} of ${d.captured.expected} card levels — the copy is incomplete.`)
+      }
+      await load(); onChanged?.()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setRecapturing(false) }
+  }
+
+  const cards = data?.cards || []
+  const card = cards[cardIdx]
+
+  if (loading && !data) {
+    return <div className="flex items-center gap-2 py-16 justify-center text-slate-500">
+      <RefreshCw size={18} className="animate-spin" /> Loading…
+    </div>
+  }
+  if (!data) {
+    return <div className="p-6">
+      <button onClick={onClose} className="text-sm text-blue-600 mb-3 inline-flex items-center gap-1">
+        <ArrowLeft size={14} /> Back
+      </button>
+      <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{error}</div>
+    </div>
+  }
+
+  const s = data.standard
+
+  /** Level picker — shared by BOM and Route, which are both per-card. */
+  const LevelBar = () => cards.length > 1 ? (
+    <div className="flex items-center gap-2 mb-4 flex-wrap">
+      <span className="text-xs uppercase tracking-wider text-slate-500 mr-1">Level</span>
+      {cards.map((c: any, i: number) => (
+        <button key={c.id} onClick={() => setCardIdx(i)}
+          title={`${c.partNumber} — ${c.description}`}
+          className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${
+            i === cardIdx
+              ? 'bg-blue-600 text-white border-blue-600'
+              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
+          {c.level} · <span className="font-mono">{c.partNumber || '—'}</span>
+        </button>
+      ))}
+    </div>
+  ) : null
+
+  return (
+    <div>
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <div className="min-w-0">
+          <button onClick={onClose} className="text-sm text-blue-600 mb-2 inline-flex items-center gap-1">
+            <ArrowLeft size={14} /> All Gold Standards
+          </button>
+          <h2 className="text-xl font-bold text-slate-800 truncate">
+            {s.apcPartNumber || s.customerPartNumber}
+            <span className="ml-2 text-sm font-normal text-slate-500">{s.technology}</span>
+          </h2>
+          <p className="text-sm text-slate-600">
+            {s.customerPartNumber}{s.program ? ` · ${s.program}` : ''}
+            {s.customerName ? ` · ${s.customerName}` : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span className={`px-2 py-1 rounded text-xs font-medium ${
+            s.status === 'active' ? 'bg-green-100 text-green-700'
+              : s.status === 'retired' ? 'bg-slate-100 text-slate-500'
+              : 'bg-amber-100 text-amber-700'}`}>{s.status}</span>
+          <button onClick={recapture} disabled={recapturing}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+            <RefreshCw size={14} className={recapturing ? 'animate-spin' : ''} />
+            {recapturing ? 'Capturing…' : 'Re-capture'}
+          </button>
+        </div>
+      </div>
+
+      {/* A standard with no cards is the shape a failed capture leaves behind.
+          Saying so beats four empty tabs. */}
+      {!cards.length && (
+        <div className="flex items-start gap-2 mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <div>
+            Nothing has been captured for this standard yet. Use <em>Re-capture</em> to
+            read it from Paradigm.
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="flex items-start gap-2 mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+          <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 break-words">{error}</div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-1 mb-4 border-b border-slate-200">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setTab(t.id)}
+            className={`px-4 py-2 text-sm -mb-px border-b-2 transition-colors ${
+              tab === t.id
+                ? 'border-blue-600 text-blue-700 font-medium'
+                : 'border-transparent text-slate-600 hover:text-slate-800'}`}>
+            {t.label}
+            {t.id === 'like-parts' && data.likeParts?.length
+              ? <span className="ml-1.5 text-xs text-slate-400">{data.likeParts.length}</span> : null}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'general' && <GeneralTab standard={s} cards={cards} />}
+      {tab === 'bom' && <><LevelBar />{card ? <BomTab card={card} /> : null}</>}
+      {tab === 'route' && <><LevelBar />{card ? <RouteTab card={card} /> : null}</>}
+      {tab === 'like-parts' && (
+        <LikePartsTab goldStandardId={id} standard={s} parts={data.likeParts || []}
+          onChanged={() => { load(); onChanged?.() }} />
+      )}
+    </div>
+  )
+}
+
+function Field({ label, value }: { label: string; value: any }) {
+  return (
+    <div>
+      <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-0.5">{label}</div>
+      <div className="text-sm text-slate-800 break-words">{value || <span className="text-slate-300">—</span>}</div>
+    </div>
+  )
+}
+
+function GeneralTab({ standard: s, cards }: { standard: any; cards: any[] }) {
+  const top = cards[0]
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <Field label="Technology" value={s.technology} />
+        <Field label="APC Part Number" value={s.apcPartNumber} />
+        <Field label="Customer Part Number" value={s.customerPartNumber} />
+        <Field label="Program" value={s.program} />
+        <Field label="Customer" value={s.customerName || s.customerCode} />
+        <Field label="Revision" value={s.revision || top?.revision} />
+        <Field label="Card Levels" value={s.cardCount} />
+        <Field label="Like Parts" value={s.likePartCount} />
+        <Field label="Captured" value={s.capturedAt ? `${fmtDate(s.capturedAt)} by ${s.capturedBy}` : 'never'} />
+        <Field label="Created" value={`${fmtDate(s.createdAt)} by ${s.createdBy}`} />
+      </div>
+
+      {s.notes && (
+        <div>
+          <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Notes</div>
+          <div className="text-sm text-slate-700 whitespace-pre-wrap">{s.notes}</div>
+        </div>
+      )}
+
+      {top && (
+        <div>
+          <h4 className="font-semibold text-slate-800 mb-2">Top card</h4>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
+            <Field label="Description" value={top.description} />
+            <Field label="BOM" value={top.bomNumber} />
+            <Field label="Route" value={top.routeCode ? `${top.routeCode} — ${top.routeName}` : ''} />
+            <Field label="Product Code" value={top.productCode ? `${top.productCode} — ${top.productName}` : ''} />
+            <Field label="Catalog Number" value={top.catalogNumber} />
+            <Field label="Sales Part" value={top.salesPartNumber} />
+            <Field label="Modified" value={top.modifiedBy ? `${top.modifiedDate} — ${top.modifiedBy}` : ''} />
+            <Field label="Entered" value={top.enteredBy ? `${top.enteredDate} — ${top.enteredBy}` : ''} />
+          </div>
+        </div>
+      )}
+
+      {/* The card sequence, so the depth of the capture is visible without
+          clicking into BOM or Route. */}
+      {cards.length > 1 && (
+        <div>
+          <h4 className="font-semibold text-slate-800 mb-2 flex items-center gap-1.5">
+            <Layers size={15} /> Card sequence
+          </h4>
+          <div className="overflow-x-auto border border-slate-200 rounded-lg">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="px-3 py-2">Level</th>
+                  <th className="px-3 py-2">Part</th>
+                  <th className="px-3 py-2">Description</th>
+                  <th className="px-3 py-2">Route</th>
+                  <th className="px-3 py-2 text-right">BOM lines</th>
+                  <th className="px-3 py-2 text-right">Steps</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {cards.map((c: any) => (
+                  <tr key={c.id} className="hover:bg-slate-50">
+                    <td className="px-3 py-2 text-slate-500">{c.level}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{c.partNumber}</td>
+                    <td className="px-3 py-2 max-w-md truncate" title={c.description}>{c.description}</td>
+                    <td className="px-3 py-2 text-xs">{c.routeCode}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{c.bom?.length || 0}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{c.route?.length || 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function BomTab({ card }: { card: any }) {
+  if (!card.bom?.length) {
+    return <div className="py-10 text-center text-sm text-slate-500">
+      No BOM lines captured for level {card.level}.
+    </div>
+  }
+  return (
+    <div className="overflow-x-auto border border-slate-200 rounded-lg">
+      <table className="min-w-full text-sm">
+        <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500">
+          <tr>
+            <th className="px-3 py-2 w-10">#</th>
+            <th className="px-3 py-2">Part Number</th>
+            <th className="px-3 py-2">Description</th>
+            <th className="px-3 py-2">P/M</th>
+            <th className="px-3 py-2">Unit</th>
+            <th className="px-3 py-2 text-right">Required Per</th>
+            <th className="px-3 py-2 text-right">Qty Required</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {card.bom.map((b: any, i: number) => (
+            <tr key={b.id} className="hover:bg-slate-50">
+              <td className="px-3 py-2 text-slate-400">{i + 1}</td>
+              <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{b.partNumber}</td>
+              <td className="px-3 py-2 max-w-md truncate" title={b.description}>{b.description}</td>
+              <td className="px-3 py-2">
+                <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                  b.isManufactured ? 'bg-slate-100 text-slate-600' : 'bg-blue-100 text-blue-700'}`}>
+                  {b.isManufactured ? 'M' : 'P'}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-xs">{b.unit}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{b.requiredPer}</td>
+              <td className="px-3 py-2 text-right tabular-nums">{b.qtyRequired}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function RouteTab({ card }: { card: any }) {
+  if (!card.route?.length) {
+    return <div className="py-10 text-center text-sm text-slate-500">
+      No route steps captured for level {card.level}.
+    </div>
+  }
+  return (
+    <div className="space-y-3">
+      {card.route.map((r: any) => (
+        <div key={r.id} className="border border-slate-200 rounded-lg overflow-hidden">
+          <div className="flex items-center gap-3 px-3 py-2 bg-slate-50 border-b border-slate-200">
+            <span className="w-10 text-sm font-semibold text-slate-700 tabular-nums">{r.step}</span>
+            <span className="text-sm font-medium text-slate-800">{r.dept}</span>
+            {r.deptCode && <span className="font-mono text-xs text-slate-500">{r.deptCode}</span>}
+            {r.instructionCodes &&
+              <span className="ml-auto font-mono text-xs text-slate-400">{r.instructionCodes}</span>}
+          </div>
+          <div className="px-3 py-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Instructions</div>
+              {r.instructions?.length ? (
+                <ul className="text-sm text-slate-700 space-y-0.5 list-disc pl-4">
+                  {r.instructions.map((t: string, i: number) => <li key={i}>{t}</li>)}
+                </ul>
+              ) : <div className="text-sm text-slate-300">—</div>}
+            </div>
+            <div>
+              <div className="text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">Parameters</div>
+              {r.params?.length ? (
+                <table className="text-sm">
+                  <tbody>
+                    {r.params.map((p: any) => (
+                      <tr key={p.id}>
+                        <td className="pr-3 py-0.5 text-slate-500">{p.name}</td>
+                        <td className="py-0.5 font-medium text-slate-800">{p.value}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : <div className="text-sm text-slate-300">—</div>}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Like Parts — attach parts to compare against this standard.
+ *
+ * The picker calls the EHS product search rather than a new endpoint of its
+ * own: it already resolves production parts and searches APC part, customer
+ * part and program, which is exactly what was asked for. A second
+ * implementation would drift from it.
+ */
+function LikePartsTab(
+  { goldStandardId, standard, parts, onChanged }:
+  { goldStandardId: number; standard: any; parts: any[]; onChanged: () => void }
+) {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<any[]>([])
+  const [searching, setSearching] = useState(false)
+  const [adding, setAdding] = useState('')
+  const [err, setErr] = useState('')
+
+  const attached = useMemo(
+    () => new Set(parts.map(p => p.customerPartNumber)), [parts])
+
+  useEffect(() => {
+    const term = q.trim()
+    if (term.length < 2) { setResults([]); return }
+    const t = setTimeout(async () => {
+      setSearching(true); setErr('')
+      try {
+        const p = new URLSearchParams({ q: term, limit: '50' })
+        const res = await fetch(getApiUrl(`/api/ehs/product-compliance/search?${p}`))
+        const d = await res.json()
+        if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+        setResults(d.parts || d.results || d.rows || [])
+      } catch (e) {
+        setErr(e instanceof Error ? e.message : String(e))
+      } finally { setSearching(false) }
+    }, 350)
+    return () => clearTimeout(t)
+  }, [q])
+
+  const add = async (r: any) => {
+    const customerPart = r.SalesPartNum || r.salesPartNum || r.customerPartNumber || ''
+    const apcPart = r.ProdPartNum || r.prodPartNum || r.apcPartNumber || ''
+    const key = String(customerPart || apcPart)
+    setAdding(key); setErr('')
+    try {
+      const res = await fetch(getApiUrl('/api/products/gold-standard/like-parts'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          goldStandardId,
+          apcPartNumber: apcPart,
+          customerPartNumber: customerPart || apcPart,
+          program: r.Program || r.program || '',
+          customerName: r.CustomerName || r.customerName || '',
+          description: r.Description || r.description || '',
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+      onChanged()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally { setAdding('') }
+  }
+
+  const remove = async (id: number) => {
+    setErr('')
+    try {
+      const res = await fetch(getApiUrl(`/api/products/gold-standard/like-parts?id=${id}`), { method: 'DELETE' })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+      onChanged()
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      {err && (
+        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{err}</div>
+      )}
+
+      <div>
+        <div className="relative max-w-lg">
+          <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <input value={q} onChange={e => setQ(e.target.value)}
+            placeholder="Search APC part, customer part or program…"
+            className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
+          {searching && <RefreshCw size={14} className="animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />}
+        </div>
+
+        {!!results.length && (
+          <div className="mt-2 border border-slate-200 rounded-lg overflow-hidden max-h-72 overflow-y-auto">
+            <table className="min-w-full text-sm">
+              <tbody className="divide-y divide-slate-100">
+                {results.map((r: any, i: number) => {
+                  const apc = r.ProdPartNum || r.prodPartNum || r.apcPartNumber || ''
+                  const cust = r.SalesPartNum || r.salesPartNum || r.customerPartNumber || ''
+                  const key = String(cust || apc)
+                  const already = attached.has(key)
+                  const isSelf = key === standard.customerPartNumber
+                  return (
+                    <tr key={`${key}-${i}`} className="hover:bg-slate-50">
+                      <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">{apc}</td>
+                      <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap text-slate-600">{cust}</td>
+                      <td className="px-3 py-1.5 text-xs text-slate-500">{r.Program || r.program || ''}</td>
+                      <td className="px-3 py-1.5 text-right">
+                        {isSelf ? <span className="text-xs text-slate-400">this standard</span>
+                          : already ? <span className="text-xs text-green-600 inline-flex items-center gap-1">
+                              <CheckCircle2 size={13} /> added</span>
+                          : <button onClick={() => add(r)} disabled={adding === key}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50">
+                              <Plus size={12} /> {adding === key ? 'Adding…' : 'Add'}
+                            </button>}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {q.trim().length >= 2 && !searching && !results.length && (
+          <p className="mt-2 text-sm text-slate-500">No parts match that search.</p>
+        )}
+      </div>
+
+      {parts.length ? (
+        <div className="overflow-x-auto border border-slate-200 rounded-lg">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500">
+              <tr>
+                <th className="px-3 py-2">APC Part</th>
+                <th className="px-3 py-2">Customer Part</th>
+                <th className="px-3 py-2">Program</th>
+                <th className="px-3 py-2">Last Compared</th>
+                <th className="px-3 py-2">Added</th>
+                <th className="px-3 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {parts.map((p: any) => (
+                <tr key={p.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.apcPartNumber}</td>
+                  <td className="px-3 py-2 font-mono text-xs whitespace-nowrap text-slate-600">{p.customerPartNumber}</td>
+                  <td className="px-3 py-2 text-xs">{p.program}</td>
+                  <td className="px-3 py-2 text-xs text-slate-500">
+                    {p.lastComparedAt
+                      ? `${fmtDate(p.lastComparedAt)}${p.diffCount != null ? ` · ${p.diffCount} diff${p.diffCount === 1 ? '' : 's'}` : ''}`
+                      : <span className="text-slate-300">never</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-slate-500">{fmtDate(p.addedAt)} {p.addedBy}</td>
+                  <td className="px-3 py-2 text-right">
+                    <div className="inline-flex items-center gap-2">
+                      {/* Compare is the next piece of work; the button is here
+                          so the flow reads correctly, and says so rather than
+                          looking broken. */}
+                      <button disabled title="Side-by-side compare is not built yet"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-slate-200 rounded text-slate-400 cursor-not-allowed">
+                        <GitCompare size={12} /> Compare
+                      </button>
+                      <button onClick={() => remove(p.id)} title="Remove"
+                        className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p className="text-sm text-slate-500">
+          No like parts attached yet. Search above to add the parts that should
+          match this standard.
+        </p>
+      )}
+    </div>
+  )
+}
