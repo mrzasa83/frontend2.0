@@ -3,9 +3,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Download, FileText,
-  AlertTriangle, Layers,
+  Eye, ChevronDown, FileArchive, AlertTriangle, Layers,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import FilePreviewModal from '@/components/products/FilePreviewModal'
 
 /**
  * Raw Material Traceability — Paradigm's "Work Order -> Raw Material" report,
@@ -80,6 +81,9 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
   const [maxWorkOrdersPerRow, setMaxWorkOrdersPerRow] = useState(1)
   const [diagnostics, setDiagnostics] = useState<any>(null)
   const [certsFound, setCertsFound] = useState(0)
+  const [preview, setPreview] = useState<{ files: any[]; index: number } | null>(null)
+  const [bundling, setBundling] = useState('')
+  const [bundleMenu, setBundleMenu] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [exporting, setExporting] = useState(false)
@@ -90,7 +94,10 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
   // Defaults match the Paradigm dialog as it opens: sub levels on, concise on.
   const [includeSubLevels, setIncludeSubLevels] = useState(true)
   const [concise, setConcise] = useState(true)
-  const [exactWorkOrder, setExactWorkOrder] = useState(false)
+  // Defaults to ON: a quality pack is for ONE job. Off folds in the base
+  // number's splits, which is useful for investigation and wrong for a
+  // submission, so the safer reading is the one that opens.
+  const [exactWorkOrder, setExactWorkOrder] = useState(true)
 
   const load = useCallback(async () => {
     if (!workOrder) return
@@ -143,6 +150,80 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
       return String(av).localeCompare(String(bv)) * dir
     })
   }, [materials, search, sortKey, sortAsc])
+
+  /**
+   * Every cert on screen, flattened in display order, so the viewer cycles
+   * through the whole pack rather than the one row that was clicked. A lot
+   * reached by several rows contributes its cert once — seeing the same PDF
+   * three times while paging is just noise.
+   */
+  const certList = useMemo(() => {
+    const seen = new Set<string>()
+    const out: { name: string; path: string; extension: string; lot: string; part: string }[] = []
+    for (const m of sorted) {
+      for (const c of m.certs || []) {
+        if (seen.has(c.filePath)) continue
+        seen.add(c.filePath)
+        out.push({
+          name: c.fileName, path: c.filePath, extension: 'pdf',
+          lot: m.batchSerial, part: m.partNumber,
+        })
+      }
+    }
+    return out
+  }, [sorted])
+
+  /** Where a given row's first cert sits in that flat list. */
+  const certIndexOf = (filePath: string) =>
+    Math.max(0, certList.findIndex(c => c.path === filePath))
+
+  /**
+   * Downloads every cert as one merged PDF, or as a ZIP of the originals.
+   *
+   * Both are offered deliberately: the merged PDF is what gets attached to a
+   * customer submission, the ZIP keeps each file byte-for-byte as the
+   * supplier issued it, which is what gets asked for if the merged copy is
+   * ever questioned.
+   */
+  const downloadBundle = async (mode: 'pdf' | 'zip') => {
+    if (!certList.length) return
+    setBundleMenu(false)
+    setBundling(mode)
+    setError('')
+    try {
+      const res = await fetch(getApiUrl('/api/operations/inspections/material-certs/bundle'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          name: `certs_${(workOrder || 'wo').replace(/[^\w.-]+/g, '_')}`,
+          paths: certList.map(c => c.path),
+        }),
+      })
+      if (!res.ok) {
+        let msg = `HTTP ${res.status}`
+        try { const j = await res.json(); msg = j.details || j.error || msg } catch { /* body may be binary */ }
+        throw new Error(msg)
+      }
+      // A cert that could not be read is reported rather than silently
+      // dropped — a short pack that looks complete is the dangerous one.
+      const missing = Number(res.headers.get('X-Skipped-Count') || '0')
+      const blob = await res.blob()
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `certs_${(workOrder || 'wo').replace(/[^\w.-]+/g, '_')}.${mode === 'zip' ? 'zip' : 'pdf'}`
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+      if (missing > 0) {
+        setError(`${missing} certificate${missing === 1 ? '' : 's'} could not be read and ${missing === 1 ? 'is' : 'are'} missing from the download.`)
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBundling('')
+    }
+  }
 
   const toggleSort = (k: SortKey) => {
     if (k === sortKey) setSortAsc(a => !a)
@@ -272,6 +353,46 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50">
             <Download size={14} /> {exporting ? 'Exporting…' : 'Excel'}
           </button>
+
+          {/* Two shapes of the same pack. Merged PDF for the submission,
+              ZIP when someone needs the supplier's original files. */}
+          <div className="relative">
+            <button onClick={() => setBundleMenu(v => !v)}
+              disabled={!!bundling || !certList.length}
+              title={certList.length
+                ? `${certList.length} certificate${certList.length === 1 ? '' : 's'}`
+                : 'No certificates matched'}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800 disabled:opacity-50">
+              <FileText size={14} />
+              {bundling === 'pdf' ? 'Merging…' : bundling === 'zip' ? 'Zipping…' : 'PDFs'}
+              {!bundling && <ChevronDown size={13} />}
+              {!bundling && !!certList.length &&
+                <span className="ml-0.5 text-xs opacity-75">({certList.length})</span>}
+            </button>
+            {bundleMenu && !bundling && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setBundleMenu(false)} />
+                <div className="absolute right-0 mt-1 z-20 w-56 bg-white border border-slate-200 rounded-lg shadow-lg py-1 text-sm">
+                  <button onClick={() => downloadBundle('pdf')}
+                    className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-start gap-2">
+                    <FileText size={14} className="mt-0.5 text-slate-500 shrink-0" />
+                    <span>
+                      <span className="block font-medium">Combined PDF</span>
+                      <span className="block text-xs text-slate-500">All certs merged, in table order</span>
+                    </span>
+                  </button>
+                  <button onClick={() => downloadBundle('zip')}
+                    className="w-full text-left px-3 py-2 hover:bg-slate-50 flex items-start gap-2">
+                    <FileArchive size={14} className="mt-0.5 text-slate-500 shrink-0" />
+                    <span>
+                      <span className="block font-medium">ZIP of originals</span>
+                      <span className="block text-xs text-slate-500">Each file exactly as issued</span>
+                    </span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       </div>
 
@@ -479,13 +600,13 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                       one click from the material that needs it. */}
                   <td className="px-3 py-2 whitespace-nowrap">
                     {m.certs?.length ? (
-                      <span className="inline-flex items-center gap-1.5">
-                        <a href={getApiUrl(`/api/operations/inspections/material-certs/download?path=${encodeURIComponent(m.certs[0].filePath)}`)}
-                          target="_blank" rel="noreferrer"
+                      <span className="inline-flex items-center gap-2">
+                        <button
+                          onClick={() => setPreview({ files: certList, index: certIndexOf(m.certs[0].filePath) })}
                           title={m.certs[0].fileName}
-                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800">
-                          <FileText size={14} /> View
-                        </a>
+                          className="text-slate-500 hover:text-blue-600">
+                          <Eye size={15} />
+                        </button>
                         <a href={getApiUrl(`/api/operations/inspections/material-certs/download?path=${encodeURIComponent(m.certs[0].filePath)}&download=true`)}
                           title={`Download ${m.certs[0].fileName}`}
                           className="text-slate-400 hover:text-slate-700">
@@ -549,6 +670,12 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
           lot. Lot-specific origin is recorded for only some lots; where it exists
           it is used and shown without a mark.
         </p>
+      )}
+
+      {preview && (
+        <FilePreviewModal files={preview.files} index={preview.index}
+          onIndexChange={(i: number) => setPreview(p => p ? { ...p, index: i } : p)}
+          onClose={() => setPreview(null)} />
       )}
 
       {!!sorted.length && includeSubLevels && (
