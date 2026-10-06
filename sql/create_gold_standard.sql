@@ -130,6 +130,15 @@ CREATE TABLE IF NOT EXISTS gold_standard_cards (
   entered_by         VARCHAR(191) NOT NULL DEFAULT '',
   entered_date       VARCHAR(50)  NOT NULL DEFAULT '',
 
+  -- Position within the level, in the order buildCardSet produced them, so
+  -- the card sequence is reproducible rather than insertion-order luck.
+  seq                INT          NOT NULL DEFAULT 0,
+  -- The card whose BOM this one hangs off. Null at level 0. Kept because the
+  -- set is a TREE, not a flat list of levels: three inner layers at level 1
+  -- belong to different parents once the board has sub-assemblies, and the
+  -- comparison has to line them up by position in that tree.
+  parent_card_id     INT          NULL,
+
   -- Set when a human has changed this card away from what was captured, so
   -- the UI can mark it and a re-capture knows not to clobber it silently.
   is_edited          TINYINT(1)   NOT NULL DEFAULT 0,
@@ -137,12 +146,21 @@ CREATE TABLE IF NOT EXISTS gold_standard_cards (
   created_at         TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
   updated_at         TIMESTAMP    DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
 
-  UNIQUE KEY uq_gs_level (gold_standard_id, level),
-  INDEX idx_gs (gold_standard_id),
+  -- NOT unique on (gold_standard_id, level). A level holds as many cards as
+  -- the parent BOM has manufactured lines — seven inner layers, adhesives and
+  -- coverlays at level 1 is ordinary. An earlier version made this unique and
+  -- the capture aborted on the second card of a level, leaving a one-card
+  -- level and a card_count of zero.
+  UNIQUE KEY uq_gs_level_part (gold_standard_id, level, part_number),
+  INDEX idx_gs_level (gold_standard_id, level, seq),
+  INDEX idx_parent (parent_card_id),
   INDEX idx_part (part_number),
 
   CONSTRAINT fk_gsc_standard FOREIGN KEY (gold_standard_id)
-    REFERENCES gold_standards (id) ON DELETE CASCADE
+    REFERENCES gold_standards (id) ON DELETE CASCADE,
+  -- Self-referential, so deleting a parent takes its subtree with it.
+  CONSTRAINT fk_gsc_parent FOREIGN KEY (parent_card_id)
+    REFERENCES gold_standard_cards (id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 

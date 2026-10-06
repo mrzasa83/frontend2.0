@@ -98,22 +98,54 @@ export default function GoldStandardDetail(
 
   const s = data.standard
 
-  /** Level picker — shared by BOM and Route, which are both per-card. */
-  const LevelBar = () => cards.length > 1 ? (
-    <div className="flex items-center gap-2 mb-4 flex-wrap">
-      <span className="text-xs uppercase tracking-wider text-slate-500 mr-1">Level</span>
-      {cards.map((c: any, i: number) => (
-        <button key={c.id} onClick={() => setCardIdx(i)}
-          title={`${c.partNumber} — ${c.description}`}
-          className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${
-            i === cardIdx
-              ? 'bg-blue-600 text-white border-blue-600'
-              : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}>
-          {c.level} · <span className="font-mono">{c.partNumber || '—'}</span>
-        </button>
-      ))}
-    </div>
-  ) : null
+  /**
+   * Card picker for the BOM and Route tabs.
+   *
+   * A rail rather than a row of buttons: a real board puts seven or more
+   * manufactured parts at level 1 alone (inner layers, adhesives, coverlays),
+   * and a wrapping button row becomes unreadable at that size. Indented by
+   * parent so the set reads as the tree it is.
+   */
+  const CardRail = () => {
+    if (cards.length <= 1) return null
+    const byParent = new Map<number | null, any[]>()
+    for (const c of cards) {
+      const k = c.parentCardId ?? null
+      if (!byParent.has(k)) byParent.set(k, [])
+      byParent.get(k)!.push(c)
+    }
+    // Orphans (a parent that failed to capture) would otherwise be invisible,
+    // so anything unreachable from the root is shown at the top level.
+    const ids = new Set(cards.map((c: any) => c.id))
+    const roots = cards.filter((c: any) =>
+      c.parentCardId == null || !ids.has(c.parentCardId))
+
+    const render = (list: any[], depth: number): any[] =>
+      list.flatMap((c: any) => [
+        <button key={c.id} onClick={() => setCardIdx(cards.findIndex((x: any) => x.id === c.id))}
+          title={c.description}
+          className={`w-full text-left px-2 py-1.5 rounded-lg text-xs transition-colors ${
+            cards[cardIdx]?.id === c.id
+              ? 'bg-blue-600 text-white'
+              : 'text-slate-700 hover:bg-slate-100'}`}
+          style={{ paddingLeft: 8 + depth * 12 }}>
+          <span className="font-mono">{c.partNumber || '—'}</span>
+          <span className={`ml-1.5 ${cards[cardIdx]?.id === c.id ? 'text-blue-100' : 'text-slate-400'}`}>
+            {c.route?.length || 0}s · {c.bom?.length || 0}b
+          </span>
+        </button>,
+        ...render(byParent.get(c.id) || [], depth + 1),
+      ])
+
+    return (
+      <div className="w-56 shrink-0 border border-slate-200 rounded-lg p-1 max-h-[32rem] overflow-y-auto">
+        <div className="px-2 py-1 text-xs uppercase tracking-wider text-slate-500">
+          Cards ({cards.length})
+        </div>
+        {render(roots, 0)}
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -178,12 +210,46 @@ export default function GoldStandardDetail(
       </div>
 
       {tab === 'general' && <GeneralTab standard={s} cards={cards} />}
-      {tab === 'bom' && <><LevelBar />{card ? <BomTab card={card} /> : null}</>}
-      {tab === 'route' && <><LevelBar />{card ? <RouteTab card={card} /> : null}</>}
+      {tab === 'bom' && (
+        <div className="flex gap-4 items-start">
+          <CardRail />
+          <div className="min-w-0 flex-1">
+            {card && <CardHeading card={card} />}
+            {card ? <BomTab card={card} /> : null}
+          </div>
+        </div>
+      )}
+      {tab === 'route' && (
+        <div className="flex gap-4 items-start">
+          <CardRail />
+          <div className="min-w-0 flex-1">
+            {card && <CardHeading card={card} />}
+            {card ? <RouteTab card={card} /> : null}
+          </div>
+        </div>
+      )}
       {tab === 'like-parts' && (
         <LikePartsTab goldStandardId={id} standard={s} parts={data.likeParts || []}
           onChanged={() => { load(); onChanged?.() }} />
       )}
+    </div>
+  )
+}
+
+/** Which card is on screen — with 20 cards the rail alone is not enough. */
+function CardHeading({ card }: { card: any }) {
+  return (
+    <div className="mb-3">
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-xs text-slate-500">Level {card.level}</span>
+        <span className="font-mono text-sm font-semibold text-slate-800">{card.partNumber}</span>
+        <span className="text-sm text-slate-600">{card.description}</span>
+        {card.routeCode && (
+          <span className="text-xs text-slate-500">
+            · {card.routeCode}{card.routeName ? ` ${card.routeName}` : ''}
+          </span>
+        )}
+      </div>
     </div>
   )
 }

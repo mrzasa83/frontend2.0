@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   RefreshCw, Search, Plus, ArrowUpDown, ArrowUp, ArrowDown, AlertTriangle, X,
+  Table2,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import GoldStandardDetail from '@/components/products/GoldStandardDetail'
@@ -39,7 +40,14 @@ export default function GoldStandardPage() {
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<SortKey>('technology')
   const [sortAsc, setSortAsc] = useState(true)
-  const [openId, setOpenId] = useState<number | null>(null)
+  /**
+   * Open standards, as tabs. The list is itself a tab (id null), so the user
+   * can go back to it without closing what they were looking at — comparing
+   * two standards means having both open, and a modal or a full-page swap
+   * would force one at a time.
+   */
+  const [open, setOpen] = useState<{ id: number; label: string }[]>([])
+  const [activeTab, setActiveTab] = useState<number | null>(null)
   const [adding, setAdding] = useState(false)
 
   const load = useCallback(async () => {
@@ -87,16 +95,58 @@ export default function GoldStandardPage() {
     </th>
   )
 
-  if (openId != null) {
-    return (
-      <div className="p-6">
-        <GoldStandardDetail id={openId} onClose={() => setOpenId(null)} onChanged={load} />
-      </div>
-    )
+
+  const openStandard = (r: { id: number; apcPartNumber?: string; customerPartNumber?: string; label?: string }) => {
+    const label = r.label || r.apcPartNumber || r.customerPartNumber || `#${r.id}`
+    setOpen(list => list.some(t => t.id === r.id) ? list : [...list, { id: r.id, label }])
+    setActiveTab(r.id)
+  }
+
+  const closeTab = (id: number) => {
+    setOpen(list => {
+      const next = list.filter(t => t.id !== id)
+      // Fall back to the neighbour that was there, not always the list, so
+      // closing one of several open standards keeps you in context.
+      setActiveTab(cur => {
+        if (cur !== id) return cur
+        const i = list.findIndex(t => t.id === id)
+        return next.length ? (next[Math.min(i, next.length - 1)]?.id ?? null) : null
+      })
+      return next
+    })
   }
 
   return (
     <div className="p-6">
+      {/* Tab strip. The list is a tab in its own right so returning to it
+          never costs you the standards you already had open. */}
+      {!!open.length && (
+        <div className="flex items-center gap-1 mb-4 border-b border-slate-200 overflow-x-auto">
+          <button onClick={() => setActiveTab(null)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 text-sm -mb-px border-b-2 whitespace-nowrap transition-colors ${
+              activeTab === null
+                ? 'border-blue-600 text-blue-700 font-medium'
+                : 'border-transparent text-slate-600 hover:text-slate-800'}`}>
+            <Table2 size={14} /> All Gold Standards
+          </button>
+          {open.map(t => (
+            <div key={t.id}
+              className={`inline-flex items-center gap-1 pl-3 pr-1.5 py-2 text-sm -mb-px border-b-2 whitespace-nowrap ${
+                activeTab === t.id
+                  ? 'border-blue-600 text-blue-700 font-medium'
+                  : 'border-transparent text-slate-600 hover:text-slate-800'}`}>
+              <button onClick={() => setActiveTab(t.id)} className="font-mono text-xs">{t.label}</button>
+              <button onClick={() => closeTab(t.id)} title="Close"
+                className="p-0.5 text-slate-300 hover:text-slate-600 rounded"><X size={13} /></button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {activeTab !== null ? (
+        <GoldStandardDetail id={activeTab} onClose={() => setActiveTab(null)} onChanged={load} />
+      ) : (
+      <>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Gold Standard</h1>
@@ -153,7 +203,7 @@ export default function GoldStandardPage() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {sorted.map(r => (
-                <tr key={r.id} onClick={() => setOpenId(r.id)}
+                <tr key={r.id} onClick={() => openStandard(r)}
                   className="hover:bg-blue-50/50 cursor-pointer">
                   <td className="px-3 py-2">{r.technology || <span className="text-slate-300">—</span>}</td>
                   <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{r.apcPartNumber}</td>
@@ -181,8 +231,11 @@ export default function GoldStandardPage() {
         </div>
       )}
 
+      </>
+      )}
+
       {adding && <AddDialog onClose={() => setAdding(false)}
-        onCreated={(id) => { setAdding(false); load(); setOpenId(id) }} />}
+        onCreated={(id, label) => { setAdding(false); load(); openStandard({ id, label }) }} />}
     </div>
   )
 }
@@ -194,7 +247,7 @@ export default function GoldStandardPage() {
  * takes — the same entry point the batch card generator uses, so the captured
  * copy matches the card rather than being a second interpretation of it.
  */
-function AddDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number) => void }) {
+function AddDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id: number, label: string) => void }) {
   const [technologies, setTechnologies] = useState<{ id: number; name: string }[]>([])
   const [techWarning, setTechWarning] = useState('')
   const [form, setForm] = useState({
@@ -223,7 +276,7 @@ function AddDialog({ onClose, onCreated }: { onClose: () => void; onCreated: (id
       if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
       // The row exists either way; a capture problem is reported on the detail
       // view rather than thrown away with the dialog.
-      onCreated(Number(d.id))
+      onCreated(Number(d.id), form.apcPartNumber.trim() || form.customerPartNumber.trim())
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
     } finally { setSaving(false) }

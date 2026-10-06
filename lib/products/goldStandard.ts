@@ -114,19 +114,38 @@ export async function storeCards(
   )
 
   let written = 0
+  const failed: { part: string; reason: string }[] = []
+  // buildCardSet walks depth-first, so the parent of a card at level N is the
+  // most recent card written at level N-1. Tracked per level rather than
+  // inferred later, because the flat CardData[] does not carry the link and
+  // re-deriving it from BOM membership would be guesswork once a part appears
+  // under two parents.
+  const lastAtLevel = new Map<number, number>()
+  const seqAtLevel = new Map<number, number>()
+
   for (const c of cards) {
+   const level = Number(c.level) || 0
+   const seq = seqAtLevel.get(level) ?? 0
+   seqAtLevel.set(level, seq + 1)
+   const parentId = level > 0 ? (lastAtLevel.get(level - 1) ?? null) : null
+
+   // Per-card, so one bad card costs that card and not the rest of the
+   // capture. The previous version let the first failure abort the loop,
+   // which is how a 2-of-8 capture looked like a finished one.
+   try {
     const res: any = await queryPrimary(
       `INSERT INTO gold_standard_cards
-         (gold_standard_id, level, kind, source_rkey,
+         (gold_standard_id, level, seq, parent_card_id, kind, source_rkey,
           part_number, description, revision, catalog_number,
           customer_code, customer_name,
           bom_number, bom_description, route_code, route_name,
           product_code, product_name,
           sales_part_number, sales_part_desc, sales_part_rev,
           modified_by, modified_date, entered_by, entered_date)
-       VALUES (?,?,?,?, ?,?,?,?, ?,?, ?,?,?,?, ?,?, ?,?,?, ?,?,?,?)`,
+       VALUES (?,?,?,?,?,?, ?,?,?,?, ?,?, ?,?,?,?, ?,?, ?,?,?, ?,?,?,?)`,
       [
-        goldStandardId, Number(c.level) || 0, c.kind === 'customer' ? 'customer' : 'manufactured',
+        goldStandardId, level, seq, parentId,
+        c.kind === 'customer' ? 'customer' : 'manufactured',
         Number(c.sourceRkey) || 0,
         fit(c.partNumber, 191), fit(c.description, 500), fit(c.revision, 30), fit(c.catalogNumber, 100),
         fit(c.customerCode, 60), fit(c.customerName, 191),
@@ -137,8 +156,9 @@ export async function storeCards(
       ]
     )
     const cardId = Number(res?.insertId)
-    if (!cardId) continue
+    if (!cardId) { failed.push({ part: c.partNumber, reason: 'no insert id' }); continue }
     written++
+    lastAtLevel.set(level, cardId)
 
     for (let i = 0; i < (c.bom || []).length; i++) {
       const b = c.bom[i]
@@ -200,12 +220,23 @@ export async function storeCards(
         [cardId, 'unit', i, fit(u.code, 191), String(u.value ?? ''), fit(u.description, 500)]
       )
     }
+   } catch (e) {
+    failed.push({ part: c.partNumber, reason: e instanceof Error ? e.message : String(e) })
+   }
   }
 
   await queryPrimary(
     'UPDATE gold_standards SET card_count = ? WHERE id = ?',
     [written, goldStandardId]
   )
+  if (failed.length) {
+    // Recorded rather than thrown: the capture that DID land is worth keeping,
+    // and the detail view needs to be able to say which cards are missing.
+    await logHistory(goldStandardId, 'captured', 'system', {
+      detail: `${failed.length} card(s) failed: ` +
+        failed.map(f => `${f.part} (${f.reason})`).join('; ').slice(0, 2000),
+    })
+  }
   return written
 }
 
@@ -273,7 +304,7 @@ export async function getGoldStandard(id: number): Promise<any | null> {
   const standard = mapStandard(rows[0])
 
   const cards = await queryPrimary<any[]>(
-    'SELECT * FROM gold_standard_cards WHERE gold_standard_id = ? ORDER BY level', [id]
+    'SELECT * FROM gold_standard_cards WHERE gold_standard_id = ? ORDER BY level, seq, id', [id]
   )
   const cardIds = (cards || []).map(c => Number(c.id))
 
@@ -324,6 +355,8 @@ export async function getGoldStandard(id: number): Promise<any | null> {
       return {
         id: cid,
         level: Number(c.level),
+        seq: Number(c.seq || 0),
+        parentCardId: c.parent_card_id == null ? null : Number(c.parent_card_id),
         kind: String(c.kind || 'manufactured'),
         sourceRkey: Number(c.source_rkey || 0),
         partNumber: String(c.part_number || ''),
