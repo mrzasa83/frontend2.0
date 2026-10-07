@@ -433,13 +433,20 @@ function RouteTab({ card }: { card: any }) {
   )
 }
 
+/** The part number a like part is filed under — the sales part when there
+ *  is one, otherwise the production part. Used for both the Add payload and
+ *  the already-attached check, so the two can't disagree. */
+function likePartKey(r: any): string {
+  return String(r?.sales_part || r?.prod_part || '')
+}
+
 /**
  * Like Parts — attach parts to compare against this standard.
  *
- * The picker calls the EHS product search rather than a new endpoint of its
- * own: it already resolves production parts and searches APC part, customer
- * part and program, which is exactly what was asked for. A second
- * implementation would drift from it.
+ * The picker runs the same search as EHS -> Product Compliance -> Assess a
+ * product. It calls /api/products/gold-standard/part-search rather than the
+ * EHS route because that one is gated on EHS read and most roles with Product
+ * read have none; both routes share one query in lib/products/partSearch.ts.
  */
 function LikePartsTab(
   { goldStandardId, standard, parts, onChanged }:
@@ -448,46 +455,49 @@ function LikePartsTab(
   const [q, setQ] = useState('')
   const [results, setResults] = useState<any[]>([])
   const [searching, setSearching] = useState(false)
-  const [adding, setAdding] = useState('')
+  // null, not '', so an empty key can never match and strand the button on
+  // "Adding…" — the bug the first version shipped with.
+  const [adding, setAdding] = useState<string | null>(null)
+  const [includeObsolete, setIncludeObsolete] = useState(false)
   const [err, setErr] = useState('')
 
   const attached = useMemo(
-    () => new Set(parts.map(p => p.customerPartNumber)), [parts])
+    () => new Set(parts.map(p => String(p.customerPartNumber || ''))), [parts])
 
   useEffect(() => {
     const term = q.trim()
     if (term.length < 2) { setResults([]); return }
+    let cancelled = false
     const t = setTimeout(async () => {
       setSearching(true); setErr('')
       try {
-        const p = new URLSearchParams({ q: term, limit: '50' })
-        const res = await fetch(getApiUrl(`/api/ehs/product-compliance/search?${p}`))
+        const p = new URLSearchParams({ q: term })
+        if (includeObsolete) p.set('includeObsolete', '1')
+        const res = await fetch(getApiUrl(`/api/products/gold-standard/part-search?${p}`))
         const d = await res.json()
         if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
-        setResults(d.parts || d.results || d.rows || [])
+        if (!cancelled) setResults(d.rows || [])
       } catch (e) {
-        setErr(e instanceof Error ? e.message : String(e))
-      } finally { setSearching(false) }
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e))
+      } finally { if (!cancelled) setSearching(false) }
     }, 350)
-    return () => clearTimeout(t)
-  }, [q])
+    return () => { cancelled = true; clearTimeout(t) }
+  }, [q, includeObsolete])
 
   const add = async (r: any) => {
-    const customerPart = r.SalesPartNum || r.salesPartNum || r.customerPartNumber || ''
-    const apcPart = r.ProdPartNum || r.prodPartNum || r.apcPartNumber || ''
-    const key = String(customerPart || apcPart)
-    setAdding(key); setErr('')
+    const customerPart = likePartKey(r)
+    if (!customerPart) { setErr('That row has no part number to attach.'); return }
+    setAdding(customerPart); setErr('')
     try {
       const res = await fetch(getApiUrl('/api/products/gold-standard/like-parts'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           goldStandardId,
-          apcPartNumber: apcPart,
-          customerPartNumber: customerPart || apcPart,
-          program: r.Program || r.program || '',
-          customerName: r.CustomerName || r.customerName || '',
-          description: r.Description || r.description || '',
+          apcPartNumber: r.prod_part || '',
+          customerPartNumber: customerPart,
+          program: r.program || '',
+          customerName: r.customer_name || '',
         }),
       })
       const d = await res.json()
@@ -495,7 +505,7 @@ function LikePartsTab(
       onChanged()
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
-    } finally { setAdding('') }
+    } finally { setAdding(null) }
   }
 
   const remove = async (id: number) => {
@@ -517,29 +527,56 @@ function LikePartsTab(
       )}
 
       <div>
-        <div className="relative max-w-lg">
-          <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input value={q} onChange={e => setQ(e.target.value)}
-            placeholder="Search APC part, customer part or program…"
-            className="w-full pl-8 pr-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
-          {searching && <RefreshCw size={14} className="animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />}
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="relative flex-1 min-w-[18rem] max-w-lg">
+            <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input value={q} onChange={e => setQ(e.target.value)}
+              placeholder="Search APC part, customer part or program…"
+              className="w-full pl-8 pr-9 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-400" />
+            {searching && <RefreshCw size={14} className="animate-spin absolute right-3 top-1/2 -translate-y-1/2 text-slate-400" />}
+          </div>
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={includeObsolete}
+              onChange={e => setIncludeObsolete(e.target.checked)}
+              className="rounded border-slate-300 text-blue-600 focus:ring-blue-400" />
+            Include obsolete
+          </label>
         </div>
 
         {!!results.length && (
           <div className="mt-2 border border-slate-200 rounded-lg overflow-hidden max-h-72 overflow-y-auto">
             <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500 sticky top-0">
+                <tr>
+                  <th className="px-3 py-2">Prod Part #</th>
+                  <th className="px-3 py-2">Sales Part #</th>
+                  <th className="px-3 py-2">Customer</th>
+                  <th className="px-3 py-2">Program</th>
+                  <th className="px-3 py-2">Status</th>
+                  <th className="px-3 py-2" />
+                </tr>
+              </thead>
               <tbody className="divide-y divide-slate-100">
                 {results.map((r: any, i: number) => {
-                  const apc = r.ProdPartNum || r.prodPartNum || r.apcPartNumber || ''
-                  const cust = r.SalesPartNum || r.salesPartNum || r.customerPartNumber || ''
-                  const key = String(cust || apc)
+                  const key = likePartKey(r)
                   const already = attached.has(key)
-                  const isSelf = key === standard.customerPartNumber
+                  const isSelf = !!key && key === standard.customerPartNumber
+                  const obsolete = String(r.status || '').toUpperCase() === 'OBSOLETE'
                   return (
-                    <tr key={`${key}-${i}`} className="hover:bg-slate-50">
-                      <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">{apc}</td>
-                      <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap text-slate-600">{cust}</td>
-                      <td className="px-3 py-1.5 text-xs text-slate-500">{r.Program || r.program || ''}</td>
+                    <tr key={`${key || 'row'}-${i}`} className="hover:bg-slate-50">
+                      <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap">{r.prod_part}</td>
+                      <td className="px-3 py-1.5 font-mono text-xs whitespace-nowrap text-slate-600">{r.sales_part}</td>
+                      <td className="px-3 py-1.5 text-xs text-slate-600">{r.customer_name}</td>
+                      <td className="px-3 py-1.5 text-xs text-slate-500">{r.program}</td>
+                      <td className="px-3 py-1.5 whitespace-nowrap">
+                        {r.status && (
+                          <span className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${
+                            obsolete ? 'bg-slate-100 text-slate-600'
+                                     : 'bg-green-100 text-green-700'}`}>
+                            {r.status}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-3 py-1.5 text-right">
                         {isSelf ? <span className="text-xs text-slate-400">this standard</span>
                           : already ? <span className="text-xs text-green-600 inline-flex items-center gap-1">
@@ -556,7 +593,7 @@ function LikePartsTab(
             </table>
           </div>
         )}
-        {q.trim().length >= 2 && !searching && !results.length && (
+        {q.trim().length >= 2 && !searching && !results.length && !err && (
           <p className="mt-2 text-sm text-slate-500">No parts match that search.</p>
         )}
       </div>
@@ -568,6 +605,7 @@ function LikePartsTab(
               <tr>
                 <th className="px-3 py-2">APC Part</th>
                 <th className="px-3 py-2">Customer Part</th>
+                <th className="px-3 py-2">Customer</th>
                 <th className="px-3 py-2">Program</th>
                 <th className="px-3 py-2">Last Compared</th>
                 <th className="px-3 py-2">Added</th>
@@ -579,6 +617,7 @@ function LikePartsTab(
                 <tr key={p.id} className="hover:bg-slate-50">
                   <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">{p.apcPartNumber}</td>
                   <td className="px-3 py-2 font-mono text-xs whitespace-nowrap text-slate-600">{p.customerPartNumber}</td>
+                  <td className="px-3 py-2 text-xs text-slate-600">{p.customerName}</td>
                   <td className="px-3 py-2 text-xs">{p.program}</td>
                   <td className="px-3 py-2 text-xs text-slate-500">
                     {p.lastComparedAt

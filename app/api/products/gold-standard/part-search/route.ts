@@ -2,53 +2,38 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { canReadModule } from '@/lib/config/access'
-import { productTypeFromPart } from '@/lib/ehs/productCompliance'
 import { searchProductionParts } from '@/lib/products/partSearch'
 
 export const dynamic = 'force-dynamic'
 
 /**
- * Production parts, for the "assess a product" picker.
+ * The Gold Standard "like parts" picker.
  *
- * The query itself now lives in lib/products/partSearch.ts so the Gold
- * Standard "like parts" picker can run the same search without needing EHS
- * read access. The response shape here is unchanged.
+ * Same search as EHS -> Product Compliance -> Assess a product (one shared
+ * query in lib/products/partSearch.ts), gated on Product read instead of EHS
+ * read so every role that can open Gold Standard can use the picker.
  */
-
-// GET ?q=123&includeObsolete=1 -> products matching the search.
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const roles = (session.user as any)?.roles || []
-  if (!canReadModule(roles, 'ehs')) {
+  if (!canReadModule(roles, 'products')) {
     return NextResponse.json({ error: 'Insufficient permissions' }, { status: 403 })
   }
 
   const sp = new URL(request.url).searchParams
   const q = (sp.get('q') || '').trim()
-  // Obsolete parts are out of scope unless explicitly asked for.
   const includeObsolete = sp.get('includeObsolete') === '1'
   if (q.length < 2) return NextResponse.json({ success: true, rows: [] })
 
   try {
-    const hits = await searchProductionParts(q, includeObsolete)
     return NextResponse.json({
       success: true,
       includeObsolete,
-      rows: hits.map(r => ({
-        prod_part: r.prod_part,
-        sales_part: r.sales_part,
-        customer_name: r.customer_name,
-        customer_code: r.customer_code,
-        program: r.program,
-        status: r.status,
-        apc_part: r.apc_part,
-        customer_part: r.customer_part,
-        part_type: productTypeFromPart(r.prod_part),
-      })),
+      rows: await searchProductionParts(q, includeObsolete),
     })
   } catch (error) {
-    console.error('EHS product search error:', error)
+    console.error('Gold Standard part search error:', error)
     return NextResponse.json({
       error: 'Search failed',
       details: error instanceof Error ? error.message : String(error),
