@@ -1,5 +1,6 @@
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { buildCardSet, type CardData } from '@/lib/products/batchCardData'
+import { resolveProductionPart } from '@/lib/products/partSearch'
 
 /**
  * Gold Standard — capture and read.
@@ -252,8 +253,35 @@ export async function captureGoldStandard(
   customerPart: string,
   user: string
 ): Promise<{ cards: number; expected: number }> {
-  const cards = await buildCardSet(customerPart)
+  /**
+   * Whatever the caller had to hand is resolved to the PRODUCTION part first.
+   *
+   * A batch card is built entirely from the production row — the BOM and route
+   * pointers live there and are empty on the sales row that carries the
+   * customer's number. Handing buildCardSet() a customer number therefore does
+   * not fail: it finds the sales row and captures one card with no BOM and no
+   * route, which looks like a captured standard and is not one.
+   */
+  let lookup = customerPart
+  let resolved: Awaited<ReturnType<typeof resolveProductionPart>> = null
+  try {
+    resolved = await resolveProductionPart(customerPart)
+    if (resolved) lookup = resolved.raw || resolved.apcPart
+  } catch { /* fall back to what was asked for */ }
+
+  const cards = await buildCardSet(lookup)
   const written = await storeCards(goldStandardId, cards)
+
+  // Record both numbers now that they are known, so the list and the Like
+  // Parts comparison have the APC number to work from.
+  if (resolved?.apcPart) {
+    await queryPrimary(
+      `UPDATE gold_standards
+          SET apc_part_number = COALESCE(NULLIF(apc_part_number, ''), ?)
+        WHERE id = ?`,
+      [resolved.apcPart.slice(0, 191), goldStandardId]
+    ).catch(() => {})
+  }
 
   await queryPrimary(
     `UPDATE gold_standards
@@ -262,7 +290,9 @@ export async function captureGoldStandard(
     [user.slice(0, 100), user.slice(0, 100), goldStandardId]
   )
   await logHistory(goldStandardId, 'captured', user, {
-    detail: `Captured ${written} of ${cards.length} card level(s) from ${customerPart}`,
+    detail: `Captured ${written} of ${cards.length} card level(s) from ${lookup}`
+      + (resolved?.matchedOn === 'customer'
+        ? ` (${customerPart} resolved to APC part ${resolved.apcPart})` : ''),
   })
   return { cards: written, expected: cards.length }
 }

@@ -34,7 +34,15 @@ type ComparePayload = {
   standard: any
   likePart: any
   gold: { label: string; capturedAt: string | null; cards: CompareCard[] }
-  other: { label: string; cards: CompareCard[]; error?: string }
+  other: {
+    label: string
+    cards: CompareCard[]
+    error?: string
+    /** Set when the number asked for was a customer number. */
+    note?: string
+    customerPart?: string
+    asked?: string
+  }
 }
 
 export default function GoldStandardCompare(
@@ -142,7 +150,15 @@ export default function GoldStandardCompare(
             <span className="font-mono">{data.gold.label}</span>
             <GitCompare size={16} className="text-slate-400" />
             <span className="font-mono">{data.other.label}</span>
+            {data.other.customerPart && (
+              <span className="text-sm font-normal text-slate-500 font-mono">
+                ({data.other.customerPart})
+              </span>
+            )}
           </h3>
+          {data.other.note && (
+            <p className="text-xs text-slate-500">{data.other.note}</p>
+          )}
           <p className="text-xs text-slate-500">
             {pairs.filter(p => p.gold && p.other).length} paired ·{' '}
             {pairs.filter(p => p.gold && !p.other).length} only in standard ·{' '}

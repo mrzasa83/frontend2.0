@@ -6,6 +6,7 @@ import { queryPrimary } from '@/lib/db/mysql-primary'
 import { getGoldStandard, logHistory } from '@/lib/products/goldStandard'
 import { buildCardSet } from '@/lib/products/batchCardData'
 import { fromStoredCard, fromCardData } from '@/lib/products/compareModel'
+import { resolveProductionPart } from '@/lib/products/partSearch'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,16 +54,21 @@ export async function GET(
     if (!detail) return NextResponse.json({ error: 'Gold standard not found' }, { status: 404 })
 
     let likePart: any = null
-    let otherPartNumber = adHocPart
+    let asked = adHocPart
     if (likePartId) {
       likePart = (detail.likeParts || []).find((p: any) => Number(p.id) === likePartId) || null
       if (!likePart) {
         return NextResponse.json({ error: 'That like part is not on this standard' }, { status: 404 })
       }
-      otherPartNumber = String(likePart.customerPartNumber || '').trim()
+      // The APC number first. A batch card is built from the PRODUCTION row,
+      // and only the APC number lands on it — asking Paradigm for the customer
+      // number finds the sales row, which carries no BOM and no route and so
+      // compares as "everything is missing on the right".
+      asked = String(likePart.apcPartNumber || '').trim()
+        || String(likePart.customerPartNumber || '').trim()
     }
-    if (!otherPartNumber) {
-      return NextResponse.json({ error: 'The like part has no customer part number' }, { status: 400 })
+    if (!asked) {
+      return NextResponse.json({ error: 'The like part has no part number' }, { status: 400 })
     }
 
     const goldCards = (detail.cards || []).map(fromStoredCard)
@@ -72,10 +78,30 @@ export async function GET(
       }, { status: 409 })
     }
 
+    // Accept either number and resolve it to the production row, so a like
+    // part stored with only a customer number still builds a real card set.
+    let resolved = null
+    let otherPartNumber = asked
+    let note = ''
+    try {
+      resolved = await resolveProductionPart(asked)
+      if (resolved) {
+        otherPartNumber = resolved.raw || resolved.apcPart
+        if (resolved.matchedOn === 'customer') {
+          note = `${asked} is a customer number; built from APC part ${resolved.apcPart}.`
+        }
+      }
+    } catch { /* fall through to the raw number below */ }
+
     let liveCards: any[] = []
     let otherError = ''
     try {
       liveCards = await buildCardSet(otherPartNumber)
+      if (!liveCards.length) {
+        otherError = resolved
+          ? `Paradigm has no batch card data for ${resolved.apcPart}.`
+          : `No production part in Paradigm matches ${asked}.`
+      }
     } catch (e) {
       // Reported rather than thrown: the gold side is worth showing on its
       // own, and "Paradigm has nothing for this part" is a result.
@@ -92,7 +118,11 @@ export async function GET(
         cards: goldCards,
       },
       other: {
-        label: otherPartNumber,
+        // Labelled by the APC number, because that is what was actually built.
+        label: resolved?.apcPart || asked,
+        customerPart: resolved?.salesPart || (likePart?.customerPartNumber ?? ''),
+        asked,
+        note: note || undefined,
         cards: liveCards.map(fromCardData),
         error: otherError || undefined,
       },

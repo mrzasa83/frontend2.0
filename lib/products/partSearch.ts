@@ -27,29 +27,38 @@ import { queryMSSQL } from '@/lib/db/mssql'
  * type-ahead — and neither picker shows notes. It can be added back on a
  * detail view, where it's one part at a time.
  */
+/**
+ * The APC part number, derived from a production row's raw
+ * CUSTOMER_PART_NUMBER. Defined once because the resolver below has to derive
+ * it exactly as the search does, or the two would disagree about what "76238"
+ * refers to.
+ */
+export const prodPartNumExpr = (col: string) => `
+          CASE
+              WHEN ${col} LIKE 'Z%' THEN
+                  CASE
+                      WHEN CHARINDEX(' ', ${col}) > 0 THEN
+                          SUBSTRING(${col}, 2, CHARINDEX(' ', ${col}) - 2)
+                      ELSE
+                          SUBSTRING(${col}, 2, LEN(${col}))
+                  END
+              WHEN ${col} LIKE 'R%' THEN
+                  LEFT(${col}, 6)
+              ELSE
+                  CASE
+                      WHEN CHARINDEX(' ', ${col}) > 0 THEN
+                          LEFT(${col}, CHARINDEX(' ', ${col}) - 1)
+                      ELSE
+                          ${col}
+                  END
+          END`
+
 export const PART_SEARCH_SQL = `
   WITH ProdParts AS (
       SELECT
           pp.RKEY AS ProdPartRKEY,
 
-          CASE
-              WHEN pp.CUSTOMER_PART_NUMBER LIKE 'Z%' THEN
-                  CASE
-                      WHEN CHARINDEX(' ', pp.CUSTOMER_PART_NUMBER) > 0 THEN
-                          SUBSTRING(pp.CUSTOMER_PART_NUMBER, 2, CHARINDEX(' ', pp.CUSTOMER_PART_NUMBER) - 2)
-                      ELSE
-                          SUBSTRING(pp.CUSTOMER_PART_NUMBER, 2, LEN(pp.CUSTOMER_PART_NUMBER))
-                  END
-              WHEN pp.CUSTOMER_PART_NUMBER LIKE 'R%' THEN
-                  LEFT(pp.CUSTOMER_PART_NUMBER, 6)
-              ELSE
-                  CASE
-                      WHEN CHARINDEX(' ', pp.CUSTOMER_PART_NUMBER) > 0 THEN
-                          LEFT(pp.CUSTOMER_PART_NUMBER, CHARINDEX(' ', pp.CUSTOMER_PART_NUMBER) - 1)
-                      ELSE
-                          pp.CUSTOMER_PART_NUMBER
-                  END
-          END AS ProdPartNum,
+          ${prodPartNumExpr('pp.CUSTOMER_PART_NUMBER')} AS ProdPartNum,
 
           (SELECT TOP 1 sp.CUSTOMER_PART_NUMBER
            FROM DATA0050 sp WITH (NOLOCK)
@@ -147,4 +156,98 @@ export async function searchProductionParts(
       customer_part: sales,
     }
   })
+}
+
+/* ──────────────────── resolving a part to its production row ──────────────────── */
+
+/**
+ * DATA0050.CUSTOMER_PART_NUMBER does not mean one thing.
+ *
+ * On a PRODUCTION row (RKEY = PRODUCTION_PART_PTR) it holds the APC number —
+ * 76237, sometimes with a status suffix, "76237 INPROCESS". On a SALES row
+ * (a child pointing back at that production row) the same column holds the
+ * CUSTOMER's number — 03KW905. The column name describes the sales rows and
+ * misdescribes the production rows.
+ *
+ * Everything that builds a batch card hangs off the production row: BOM_PTR
+ * and PROD_ROUTE_PTR live there and are empty on the sales row. So looking a
+ * part up by its customer number finds a real row, returns a real header, and
+ * yields a card with no BOM and no route — a silent wrong answer rather than
+ * an error.
+ *
+ * This resolves either number to the production row, so a caller can accept
+ * whichever the user has to hand.
+ */
+const RESOLVE_SQL = `
+  SELECT TOP 1
+      prod.RKEY                                     AS ProdPartRKEY,
+      LTRIM(RTRIM(prod.CUSTOMER_PART_NUMBER))       AS RawPartNumber,
+      ${prodPartNumExpr('prod.CUSTOMER_PART_NUMBER')} AS ProdPartNum,
+      LTRIM(RTRIM(child.CUSTOMER_PART_NUMBER))      AS SalesPartNum,
+      CASE
+          WHEN LTRIM(RTRIM(prod.CUSTOMER_PART_NUMBER)) COLLATE DATABASE_DEFAULT
+               = @exact COLLATE DATABASE_DEFAULT THEN 'apc-exact'
+          WHEN LTRIM(RTRIM(prod.CUSTOMER_PART_NUMBER)) COLLATE DATABASE_DEFAULT
+               LIKE @withSuffix COLLATE DATABASE_DEFAULT THEN 'apc-suffixed'
+          ELSE 'customer'
+      END AS MatchedOn
+  FROM DATA0050 prod WITH (NOLOCK)
+  LEFT JOIN DATA0050 child WITH (NOLOCK)
+         ON child.PRODUCTION_PART_PTR = prod.RKEY
+        AND child.RKEY <> prod.RKEY
+  WHERE prod.RKEY = prod.PRODUCTION_PART_PTR
+    AND (
+          LTRIM(RTRIM(prod.CUSTOMER_PART_NUMBER)) COLLATE DATABASE_DEFAULT
+            = @exact COLLATE DATABASE_DEFAULT
+       OR LTRIM(RTRIM(prod.CUSTOMER_PART_NUMBER)) COLLATE DATABASE_DEFAULT
+            LIKE @withSuffix COLLATE DATABASE_DEFAULT
+       OR LTRIM(RTRIM(child.CUSTOMER_PART_NUMBER)) COLLATE DATABASE_DEFAULT
+            = @exact COLLATE DATABASE_DEFAULT
+        )
+  -- The APC number wins over a customer number that happens to read the same,
+  -- and the plain number wins over a suffixed one, so "76237" never resolves
+  -- to "762370" while the bare part exists.
+  ORDER BY
+      CASE
+          WHEN LTRIM(RTRIM(prod.CUSTOMER_PART_NUMBER)) COLLATE DATABASE_DEFAULT
+               = @exact COLLATE DATABASE_DEFAULT THEN 0
+          WHEN LTRIM(RTRIM(prod.CUSTOMER_PART_NUMBER)) COLLATE DATABASE_DEFAULT
+               LIKE @withSuffix COLLATE DATABASE_DEFAULT THEN 1
+          ELSE 2
+      END,
+      LEN(LTRIM(RTRIM(prod.CUSTOMER_PART_NUMBER))),
+      prod.CUSTOMER_PART_NUMBER`
+
+export type ResolvedPart = {
+  /** The row's number exactly as stored — what a card lookup should use. */
+  raw: string
+  /** The clean APC number, for display and storage. */
+  apcPart: string
+  /** The customer's number for the same product, when there is one. */
+  salesPart: string
+  rkey: number
+  /** How the input was understood: by APC number, or by customer number. */
+  matchedOn: 'apc-exact' | 'apc-suffixed' | 'customer'
+}
+
+/**
+ * Resolves an APC or customer part number to the production row behind it.
+ * Returns null when Paradigm has no production part for it at all.
+ */
+export async function resolveProductionPart(part: string): Promise<ResolvedPart | null> {
+  const p = (part || '').trim()
+  if (!p) return null
+  const rows = await queryMSSQL<any[]>('1', RESOLVE_SQL, {
+    exact: p,
+    withSuffix: `${p} %`,
+  })
+  const r = rows?.[0]
+  if (!r) return null
+  return {
+    raw: clean(r.RawPartNumber),
+    apcPart: clean(r.ProdPartNum),
+    salesPart: clean(r.SalesPartNum),
+    rkey: Number(r.ProdPartRKEY || 0),
+    matchedOn: (clean(r.MatchedOn) || 'customer') as ResolvedPart['matchedOn'],
+  }
 }
