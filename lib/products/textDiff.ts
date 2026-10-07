@@ -70,6 +70,56 @@ export function diffLines(leftText: string[], rightText: string[]): DiffResult {
   return { lines, added, removed, modified, changes: added + removed + modified }
 }
 
+/**
+ * A diff over rows that something else has already paired.
+ *
+ * The BOM uses this: its lines are matched on part NAME first, so the two
+ * sides are aligned by what each line IS rather than by where it sits. An LCS
+ * over the rendered text would line up line 2 with line 2, and a single
+ * missing layer would shift everything under it and report the whole BOM as
+ * changed. Word-level highlighting still runs on each paired row.
+ */
+export function diffAligned(rows: {
+  left: string | null
+  right: string | null
+  /**
+   * What to COMPARE, when that differs from what to show. The BOM compares on
+   * the line with the part's own base number masked out, because that number
+   * differs between any two products by definition — but it still displays the
+   * real line, so the reader sees the actual part numbers.
+   */
+  leftKey?: string | null
+  rightKey?: string | null
+}[]): DiffResult {
+  const lines: DiffLine[] = []
+  let added = 0, removed = 0, modified = 0
+  let ln = 0, rn = 0
+
+  for (const row of rows) {
+    const L = row.left, R = row.right
+    const lk = row.leftKey ?? L
+    const rk = row.rightKey ?? R
+    if (L != null && R != null) {
+      ln++; rn++
+      if (lk === rk) {
+        lines.push({ op: 'equal', leftNo: ln, rightNo: rn, left: L, right: R })
+      } else {
+        const [lw, rw] = diffWords(L, R)
+        lines.push({ op: 'modified', leftNo: ln, rightNo: rn, left: L, right: R,
+          leftWords: lw, rightWords: rw })
+        modified++
+      }
+    } else if (L != null) {
+      ln++; removed++
+      lines.push({ op: 'removed', leftNo: ln, rightNo: null, left: L, right: null })
+    } else if (R != null) {
+      rn++; added++
+      lines.push({ op: 'added', leftNo: null, rightNo: rn, left: null, right: R })
+    }
+  }
+  return { lines, added, removed, modified, changes: added + removed + modified }
+}
+
 /* ────────────────────────────── alignment ────────────────────────────── */
 
 function lcsDiff(a: string[], b: string[]): DiffLine[] {

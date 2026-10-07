@@ -7,12 +7,12 @@ import {
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import {
-  pairCardsByLevel, DEFAULT_MATCH_RULES, parsePartName,
+  pairCardsByLevel, pairByName, DEFAULT_MATCH_RULES, parsePartName, matchNameOf, canonicalPartName,
   type MatchRules, type CardPair,
 } from '@/lib/products/partSimilarity'
-import { diffLines, type DiffLine } from '@/lib/products/textDiff'
+import { diffLines, diffAligned, type DiffLine } from '@/lib/products/textDiff'
 import {
-  sectionLines, routeLineSteps,
+  sectionLines, routeLineSteps, bomLineText,
   type CompareCard, type CompareSection,
 } from '@/lib/products/compareModel'
 
@@ -57,6 +57,12 @@ export default function GoldStandardCompare(
   const [showRules, setShowRules] = useState(false)
   const [section, setSection] = useState<CompareSection>('route')
   const [onlyChanges, setOnlyChanges] = useState(false)
+  /**
+   * Ignore the part's own base number when deciding whether a BOM line
+   * changed. On by default: 76443 against 76237 differs on every single
+   * line, which is the one difference that carries no information.
+   */
+  const [ignoreBase, setIgnoreBase] = useState(true)
   const [selected, setSelected] = useState(0)
   const [recorded, setRecorded] = useState(false)
 
@@ -90,10 +96,27 @@ export default function GoldStandardCompare(
    * actually drifted instead of clicking through all 28.
    */
   const diffs = useMemo(() => pairs.map(p => {
-    const left = sectionLines(p.gold, section)
-    const right = sectionLines(p.other, section)
-    return diffLines(left, right)
-  }), [pairs, section])
+    if (section === 'bom') {
+      // The BOM is aligned by part NAME before it is diffed, under the same
+      // rule that pairs the cards. Diffing it as plain text lines up line 2
+      // with line 2, so one layer the other product doesn't have shifts
+      // everything beneath it and the whole BOM reads as changed.
+      const rows = pairByName(
+        p.gold?.bom || [], p.other?.bom || [], rules,
+        b => b.partNumber, b => b.description,
+      )
+      const keyOf = (b: any) => ignoreBase
+        ? bomLineText({ ...b, partNumber: canonicalPartName(b.partNumber) })
+        : bomLineText(b)
+      return diffAligned(rows.map(r => ({
+        left: r.gold ? bomLineText(r.gold) : null,
+        right: r.other ? bomLineText(r.other) : null,
+        leftKey: r.gold ? keyOf(r.gold) : null,
+        rightKey: r.other ? keyOf(r.other) : null,
+      })))
+    }
+    return diffLines(sectionLines(p.gold, section), sectionLines(p.other, section))
+  }), [pairs, section, rules, ignoreBase])
 
   const totalChanges = useMemo(
     () => diffs.reduce((n, d) => n + d.changes, 0), [diffs])
@@ -209,11 +232,21 @@ export default function GoldStandardCompare(
             </button>
           ))}
         </div>
-        <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer pb-2">
-          <input type="checkbox" checked={onlyChanges} onChange={e => setOnlyChanges(e.target.checked)}
-            className="rounded border-slate-300 text-blue-600 focus:ring-blue-400" />
-          <Filter size={13} /> Changes only
-        </label>
+        <div className="flex items-center gap-4 pb-2">
+          {section === 'bom' && (
+            <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer"
+              title="76443 against 76237 differs on every line; that difference carries no information">
+              <input type="checkbox" checked={ignoreBase} onChange={e => setIgnoreBase(e.target.checked)}
+                className="rounded border-slate-300 text-blue-600 focus:ring-blue-400" />
+              Ignore the part&apos;s own number
+            </label>
+          )}
+          <label className="inline-flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
+            <input type="checkbox" checked={onlyChanges} onChange={e => setOnlyChanges(e.target.checked)}
+              className="rounded border-slate-300 text-blue-600 focus:ring-blue-400" />
+            <Filter size={13} /> Changes only
+          </label>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)] gap-4">
@@ -249,9 +282,14 @@ export default function GoldStandardCompare(
                   <ChevronRight size={11} className="shrink-0 text-slate-300" />
                   {p.other?.partNumber || <span className="text-slate-300">— not in {data.other.label}</span>}
                 </div>
-                {p.verdict && (
+                {p.verdict?.warn ? (
+                  <div className="flex items-start gap-1 text-[10px] text-amber-700 mt-0.5">
+                    <AlertTriangle size={10} className="mt-px shrink-0" />
+                    <span className="min-w-0">{p.verdict.warn}</span>
+                  </div>
+                ) : p.verdict ? (
                   <div className="text-[10px] text-slate-400 truncate mt-0.5">{p.verdict.reason}</div>
-                )}
+                ) : null}
               </button>
             )
           })}
@@ -352,6 +390,16 @@ function DiffPane(
         {pair.verdict && <span className="text-slate-400">· paired: {pair.verdict.reason}</span>}
       </div>
 
+      {/* A pair that was made but should be questioned. Placed above the diff
+          rather than beside it, so a clean-looking result is not read as
+          agreement when the two cards are not the same kind of assembly. */}
+      {pair.verdict?.warn && (
+        <div className="flex items-start gap-2 px-3 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-800">
+          <AlertTriangle size={14} className="mt-px shrink-0" />
+          <div className="min-w-0">{pair.verdict.warn}</div>
+        </div>
+      )}
+
       {!shown.length ? (
         <p className="py-12 text-center text-sm text-slate-500">
           {diff.lines.length ? 'No changes to show.' : `Neither card has ${sectionLabel(section).toLowerCase()} data.`}
@@ -383,19 +431,28 @@ function PaneHead(
   { side, label, card }:
   { side: string; label: string; card: CompareCard | null }
 ) {
-  const p = card ? parsePartName(card.partNumber) : null
+  // The name the pairing actually used, which for a DATA0050 card is its BOM
+  // part rather than the APC number printed above.
+  const name = matchNameOf(card)
+  const p = card ? parsePartName(name) : null
   return (
     <div className="px-3 py-2 min-w-0">
       <div className="text-[10px] uppercase tracking-wider text-slate-400">{side} · {label}</div>
       {card ? (
         <>
-          <div className="font-mono text-sm text-slate-800 truncate">{card.partNumber}</div>
+          <div className="font-mono text-sm text-slate-800 truncate">
+            {card.partNumber}
+            {name && name !== card.partNumber && (
+              <span className="ml-2 text-xs text-slate-400">· matched as {name}</span>
+            )}
+          </div>
           <div className="text-xs text-slate-500 truncate">
             {card.description || <span className="text-slate-300">no description</span>}
             {p?.parsed && (
               <span className="ml-2 text-slate-400">
-                {p.prefix}·{p.base}·{String(p.idx1).padStart(2, '0')}
-                {p.idx2 != null ? `/${String(p.idx2).padStart(2, '0')}` : ''}
+                {p.prefix}·{p.base}·{p.form === 'suffix'
+                  ? `${p.suffixGroup}${p.suffixNum ?? ''}`
+                  : `${String(p.idx1).padStart(2, '0')}${p.idx2 != null ? `/${String(p.idx2).padStart(2, '0')}` : ''}`}
               </span>
             )}
           </div>
@@ -548,6 +605,49 @@ function RulesPanel(
           className="px-2.5 py-1.5 text-xs text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50">
           Reset
         </button>
+      </div>
+
+      {/* ── suffix parts: P-76443-UPA1 ── */}
+      <div className="pt-3 border-t border-blue-200/60">
+        <p className="text-xs text-slate-600 mb-2 max-w-2xl">
+          Parts numbered <span className="font-mono">PREFIX-BASE-UPxN</span> — adhesives and
+          coverlays — match on the letter run and its number instead. UPA is a different material
+          from UPC, so by default the run must be identical and the number exact:
+          <span className="font-mono"> UPA1</span> pairs only with <span className="font-mono">UPA1</span>.
+        </p>
+        <div className="flex items-end gap-4 flex-wrap">
+          <label className="inline-flex items-center gap-2 text-sm text-slate-700 cursor-pointer pb-1.5">
+            <input type="checkbox" checked={rules.suffixGroupMustMatch}
+              onChange={e => setRules({ ...rules, suffixGroupMustMatch: e.target.checked })}
+              className="rounded border-slate-300 text-blue-600 focus:ring-blue-400" />
+            Letter run must match (UPA ≠ UPC)
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider block mb-1">
+              Suffix number tolerance
+            </span>
+            <input type="number" min={0} max={20} value={rules.suffixNumTolerance}
+              onChange={e => setRules({ ...rules, suffixNumTolerance: Math.max(0, Number(e.target.value) || 0) })}
+              className="w-24 px-2 py-1.5 text-sm border border-slate-300 rounded-lg" />
+          </label>
+          <label className="block">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider block mb-1">
+              Description fallback
+            </span>
+            <select value={String(rules.descriptionFallback)}
+              onChange={e => setRules({ ...rules, descriptionFallback: Number(e.target.value) })}
+              className="px-2 py-1.5 text-sm border border-slate-300 rounded-lg bg-white">
+              <option value="0">off</option>
+              <option value="0.3">loose (30%)</option>
+              <option value="0.5">normal (50%)</option>
+              <option value="0.7">strict (70%)</option>
+            </select>
+          </label>
+          <p className="text-xs text-slate-500 pb-1.5 max-w-xs">
+            Pairs BOM lines no naming rule can relate — a purchased label against a purchased
+            label — on how alike their descriptions are.
+          </p>
+        </div>
       </div>
     </div>
   )

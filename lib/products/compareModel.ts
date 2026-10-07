@@ -160,18 +160,21 @@ export function routeLines(card: CompareCard | null): string[] {
   return out
 }
 
+/** One BOM line as the text the diff highlights. */
+export function bomLineText(b: CompareBomLine): string {
+  const bits = [b.partNumber]
+  if (b.description) bits.push(b.description)
+  const qty = [b.qtyRequired && `qty ${b.qtyRequired}`, b.requiredPer && `per ${b.requiredPer}`,
+    b.unit && b.unit].filter(Boolean).join(' · ')
+  if (qty) bits.push(qty)
+  bits.push(b.isManufactured ? '[M]' : '[P]')
+  return bits.join('  |  ')
+}
+
 /** The BOM as lines, in BOM order. */
 export function bomLines(card: CompareCard | null): string[] {
   if (!card) return []
-  return card.bom.map(b => {
-    const bits = [b.partNumber]
-    if (b.description) bits.push(b.description)
-    const qty = [b.qtyRequired && `qty ${b.qtyRequired}`, b.requiredPer && `per ${b.requiredPer}`,
-      b.unit && b.unit].filter(Boolean).join(' · ')
-    if (qty) bits.push(qty)
-    bits.push(b.isManufactured ? '[M]' : '[P]')
-    return bits.join('  |  ')
-  })
+  return card.bom.map(bomLineText)
 }
 
 /** Header fields, notes, comments, parameters, specs and units as lines. */
