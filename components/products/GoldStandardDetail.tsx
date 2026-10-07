@@ -6,6 +6,7 @@ import {
   AlertTriangle, CheckCircle2,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import GoldStandardCompare from '@/components/products/GoldStandardCompare'
 
 /**
  * One gold standard: General, BOM, Route, Like Parts.
@@ -44,6 +45,12 @@ export default function GoldStandardDetail(
   const [tab, setTab] = useState<TabId>('general')
   const [cardIdx, setCardIdx] = useState(0)
   const [recapturing, setRecapturing] = useState(false)
+  /**
+   * The active comparison, one at a time. It takes over the tab body rather
+   * than opening a tab of its own: a compare belongs to this standard, and the
+   * page's tab strip is for standards.
+   */
+  const [compare, setCompare] = useState<{ likePartId: number; partNumber: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -195,6 +202,12 @@ export default function GoldStandardDetail(
         </div>
       )}
 
+      {compare ? (
+        <GoldStandardCompare goldStandardId={id}
+          likePartId={compare.likePartId} partNumber={compare.partNumber}
+          onBack={() => { setCompare(null); load() }} />
+      ) : (
+      <>
       <div className="flex items-center gap-1 mb-4 border-b border-slate-200">
         {TABS.map(t => (
           <button key={t.id} onClick={() => setTab(t.id)}
@@ -230,7 +243,10 @@ export default function GoldStandardDetail(
       )}
       {tab === 'like-parts' && (
         <LikePartsTab goldStandardId={id} standard={s} parts={data.likeParts || []}
-          onChanged={() => { load(); onChanged?.() }} />
+          onChanged={() => { load(); onChanged?.() }}
+          onCompare={(likePartId, partNumber) => setCompare({ likePartId, partNumber })} />
+      )}
+      </>
       )}
     </div>
   )
@@ -449,8 +465,9 @@ function likePartKey(r: any): string {
  * read have none; both routes share one query in lib/products/partSearch.ts.
  */
 function LikePartsTab(
-  { goldStandardId, standard, parts, onChanged }:
-  { goldStandardId: number; standard: any; parts: any[]; onChanged: () => void }
+  { goldStandardId, standard, parts, onChanged, onCompare }:
+  { goldStandardId: number; standard: any; parts: any[]; onChanged: () => void
+    onCompare: (likePartId: number, partNumber: string) => void }
 ) {
   const [q, setQ] = useState('')
   const [results, setResults] = useState<any[]>([])
@@ -627,11 +644,9 @@ function LikePartsTab(
                   <td className="px-3 py-2 text-xs text-slate-500">{fmtDate(p.addedAt)} {p.addedBy}</td>
                   <td className="px-3 py-2 text-right">
                     <div className="inline-flex items-center gap-2">
-                      {/* Compare is the next piece of work; the button is here
-                          so the flow reads correctly, and says so rather than
-                          looking broken. */}
-                      <button disabled title="Side-by-side compare is not built yet"
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-slate-200 rounded text-slate-400 cursor-not-allowed">
+                      <button onClick={() => onCompare(p.id, p.customerPartNumber)}
+                        title={`Compare ${p.customerPartNumber} against this standard`}
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-slate-200 rounded text-slate-600 hover:bg-slate-50 hover:text-blue-700 hover:border-blue-300">
                         <GitCompare size={12} /> Compare
                       </button>
                       <button onClick={() => remove(p.id)} title="Remove"
