@@ -434,8 +434,10 @@ function RouteTab({ card }: { card: any }) {
                   <tbody>
                     {r.params.map((p: any) => (
                       <tr key={p.id}>
-                        <td className="pr-3 py-0.5 text-slate-500">{p.name}</td>
-                        <td className="py-0.5 font-medium text-slate-800">{p.value}</td>
+                        <td className="pr-3 py-0.5 text-slate-500 align-top">{p.name}</td>
+                        {/* A parameter's value may be a multi-line note;
+                            whitespace-pre-line keeps those breaks. */}
+                        <td className="py-0.5 font-medium text-slate-800 whitespace-pre-line">{p.value}</td>
                       </tr>
                     ))}
                   </tbody>

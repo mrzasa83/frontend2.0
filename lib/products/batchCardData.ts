@@ -170,14 +170,20 @@ const ROUTE_SQL = `
       CASE WHEN i4.INST_CODE IS NOT NULL THEN '; ' + RTRIM(i4.INST_CODE) ELSE '' END +
       CASE WHEN i5.INST_CODE IS NOT NULL THEN '; ' + RTRIM(i5.INST_CODE) ELSE '' END
     ) AS instructionCodes,
-    -- inline parameter values
+    -- Inline parameter values.
+    --
+    -- Emitted for every slot that has a DEFINITION, not for every slot that
+    -- has a value. The two lists are zipped by position downstream, and the
+    -- previous "value <> ''" test dropped a defined parameter whose value was
+    -- blank — which shifted every value after it up by one and attached it to
+    -- the wrong name. A blank value now holds its place as an empty segment.
     STUFF(
-      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_1))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_1)) ELSE '' END +
-      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_2))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_2)) ELSE '' END +
-      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_3))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_3)) ELSE '' END +
-      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_4))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_4)) ELSE '' END +
-      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_5))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_5)) ELSE '' END +
-      CASE WHEN LTRIM(RTRIM(d38.PARAMETER_6))<>'' THEN ' | '+LTRIM(RTRIM(d38.PARAMETER_6)) ELSE '' END,
+      CASE WHEN p1.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+LTRIM(RTRIM(ISNULL(d38.PARAMETER_1,''))) ELSE '' END +
+      CASE WHEN p2.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+LTRIM(RTRIM(ISNULL(d38.PARAMETER_2,''))) ELSE '' END +
+      CASE WHEN p3.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+LTRIM(RTRIM(ISNULL(d38.PARAMETER_3,''))) ELSE '' END +
+      CASE WHEN p4.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+LTRIM(RTRIM(ISNULL(d38.PARAMETER_4,''))) ELSE '' END +
+      CASE WHEN p5.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+LTRIM(RTRIM(ISNULL(d38.PARAMETER_5,''))) ELSE '' END +
+      CASE WHEN p6.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+LTRIM(RTRIM(ISNULL(d38.PARAMETER_6,''))) ELSE '' END,
       1, 3, '') AS parameterValues,
     -- parameter names from the DATA0035 definitions
     STUFF(
@@ -188,19 +194,11 @@ const ROUTE_SQL = `
       CASE WHEN p5.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p5.PRODUCTION_PARAMETER) ELSE '' END +
       CASE WHEN p6.PRODUCTION_PARAMETER IS NOT NULL THEN ' | '+RTRIM(p6.PRODUCTION_PARAMETER) ELSE '' END,
       1, 3, '') AS parameterNames,
-    -- additional route step parameters (DATA0471 values -> DATA0469 defs)
-    STUFF((
-      SELECT '; ' +
-        -- PARAMETER_CODE is the real name ("Cu Thickness"); PARAMETER_DESC is
-        -- the generic family label ("Engenix Route Step Parameter").
-        LTRIM(RTRIM(ISNULL(d469.PARAMETER_CODE, d469.PARAMETER_DESC))) + ': ' +
-        LTRIM(RTRIM(ISNULL(CAST(d471.PARAMETER_VALUE AS NVARCHAR(MAX)), '')))
-      FROM DATA0471 d471 WITH (NOLOCK)
-      INNER JOIN DATA0469 d469 WITH (NOLOCK) ON d469.RKEY = d471.DATA0469_PTR
-      WHERE d471.DATA0038_PTR = d38.RKEY
-      ORDER BY d471.SEQUENCE_NO
-      FOR XML PATH(''), TYPE
-    ).value('.', 'NVARCHAR(MAX)'), 1, 2, '') AS extParameters
+    -- Additional route step parameters are NOT fetched here; see
+    -- EXT_PARAMS_SQL below. They used to be flattened to "name: value" pairs
+    -- joined with "; " and split apart again in TypeScript, which cannot
+    -- survive a value containing either delimiter — and these carry free text.
+    d38.RKEY AS stepRkey
   FROM DATA0038 d38 WITH (NOLOCK)
   LEFT JOIN DATA0034 d34 WITH (NOLOCK) ON d34.RKEY = d38.DEPT_PTR
   LEFT JOIN DATA0036 i1 WITH (NOLOCK) ON i1.RKEY = d38.DEF_ROUT_INST_1_PTR
@@ -220,6 +218,41 @@ const ROUTE_SQL = `
   LEFT JOIN DATA0035 p6 WITH (NOLOCK) ON p6.RKEY = d38.DEF_ROUT_PARA_6_PTR
   WHERE d38.SOURCE_PTR = @sourcePtr AND d38.TTYPE = @ttype
   ORDER BY d38.STEP_NUMBER`
+
+/**
+ * Additional Route Step Parameters — the third tab on Paradigm's Route Step
+ * Information dialog (DATA0471 values -> DATA0469 definitions).
+ *
+ * Two fields carry the content, and BOTH are read:
+ *
+ *   PARAMETER_VALUE  the Value column. NULL, not blank, when unused.
+ *   PARAM_NOTE       the Note box beside it, free text with CRLF breaks.
+ *
+ * Only PARAMETER_VALUE used to be read, so a parameter whose text lives in
+ * the note printed its name and nothing else — step 31 of 76453 showed
+ * "INSTRUCTIONS =" while Paradigm held a two-line note under it.
+ *
+ * Fetched as its own result set rather than inlined into ROUTE_SQL. The old
+ * version concatenated every parameter into one string with "; " between
+ * records and ": " between name and value, then split it apart in
+ * TypeScript — which silently invents extra parameters out of any note
+ * containing a semicolon, and mangles the line breaks these notes carry.
+ * One query per route, keyed the same way as ROUTE_SQL.
+ */
+const EXT_PARAMS_SQL = `
+  SELECT
+    d471.DATA0038_PTR  AS stepRkey,
+    d471.SEQUENCE_NO   AS seq,
+    -- PARAMETER_CODE is the real name ("Cu Thickness"); PARAMETER_DESC is the
+    -- generic family label ("Engenix Route Step Parameter").
+    LTRIM(RTRIM(ISNULL(d469.PARAMETER_CODE, d469.PARAMETER_DESC))) AS name,
+    CAST(d471.PARAMETER_VALUE AS NVARCHAR(MAX)) AS value,
+    CAST(d471.PARAM_NOTE      AS NVARCHAR(MAX)) AS note
+  FROM DATA0471 d471 WITH (NOLOCK)
+  INNER JOIN DATA0469 d469 WITH (NOLOCK) ON d469.RKEY = d471.DATA0469_PTR
+  INNER JOIN DATA0038 d38  WITH (NOLOCK) ON d38.RKEY  = d471.DATA0038_PTR
+  WHERE d38.SOURCE_PTR = @sourcePtr AND d38.TTYPE = @ttype
+  ORDER BY d471.DATA0038_PTR, d471.SEQUENCE_NO`
 
 /**
  * Production parameters, customer part specifications and unit loading
@@ -414,18 +447,65 @@ const NOTES_SQL = `
   WHERE d211.SOURCE_POINTER = @rkey AND d211.SOURCE_TYPE = 1
   ORDER BY d211.SEQUENCE_NUMBER`
 
+/**
+ * A Paradigm note as lines.
+ *
+ * Stored fixed-width with CRLF breaks and the remainder of each line padded
+ * with spaces, so every line is right-trimmed and the blank lines that pad
+ * the end are dropped. Interior blanks are kept — they are part of how the
+ * note was written.
+ */
+function noteLines(note: any): string[] {
+  const lines = String(note ?? '').split(/\r?\n/).map(l => l.replace(/\s+$/, ''))
+  while (lines.length && !lines[0].trim()) lines.shift()
+  while (lines.length && !lines[lines.length - 1].trim()) lines.pop()
+  return lines
+}
+
+/**
+ * The text of an additional route step parameter.
+ *
+ * Value and note are separate fields in Paradigm and either, neither or both
+ * may be set. When both are, the value leads and the note follows on its own
+ * lines, so nothing is dropped. Multi-line values are carried as newlines and
+ * split again by whichever renderer draws them.
+ */
+function extParamText(value: any, note: any): string {
+  const v = clean(value)
+  const n = noteLines(note).join('\n')
+  if (v && n) return `${v}\n${n}`
+  return v || n
+}
+
 async function loadRoute(sourcePtr: number, ttype: number): Promise<RouteStep[]> {
-  const rows = await queryMSSQL<any[]>('1', ROUTE_SQL, { sourcePtr, ttype }).catch(() => [])
+  const [rows, extRows] = await Promise.all([
+    queryMSSQL<any[]>('1', ROUTE_SQL, { sourcePtr, ttype }).catch(() => []),
+    queryMSSQL<any[]>('1', EXT_PARAMS_SQL, { sourcePtr, ttype }).catch(() => []),
+  ])
+
+  // Grouped by step up front: one pass instead of a scan of the whole list
+  // for each of a 55-step route.
+  const extByStep = new Map<number, { name: string; value: string }[]>()
+  for (const e of extRows || []) {
+    const key = Number(e.stepRkey)
+    const list = extByStep.get(key) || []
+    list.push({ name: clean(e.name), value: extParamText(e.value, e.note) })
+    extByStep.set(key, list)
+  }
+
   return (rows || []).map(r => {
-    // Names and values are pipe-joined in matching order.
-    const names = clean(r.parameterNames).split('|').map(clean).filter(Boolean)
-    const values = clean(r.parameterValues).split('|').map(clean).filter(Boolean)
-    const params = names.map((name, i) => ({ name, value: values[i] ?? '' }))
-    // Additional step parameters arrive pre-formatted as "name: value" pairs.
-    for (const extra of clean(r.extParameters).split(';').map(clean).filter(Boolean)) {
-      const [name, ...rest] = extra.split(':')
-      params.push({ name: clean(name), value: clean(rest.join(':')) })
-    }
+    // Names and values are pipe-joined, one segment per DEFINED slot, so the
+    // two lists line up by position. Neither is filtered before zipping: a
+    // blank value is a real state (an unfilled parameter on the card) and
+    // dropping it would pull the next value onto the wrong name.
+    const names = clean(r.parameterNames).split('|').map(clean)
+    const values = clean(r.parameterValues).split('|').map(clean)
+    const params = names
+      .map((name, i) => ({ name, value: values[i] ?? '' }))
+      .filter(p => p.name !== '')
+    // Additional step parameters, already structured — name and value arrive
+    // as separate columns, so nothing has to be parsed back out of a string.
+    params.push(...(extByStep.get(Number(r.stepRkey)) || []))
     // Each stored line is its own line on the card — joining them with spaces
     // ran separate instructions together.
     const instructions: string[] = String(r.instructionText ?? '')

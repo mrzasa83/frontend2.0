@@ -194,7 +194,11 @@ export async function storeCards(
         const prm = step.params[i]
         await queryPrimary(
           'INSERT INTO gold_standard_route_params (route_id, seq, name, value) VALUES (?,?,?,?)',
-          [routeId, i, fit(prm.name, 191), fit(prm.value, 500)]
+          // value is TEXT (see sql/alter_route_params_note.sql) and is NOT
+          // truncated: an Additional Route Step Parameter carries its note
+          // here, and a clipped note would compare as a real difference
+          // against an intact one.
+          [routeId, i, fit(prm.name, 191), String(prm.value ?? '')]
         )
       }
     }

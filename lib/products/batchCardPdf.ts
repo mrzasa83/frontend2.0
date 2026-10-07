@@ -395,9 +395,18 @@ export async function renderBatchCard(card: CardData, meta: CardMeta): Promise<U
     if (st.params.length) {
       section('Route Step Parameters', () => {
         for (const p of st.params) {
+          // An Additional Route Step Parameter carries its note text, which is
+          // multi-line. Drawn one line at a time, with its own page-break
+          // check, so a note is not overprinted or lost off the bottom.
+          const parts = String(p.value ?? '').split('\n')
           need(11)
-          text(`${p.name} : ${p.value}`, M + 20, 7.5, mono, rgb(0.2, 0.24, 0.3))
+          text(`${p.name} : ${parts[0] ?? ''}`, M + 20, 7.5, mono, rgb(0.2, 0.24, 0.3))
           y -= 10
+          for (const cont of parts.slice(1)) {
+            need(11)
+            text(cont, M + 28, 7.5, mono, rgb(0.2, 0.24, 0.3))
+            y -= 10
+          }
         }
       })
     }

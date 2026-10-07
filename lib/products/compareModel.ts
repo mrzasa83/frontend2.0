@@ -155,9 +155,26 @@ export function routeLines(card: CompareCard | null): string[] {
         if (piece.trim()) out.push(`    • ${piece.trim()}`)
       }
     }
-    for (const p of r.params) out.push(`    ${p.name} = ${p.value}`)
+    // A parameter's value can be multi-line — an Additional Route Step
+    // Parameter carries its note text — so each line is its own diff line and
+    // a change inside a long note highlights that line, not the whole step.
+    for (const p of r.params) out.push(...paramLines(p))
   }
   return out
+}
+
+/**
+ * One parameter as the lines the diff sees. The first carries the name, any
+ * continuation is indented under it.
+ *
+ * Shared with routeLineSteps() so the two walks cannot drift: the gutter
+ * reads the step number by line index, and a parameter that produced two
+ * lines here must produce two entries there.
+ */
+function paramLines(p: { name: string; value: string }): string[] {
+  const parts = String(p.value ?? '').split('\n')
+  const head = `    ${p.name} = ${parts[0] ?? ''}`
+  return [head, ...parts.slice(1).map(l => `        ${l}`)]
 }
 
 /** One BOM line as the text the diff highlights. */
@@ -225,7 +242,8 @@ export function routeLineSteps(card: CompareCard | null): (number | null)[] {
     for (const t of r.instructions) {
       for (const piece of String(t).split(/\r?\n/)) if (piece.trim()) out.push(null)
     }
-    for (const _ of r.params) out.push(null)
+    // One entry per line routeLines() emitted for this parameter.
+    for (const p of r.params) for (const _ of paramLines(p)) out.push(null)
   }
   return out
 }
