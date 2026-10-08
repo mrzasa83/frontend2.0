@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { logHistory } from '@/lib/products/goldStandard'
+import { canManageGoldStandardParts } from '@/lib/config/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +18,11 @@ export const dynamic = 'force-dynamic'
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!canManageGoldStandardParts((session.user as any)?.roles || [])) {
+    return NextResponse.json(
+      { error: 'Attaching or removing a like part requires the ProductEng or NPIeng role' },
+      { status: 403 })
+  }
   const user = (session.user as any)?.name || (session.user as any)?.email || 'unknown'
 
   let body: any
@@ -74,6 +80,11 @@ export async function POST(request: NextRequest) {
 export async function DELETE(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!canManageGoldStandardParts((session.user as any)?.roles || [])) {
+    return NextResponse.json(
+      { error: 'Attaching or removing a like part requires the ProductEng or NPIeng role' },
+      { status: 403 })
+  }
   const user = (session.user as any)?.name || (session.user as any)?.email || 'unknown'
 
   const { searchParams } = new URL(request.url)

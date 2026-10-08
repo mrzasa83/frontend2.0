@@ -49,6 +49,12 @@ export default function GoldStandardPage() {
   const [open, setOpen] = useState<{ id: number; label: string }[]>([])
   const [activeTab, setActiveTab] = useState<number | null>(null)
   const [adding, setAdding] = useState(false)
+  /**
+   * What this user may do, as the API reports it. The API is the gate; this
+   * only decides whether a control is worth showing. Starts false so a
+   * control never flashes up before the answer arrives.
+   */
+  const [can, setCan] = useState({ manageStandards: false, manageParts: false })
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -57,6 +63,10 @@ export default function GoldStandardPage() {
       const d = await res.json()
       if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
       setRows(d.standards || [])
+      setCan({
+        manageStandards: !!d.can?.manageStandards,
+        manageParts: !!d.can?.manageParts,
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setLoading(false) }
@@ -165,10 +175,17 @@ export default function GoldStandardPage() {
             className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-50">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
           </button>
-          <button onClick={() => setAdding(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            <Plus size={14} /> New Gold Standard
-          </button>
+          {can.manageStandards ? (
+            <button onClick={() => setAdding(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+              <Plus size={14} /> New Gold Standard
+            </button>
+          ) : (
+            <span className="text-xs text-slate-500 px-2"
+              title="Creating a gold standard requires the NPIeng role">
+              NPIeng creates standards
+            </span>
+          )}
         </div>
       </div>
 
@@ -186,7 +203,9 @@ export default function GoldStandardPage() {
       ) : !sorted.length ? (
         <div className="py-16 text-center text-sm text-slate-500">
           {rows.length ? 'No standards match that search.'
-            : 'No gold standards yet. Use New Gold Standard to capture one from a customer part.'}
+            : can.manageStandards
+              ? 'No gold standards yet. Use New Gold Standard to capture one from a customer part.'
+              : 'No gold standards yet. Creating one requires the NPIeng role.'}
         </div>
       ) : (
         <div className="overflow-x-auto border border-slate-200 rounded-lg">

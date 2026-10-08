@@ -154,3 +154,36 @@ export function canWriteScope(roles: string[] | undefined, scope: string): boole
 export function effectiveAccess(role: string): RoleAccess {
   return accessFor(role) || { read: [], write: [] }
 }
+
+/* ─────────────────────── Product -> Gold Standard ─────────────────────── */
+
+/**
+ * Who may CREATE or DELETE a gold standard.
+ *
+ * Narrower than the Product module's write scope on purpose. A gold standard
+ * is the blessed copy every other part is measured against, so creating one is
+ * a statement about how a product is supposed to be built, and deleting one
+ * discards every comparison that was made against it. That is NPI's call.
+ *
+ * Deliberately NOT expressed as canWriteScope(roles, 'products'): NPIeng's
+ * write scope is 'npi', not 'products', so the scope test would grant this to
+ * ProductEng and deny it to the very role that owns it. Named roles say what
+ * is meant.
+ *
+ * hasRole matches case-insensitively, so the legacy "NPIEng" spelling is
+ * covered by the same entry.
+ */
+export function canManageGoldStandards(roles: string[] | undefined): boolean {
+  return isAdmin(roles) || hasRole(roles, 'NPIeng')
+}
+
+/**
+ * Who may ATTACH or REMOVE a part to compare against a standard.
+ *
+ * Wider than the above: naming a candidate is an ordinary engineering
+ * judgement and is reversible — removing a like part leaves the standard
+ * itself untouched. Product engineering does this alongside NPI.
+ */
+export function canManageGoldStandardParts(roles: string[] | undefined): boolean {
+  return canManageGoldStandards(roles) || hasRole(roles, 'ProductEng')
+}

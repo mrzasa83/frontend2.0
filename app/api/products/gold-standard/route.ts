@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { listGoldStandards, captureGoldStandard, logHistory } from '@/lib/products/goldStandard'
+import { canManageGoldStandards, canManageGoldStandardParts } from '@/lib/config/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -10,8 +11,19 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const roles = (session.user as any)?.roles || []
   try {
-    return NextResponse.json({ success: true, standards: await listGoldStandards() })
+    return NextResponse.json({
+      success: true,
+      standards: await listGoldStandards(),
+      // What this user may do, so the page can hide controls it would only
+      // get a 403 from. The API checks are the actual gate; these are for
+      // the interface, never a substitute.
+      can: {
+        manageStandards: canManageGoldStandards(roles),
+        manageParts: canManageGoldStandardParts(roles),
+      },
+    })
   } catch (error) {
     return NextResponse.json({
       error: 'Failed to list gold standards',
@@ -31,6 +43,10 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!canManageGoldStandards((session.user as any)?.roles || [])) {
+    return NextResponse.json(
+      { error: 'Creating a gold standard requires the NPIeng role' }, { status: 403 })
+  }
   const user = (session.user as any)?.name || (session.user as any)?.email || 'unknown'
 
   let body: any

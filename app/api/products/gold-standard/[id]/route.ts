@@ -3,17 +3,26 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { queryPrimary } from '@/lib/db/mysql-primary'
 import { getGoldStandard, captureGoldStandard, logHistory } from '@/lib/products/goldStandard'
+import { canManageGoldStandards, canManageGoldStandardParts } from '@/lib/config/access'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const roles = (session.user as any)?.roles || []
   const { id } = await ctx.params
   try {
     const data = await getGoldStandard(Number(id))
     if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    return NextResponse.json({ success: true, ...data })
+    return NextResponse.json({
+      success: true,
+      ...data,
+      can: {
+        manageStandards: canManageGoldStandards(roles),
+        manageParts: canManageGoldStandardParts(roles),
+      },
+    })
   } catch (error) {
     return NextResponse.json({
       error: 'Failed to load the gold standard',
@@ -26,6 +35,13 @@ export async function GET(_req: NextRequest, ctx: { params: Promise<{ id: string
 export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Re-capturing REPLACES every card under the standard, and a header edit
+  // changes what it claims to be. Both are changes to the blessed copy, so
+  // they sit with creating and deleting rather than with attaching a part.
+  if (!canManageGoldStandards((session.user as any)?.roles || [])) {
+    return NextResponse.json(
+      { error: 'Changing a gold standard requires the NPIeng role' }, { status: 403 })
+  }
   const user = (session.user as any)?.name || (session.user as any)?.email || 'unknown'
   const { id } = await ctx.params
   const gsId = Number(id)
@@ -86,11 +102,13 @@ export async function PATCH(request: NextRequest, ctx: { params: Promise<{ id: s
 export async function DELETE(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const roles = ((session.user as any)?.roles || []) as string[]
-  // Deleting a standard discards what other parts were measured against, so
-  // it is an admin action rather than an ordinary edit.
-  if (!roles.includes('Admin')) {
-    return NextResponse.json({ error: 'Admin role required' }, { status: 403 })
+  // Deleting a standard discards every comparison made against it, so it
+  // belongs to NPI (and to Admin, as everything does). Previously this tested
+  // roles.includes('Admin') directly, which is case-sensitive and would have
+  // denied an "admin" spelled any other way.
+  if (!canManageGoldStandards((session.user as any)?.roles || [])) {
+    return NextResponse.json(
+      { error: 'Deleting a gold standard requires the NPIeng role' }, { status: 403 })
   }
   const { id } = await ctx.params
   try {

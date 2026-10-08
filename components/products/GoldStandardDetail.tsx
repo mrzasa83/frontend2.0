@@ -51,6 +51,8 @@ export default function GoldStandardDetail(
    * page's tab strip is for standards.
    */
   const [compare, setCompare] = useState<{ likePartId: number; partNumber: string } | null>(null)
+  /** What this user may change here, as the API reports it. */
+  const [can, setCan] = useState({ manageStandards: false, manageParts: false })
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -59,6 +61,10 @@ export default function GoldStandardDetail(
       const d = await res.json()
       if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
       setData(d)
+      setCan({
+        manageStandards: !!d.can?.manageStandards,
+        manageParts: !!d.can?.manageParts,
+      })
       setCardIdx(i => Math.min(i, Math.max((d.cards?.length || 1) - 1, 0)))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
@@ -175,11 +181,15 @@ export default function GoldStandardDetail(
             s.status === 'active' ? 'bg-green-100 text-green-700'
               : s.status === 'retired' ? 'bg-slate-100 text-slate-500'
               : 'bg-amber-100 text-amber-700'}`}>{s.status}</span>
-          <button onClick={recapture} disabled={recapturing}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
-            <RefreshCw size={14} className={recapturing ? 'animate-spin' : ''} />
-            {recapturing ? 'Capturing…' : 'Re-capture'}
-          </button>
+          {/* Re-capture replaces every card under the standard, so it needs
+              the same role as creating one. */}
+          {can.manageStandards && (
+            <button onClick={recapture} disabled={recapturing}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+              <RefreshCw size={14} className={recapturing ? 'animate-spin' : ''} />
+              {recapturing ? 'Capturing…' : 'Re-capture'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -189,8 +199,10 @@ export default function GoldStandardDetail(
         <div className="flex items-start gap-2 mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-900">
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
           <div>
-            Nothing has been captured for this standard yet. Use <em>Re-capture</em> to
-            read it from Paradigm.
+            Nothing has been captured for this standard yet.{' '}
+            {can.manageStandards
+              ? <>Use <em>Re-capture</em> to read it from Paradigm.</>
+              : 'Someone with the NPIeng role needs to capture it from Paradigm.'}
           </div>
         </div>
       )}
@@ -244,6 +256,7 @@ export default function GoldStandardDetail(
       {tab === 'like-parts' && (
         <LikePartsTab goldStandardId={id} standard={s} parts={data.likeParts || []}
           onChanged={() => { load(); onChanged?.() }}
+          canManage={can.manageParts}
           onCompare={(likePartId, partNumber) => setCompare({ likePartId, partNumber })} />
       )}
       </>
@@ -467,8 +480,9 @@ function likePartKey(r: any): string {
  * read have none; both routes share one query in lib/products/partSearch.ts.
  */
 function LikePartsTab(
-  { goldStandardId, standard, parts, onChanged, onCompare }:
+  { goldStandardId, standard, parts, onChanged, canManage, onCompare }:
   { goldStandardId: number; standard: any; parts: any[]; onChanged: () => void
+    canManage: boolean
     onCompare: (likePartId: number, partNumber: string) => void }
 ) {
   const [q, setQ] = useState('')
@@ -545,6 +559,14 @@ function LikePartsTab(
         <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">{err}</div>
       )}
 
+      {!canManage && (
+        <p className="text-sm text-slate-500">
+          Attaching or removing a like part requires the ProductEng or NPIeng role.
+          Comparing an attached part is open to anyone who can see this page.
+        </p>
+      )}
+
+      {canManage && (
       <div>
         <div className="flex items-center gap-4 flex-wrap">
           <div className="relative flex-1 min-w-[18rem] max-w-lg">
@@ -616,6 +638,7 @@ function LikePartsTab(
           <p className="mt-2 text-sm text-slate-500">No parts match that search.</p>
         )}
       </div>
+      )}
 
       {parts.length ? (
         <div className="overflow-x-auto border border-slate-200 rounded-lg">
@@ -651,8 +674,10 @@ function LikePartsTab(
                         className="inline-flex items-center gap-1 px-2 py-1 text-xs border border-slate-200 rounded text-slate-600 hover:bg-slate-50 hover:text-blue-700 hover:border-blue-300">
                         <GitCompare size={12} /> Compare
                       </button>
-                      <button onClick={() => remove(p.id)} title="Remove"
-                        className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
+                      {canManage && (
+                        <button onClick={() => remove(p.id)} title="Remove"
+                          className="text-slate-400 hover:text-red-600"><Trash2 size={14} /></button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -662,7 +687,7 @@ function LikePartsTab(
         </div>
       ) : (
         <p className="text-sm text-slate-500">
-          No like parts attached yet. Search above to add the parts that should
+          No like parts attached yet.{canManage ? ' Search above to add the parts that should' : ''}
           match this standard.
         </p>
       )}
