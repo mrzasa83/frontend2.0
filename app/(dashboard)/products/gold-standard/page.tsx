@@ -154,7 +154,10 @@ export default function GoldStandardPage() {
       )}
 
       {activeTab !== null ? (
-        <GoldStandardDetail id={activeTab} onClose={() => setActiveTab(null)} onChanged={load} />
+        <GoldStandardDetail id={activeTab} onClose={() => setActiveTab(null)} onChanged={load}
+          // Deleting removes the tab outright; leaving it open would point at
+          // a row that no longer exists.
+          onDeleted={() => closeTab(activeTab)} />
       ) : (
       <>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   RefreshCw, ArrowLeft, Search, Plus, Trash2, GitCompare, Layers,
-  AlertTriangle, CheckCircle2,
+  AlertTriangle, CheckCircle2, X,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import GoldStandardCompare from '@/components/products/GoldStandardCompare'
@@ -36,8 +36,15 @@ const fmtDate = (v: any) => {
   return isNaN(d.getTime()) ? String(v) : d.toLocaleDateString()
 }
 
+/** The three states a standard moves through. Free text in the column, but
+ *  these are the only ones the interface offers. */
+const STATUSES = ['draft', 'active', 'retired'] as const
+
 export default function GoldStandardDetail(
-  { id, onClose, onChanged }: { id: number; onClose: () => void; onChanged?: () => void }
+  { id, onClose, onChanged, onDeleted }:
+  { id: number; onClose: () => void; onChanged?: () => void
+    /** Closes this standard's TAB. onClose only returns to the list. */
+    onDeleted?: () => void }
 ) {
   const [data, setData] = useState<any>(null)
   const [loading, setLoading] = useState(true)
@@ -53,6 +60,8 @@ export default function GoldStandardDetail(
   const [compare, setCompare] = useState<{ likePartId: number; partNumber: string } | null>(null)
   /** What this user may change here, as the API reports it. */
   const [can, setCan] = useState({ manageStandards: false, manageParts: false })
+  const [savingStatus, setSavingStatus] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -72,6 +81,44 @@ export default function GoldStandardDetail(
   }, [id])
 
   useEffect(() => { load() }, [load])
+
+  /**
+   * Status drives nothing yet — no query filters on it. It is a label the
+   * team keeps honest by hand: draft while a standard is being built, active
+   * once it is the one to measure against, retired when it no longer is.
+   */
+  const setStatus = async (status: string) => {
+    setSavingStatus(true); setError('')
+    try {
+      const res = await fetch(getApiUrl(`/api/products/gold-standard/${id}`), {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+      await load(); onChanged?.()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setSavingStatus(false) }
+  }
+
+  const remove = async () => {
+    setError('')
+    try {
+      const res = await fetch(getApiUrl(`/api/products/gold-standard/${id}`), { method: 'DELETE' })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+      setConfirmDelete(false)
+      // The tab has to go, not just lose focus — leaving it open would point
+      // at a row that no longer exists.
+      onDeleted ? onDeleted() : onClose()
+      onChanged?.()
+    } catch (e) {
+      setConfirmDelete(false)
+      setError(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   const recapture = async () => {
     setRecapturing(true); setError('')
@@ -177,10 +224,25 @@ export default function GoldStandardDetail(
           </p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <span className={`px-2 py-1 rounded text-xs font-medium ${
-            s.status === 'active' ? 'bg-green-100 text-green-700'
-              : s.status === 'retired' ? 'bg-slate-100 text-slate-500'
-              : 'bg-amber-100 text-amber-700'}`}>{s.status}</span>
+          {/* Status is a dropdown for whoever may change it and a badge for
+              everyone else — same three values either way, so the page reads
+              the same whichever you are. */}
+          {can.manageStandards ? (
+            <select value={s.status} onChange={e => setStatus(e.target.value)}
+              disabled={savingStatus}
+              title="Draft while it is being built; Active once it is the standard to measure against; Retired when it no longer is"
+              className={`px-2 py-1 rounded text-xs font-medium border cursor-pointer disabled:opacity-50 ${
+                s.status === 'active' ? 'bg-green-100 text-green-700 border-green-200'
+                  : s.status === 'retired' ? 'bg-slate-100 text-slate-500 border-slate-200'
+                  : 'bg-amber-100 text-amber-700 border-amber-200'}`}>
+              {STATUSES.map(v => <option key={v} value={v}>{v}</option>)}
+            </select>
+          ) : (
+            <span className={`px-2 py-1 rounded text-xs font-medium ${
+              s.status === 'active' ? 'bg-green-100 text-green-700'
+                : s.status === 'retired' ? 'bg-slate-100 text-slate-500'
+                : 'bg-amber-100 text-amber-700'}`}>{s.status}</span>
+          )}
           {/* Re-capture replaces every card under the standard, so it needs
               the same role as creating one. */}
           {can.manageStandards && (
@@ -190,8 +252,21 @@ export default function GoldStandardDetail(
               {recapturing ? 'Capturing…' : 'Re-capture'}
             </button>
           )}
+          {can.manageStandards && (
+            <button onClick={() => setConfirmDelete(true)} title="Delete this gold standard"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 rounded-lg text-slate-600 hover:bg-red-50 hover:text-red-700 hover:border-red-300">
+              <Trash2 size={14} /> Delete
+            </button>
+          )}
         </div>
       </div>
+
+      {confirmDelete && (
+        <DeleteDialog standard={s} cardCount={cards.length}
+          likePartCount={(data.likeParts || []).length}
+          onClose={() => setConfirmDelete(false)}
+          onConfirm={remove} />
+      )}
 
       {/* A standard with no cards is the shape a failed capture leaves behind.
           Saying so beats four empty tabs. */}
@@ -261,6 +336,66 @@ export default function GoldStandardDetail(
       )}
       </>
       )}
+    </div>
+  )
+}
+
+/**
+ * Delete confirmation.
+ *
+ * Typing the part number rather than clicking OK, because the delete cascades
+ * through all nine tables: every captured card, its BOM, route, instructions
+ * and parameters, every attached like part with its comparison history, and
+ * the standard's own history. There is no undo and no soft delete — what the
+ * dialog lists is what goes.
+ */
+function DeleteDialog(
+  { standard, cardCount, likePartCount, onClose, onConfirm }:
+  { standard: any; cardCount: number; likePartCount: number
+    onClose: () => void; onConfirm: () => void }
+) {
+  const target = String(standard.apcPartNumber || standard.customerPartNumber || '')
+  const [typed, setTyped] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ok = typed.trim().toUpperCase() === target.trim().toUpperCase()
+
+  return (
+    <div className="fixed inset-0 z-40 bg-black/30 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200">
+          <h3 className="font-semibold text-slate-800">Delete gold standard</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-800">
+            <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+            <div>
+              This permanently deletes <span className="font-mono font-semibold">{target}</span> and
+              everything under it: {cardCount} captured card{cardCount === 1 ? '' : 's'} with their
+              BOM, route and parameters, {likePartCount} like part
+              {likePartCount === 1 ? '' : 's'} with their comparison history, and the
+              standard&apos;s own history. It cannot be undone.
+            </div>
+          </div>
+          <label className="block">
+            <span className="text-xs font-medium text-slate-500 uppercase tracking-wider block mb-1">
+              Type <span className="font-mono text-slate-700">{target}</span> to confirm
+            </span>
+            <input value={typed} onChange={e => setTyped(e.target.value)} autoFocus
+              onKeyDown={e => { if (e.key === 'Enter' && ok && !busy) { setBusy(true); onConfirm() } }}
+              className="w-full px-3 py-2 text-sm font-mono border border-slate-300 rounded-lg focus:ring-2 focus:ring-red-400 focus:border-red-400" />
+          </label>
+        </div>
+        <div className="flex items-center justify-end gap-2 px-5 py-3 border-t border-slate-200">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg">
+            Cancel
+          </button>
+          <button onClick={() => { setBusy(true); onConfirm() }} disabled={!ok || busy}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed">
+            <Trash2 size={14} /> {busy ? 'Deleting…' : 'Delete permanently'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
