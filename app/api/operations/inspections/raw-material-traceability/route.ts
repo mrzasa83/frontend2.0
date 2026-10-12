@@ -136,7 +136,15 @@ export async function GET(request: NextRequest) {
         const fromCert = certs.find(c => c.poNumber)
         if (fromCert) {
           m.poNumber = fromCert.poNumber
-          m.poNumberSource = 'cert-archive'
+          // Says HOW the lot was matched, not just that the archive answered.
+          // Paradigm punctuates these lots (F160426-01B) and the supplier's
+          // cert file does not (F16042601B), so most of these are matched with
+          // punctuation removed — worth showing, because it is an inference
+          // rather than a literal match.
+          m.poNumberSource = fromCert.matchedOn === 'lot-normalized'
+            ? 'cert-archive-normalized' : 'cert-archive'
+          m.lotMatchAmbiguous = !!fromCert.ambiguous
+          m.certLotSpelling = fromCert.lot
         }
       } else if (m.poNumber) {
         m.poNumberSource = 'paradigm'

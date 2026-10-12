@@ -10,6 +10,7 @@ import {
 import Link from 'next/link'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts'
 import { getApiUrl } from '@/lib/api'
+import { productTypeForWorkOrder, PRODUCT_TYPE_OPTIONS, type ProductType } from '@/lib/inspections/productType'
 import { canWriteScope } from '@/lib/config/access'
 import InspectionDetail from '@/components/inspections/InspectionDetail'
 
@@ -65,7 +66,11 @@ export default function FirstArticlePage() {
   const [lookupWorkOrders, setLookupWorkOrders] = useState<any[]>([])
   const [selectedWO, setSelectedWO] = useState<any>(null)
   const [createForm, setCreateForm] = useState({
-    owner: '', startDate: new Date().toISOString().split('T')[0], dueDate: '', netInspectNumber: '', dependencyId: '', notes: ''
+    owner: '', startDate: new Date().toISOString().split('T')[0], dueDate: '', netInspectNumber: '', dependencyId: '', notes: '',
+    // Empty means "whatever the part number says". Only a deliberate change
+    // by the user fills it, which is what lets the hint distinguish a read
+    // from an override.
+    productType: '' as ProductType | '',
   })
   const [createError, setCreateError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -74,13 +79,14 @@ export default function FirstArticlePage() {
   const username = (session?.user as any)?.username || session?.user?.name || ''
   const canCreate = canWriteScope(roles, 'operations/inspections')
 
-  // Determine PCB vs ASM from part number prefix (7 = PCB, 1 = ASM)
-  const productTypeFromPart = (part: string): string => {
-    const p = (part || '').trim()
-    if (p.startsWith('7')) return 'PCB'
-    if (p.startsWith('1')) return 'ASM'
-    return 'PCB'
-  }
+
+  /**
+   * What the part number says, and what the form will actually send. Derived
+   * once so the dropdown, the hint under it and the ASM dependency block
+   * cannot disagree with each other.
+   */
+  const productRead = productTypeForWorkOrder(selectedWO?.pcbNumber, selectedWO?.customerPart)
+  const effectiveProductType: ProductType = createForm.productType || productRead.type
 
   const fetchData = async () => {
     setLoading(true); setError('')
@@ -170,7 +176,7 @@ export default function FirstArticlePage() {
 
   const openCreate = () => {
     setLookupPart(''); setLookupWorkOrders([]); setSelectedWO(null)
-    setCreateForm({ owner: username, startDate: new Date().toISOString().split('T')[0], dueDate: '', netInspectNumber: '', dependencyId: '', notes: '' })
+    setCreateForm({ owner: username, startDate: new Date().toISOString().split('T')[0], dueDate: '', netInspectNumber: '', dependencyId: '', notes: '', productType: '' as ProductType | '' })
     setCreateError(''); setShowCreate(true)
   }
 
@@ -203,7 +209,8 @@ export default function FirstArticlePage() {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inspectionType: 'First Article',
-          productType: productTypeFromPart(selectedWO.pcbNumber || selectedWO.customerPart),
+          productType: createForm.productType
+            || productTypeForWorkOrder(selectedWO.pcbNumber, selectedWO.customerPart).type,
           partNumber: selectedWO.customerPart,
           pcbNumber: selectedWO.pcbNumber || null,
           workOrder: selectedWO.workOrder,
@@ -337,7 +344,7 @@ export default function FirstArticlePage() {
             <tr className="border-b border-slate-200">
               {[
                 { h: 'Inspection #', k: 'inspection_number' }, { h: 'Prod', k: '' }, { h: 'Customer', k: 'customer' },
-                { h: 'Customer Part', k: '' }, { h: 'PCB Number', k: '' }, { h: 'Net Inspect', k: '' },
+                { h: 'Customer Part', k: '' }, { h: 'Inv Part Number', k: '' }, { h: 'Net Inspect', k: '' },
                 { h: 'Work Order', k: '' }, { h: 'Owner', k: '' }, { h: 'Phase', k: '' }, { h: 'Site', k: '' },
                 { h: 'Dependency', k: '' }, { h: 'Start', k: 'start_date' }, { h: 'Due', k: 'due_date' },
               ].map(({ h, k }) => (
@@ -432,7 +439,7 @@ export default function FirstArticlePage() {
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600 w-8"></th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Work Order</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Customer Part</th>
-                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">PCB Number</th>
+                          <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Inv Part Number</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Site</th>
                           <th className="px-3 py-2 text-left text-xs font-medium text-slate-600">Status</th>
                         </tr>
@@ -448,8 +455,8 @@ export default function FirstArticlePage() {
                             <td className="px-3 py-2 font-mono text-slate-800">{wo.workOrder}</td>
                             <td className="px-3 py-2 font-mono text-slate-600">{wo.customerPart}</td>
                             <td className="px-3 py-2 font-mono text-slate-600">{wo.pcbNumber || '—'}
-                              <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${productTypeFromPart(wo.pcbNumber || wo.customerPart) === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>
-                                {productTypeFromPart(wo.pcbNumber || wo.customerPart)}
+                              <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${productTypeForWorkOrder(wo.pcbNumber, wo.customerPart).type === 'ASM' ? 'bg-purple-100 text-purple-700' : 'bg-cyan-100 text-cyan-700'}`}>
+                                {productTypeForWorkOrder(wo.pcbNumber, wo.customerPart).type}
                               </span>
                             </td>
                             <td className="px-3 py-2 text-slate-600 text-xs">{wo.site || '—'}</td>
@@ -467,7 +474,20 @@ export default function FirstArticlePage() {
                 <div className="grid grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Product Type</label>
-                    <p className="px-3 py-2 bg-slate-50 rounded-lg text-sm">{productTypeFromPart(selectedWO.pcbNumber || selectedWO.customerPart)} <span className="text-xs text-slate-400">(auto)</span></p>
+                    {/* Pre-set from the inventory part number's prefix, and
+                        overridable — the prefix is a convention, so the person
+                        creating the inspection gets the last word. */}
+                    <select value={effectiveProductType} onChange={e => setCreateForm(p => ({ ...p, productType: e.target.value as ProductType }))}
+                      className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                      {PRODUCT_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {createForm.productType
+                        ? 'set by you'
+                        : productRead.inferred
+                          ? `from ${selectedWO.pcbNumber || selectedWO.customerPart}`
+                          : 'no prefix to read — defaulted'}
+                    </p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Site</label>
@@ -494,7 +514,7 @@ export default function FirstArticlePage() {
                       className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
                   </div>
                   {/* Dependency for ASM */}
-                  {productTypeFromPart(selectedWO.pcbNumber || selectedWO.customerPart) === 'ASM' && (
+                  {effectiveProductType === 'ASM' && (
                     <div className="col-span-2">
                       <label className="block text-sm font-medium text-slate-700 mb-1">Dependency (PCB Inspection)</label>
                       <select value={createForm.dependencyId} onChange={e => setCreateForm(p => ({ ...p, dependencyId: e.target.value }))}
