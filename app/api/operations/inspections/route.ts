@@ -82,30 +82,97 @@ export async function POST(request: NextRequest) {
       reportDestinationOther, sourceFlag, owner, phase, site, dependencyId, notes
     } = body
 
-    // Generate inspection number: {TYPE-PREFIX}-{YYYY}-{seq}
+    /**
+     * Inspection number: {PREFIX}-{YYYY}-{seq}
+     *
+     * The sequence is the highest number ALREADY ISSUED under this prefix and
+     * year, read out of inspection_number itself, plus one.
+     *
+     * It used to be COUNT(*) + 1 over rows of this inspection_type created
+     * this year, which breaks three ways:
+     *
+     *   Deleting.    Fourteen FAIs exist, one is deleted, the count says 13
+     *                and the next create tries FAI-2026-0013 — which is still
+     *                on a live row. It then fails on every attempt forever,
+     *                because the count never moves.
+     *   Concurrency. Two people creating at the same moment both read the
+     *                same count and compute the same number.
+     *   Prefix mix.  The prefix is FAI for every type that is not X-Section
+     *                or AOI, but the count was per inspection_type — so two
+     *                such types would each count separately and collide on a
+     *                shared FAI prefix.
+     *
+     * Reading the max of what was issued fixes all three: it is keyed on the
+     * number actually in use rather than on how many rows happen to exist, and
+     * a deleted number stays retired instead of being handed out again. Gaps
+     * in the series are correct — an inspection number appears in history and
+     * on paperwork, so reissuing one would make two different inspections
+     * indistinguishable after the fact.
+     */
     const prefix = inspectionType === 'X-Section' ? 'XS' : inspectionType === 'AOI' ? 'AOI' : 'FAI'
     const year = new Date().getFullYear()
-    const countRows = await queryPrimary(
-      'SELECT COUNT(*) AS c FROM inspections WHERE inspection_type = ? AND YEAR(created_at) = ?',
-      [inspectionType || 'First Article', year]
-    )
-    const seq = (Number(countRows?.[0]?.c) || 0) + 1
-    const inspectionNumber = `${prefix}-${year}-${String(seq).padStart(4, '0')}`
+    const stem = `${prefix}-${year}-`
 
-    const result: any = await queryPrimary(`
-      INSERT INTO inspections
-        (inspection_number, inspection_type, product_type, part_number, pcb_number, work_order,
-         start_date, due_date, net_inspect_number, report_type, report_destination,
-         report_destination_other, source_flag, owner, phase, site, dependency_id, notes, created_by)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-    `, [
+    const nextNumber = async (): Promise<string> => {
+      const rows = await queryPrimary<any[]>(
+        `SELECT MAX(CAST(SUBSTRING(inspection_number, ?) AS UNSIGNED)) AS maxSeq
+           FROM inspections
+          WHERE inspection_number LIKE ?`,
+        [stem.length + 1, `${stem}%`]
+      )
+      const seq = (Number(rows?.[0]?.maxSeq) || 0) + 1
+      return `${stem}${String(seq).padStart(4, '0')}`
+    }
+
+    const values = (inspectionNumber: string) => [
       inspectionNumber, inspectionType || 'First Article', productType || 'PCB',
       partNumber || null, pcbNumber || null, workOrder || null, startDate || null,
       dueDate || null, netInspectNumber || null, reportType || null, reportDestination || null,
       reportDestinationOther || null, sourceFlag ? 1 : 0,
       owner || username, validPhase(phase) ? phase : 'Setup', site || null,
       dependencyId || null, notes || null, username
-    ])
+    ]
+
+    const INSERT_SQL = `
+      INSERT INTO inspections
+        (inspection_number, inspection_type, product_type, part_number, pcb_number, work_order,
+         start_date, due_date, net_inspect_number, report_type, report_destination,
+         report_destination_other, source_flag, owner, phase, site, dependency_id, notes, created_by)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+    `
+
+    /**
+     * Read-then-insert is not atomic, so two simultaneous creates can still
+     * pick the same number. The unique key is what actually prevents a
+     * duplicate; this turns losing that race into a retry rather than into an
+     * error the user sees. Each attempt re-reads the max, so the loser of a
+     * race takes the next number up.
+     */
+    let inspectionNumber = ''
+    let result: any = null
+    let lastDup: any = null
+    for (let attempt = 0; attempt < 5; attempt++) {
+      inspectionNumber = await nextNumber()
+      try {
+        result = await queryPrimary(INSERT_SQL, values(inspectionNumber))
+        lastDup = null
+        break
+      } catch (e: any) {
+        const dup = e?.code === 'ER_DUP_ENTRY'
+          && /uq_inspection_number/i.test(String(e?.sqlMessage || e?.message || ''))
+        if (!dup) throw e
+        lastDup = e
+      }
+    }
+
+    if (lastDup) {
+      console.error('Inspection number kept colliding:', lastDup?.sqlMessage || lastDup)
+      return NextResponse.json({
+        error: 'Could not allocate an inspection number',
+        details: `${inspectionNumber} is already in use and five attempts did not find a free number. `
+          + 'Please try again; if it repeats, the inspection_number series needs looking at.',
+      }, { status: 409 })
+    }
 
     const newId = result?.insertId
     if (newId) {
