@@ -103,10 +103,21 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
   // submission, so the safer reading is the one that opens.
   const [exactWorkOrder, setExactWorkOrder] = useState(true)
 
-  const load = useCallback(async () => {
+  /**
+   * A timed-out report, kept so the user can choose to wait longer.
+   *
+   * Not retried automatically: the long run is the expensive one, and a
+   * report that is slow because it is deep will be slow every time. Asking
+   * means the person decides whether this particular work order is worth a
+   * minute of waiting.
+   */
+  const [timedOut, setTimedOut] = useState<{ timeoutMs: number; maxTimeoutMs: number } | null>(null)
+
+  const load = useCallback(async (timeoutMs?: number) => {
     if (!workOrder) return
     setLoading(true)
     setError('')
+    setTimedOut(null)
     try {
       const p = new URLSearchParams({
         workOrder,
@@ -114,9 +125,15 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
         concise: concise ? '1' : '0',
         exactWorkOrder: exactWorkOrder ? '1' : '0',
       })
+      if (timeoutMs) p.set('timeoutMs', String(timeoutMs))
       const res = await fetch(getApiUrl(`/api/operations/inspections/raw-material-traceability?${p}`))
       const d = await res.json()
-      if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+      if (!res.ok) {
+        if (d.timedOut && d.canRetryLonger) {
+          setTimedOut({ timeoutMs: d.timeoutMs, maxTimeoutMs: d.maxTimeoutMs })
+        }
+        throw new Error(d.details || d.error || `HTTP ${res.status}`)
+      }
       setMaterials(d.materials || [])
       setSplits(d.splits || [])
       setDeepestLevel(d.deepestLevel || 0)
@@ -348,7 +365,7 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
               placeholder="Part, lot, PO, supplier…"
               className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg w-56 focus:outline-none focus:ring-1 focus:ring-blue-400" />
           </div>
-          <button onClick={load} disabled={loading}
+          <button onClick={() => load()} disabled={loading}
             className="p-2 text-slate-500 hover:text-slate-700 hover:bg-slate-100 rounded-lg disabled:opacity-50"
             title="Refresh">
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
@@ -451,9 +468,30 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
       )}
 
       {error && (
-        <div className="flex items-start gap-2 mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+        /* A timeout is amber and offers a way forward; a real failure stays
+           red. They are different events and should not look alike. */
+        <div className={`flex items-start gap-2 mb-4 p-3 rounded-lg text-sm border ${
+          timedOut ? 'bg-amber-50 border-amber-200 text-amber-800'
+                   : 'bg-red-50 border-red-200 text-red-700'}`}>
           <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-          <div className="min-w-0 break-words">{error}</div>
+          <div className="min-w-0 break-words">
+            {error}
+            {timedOut && (
+              <div className="mt-2 flex items-center gap-3 flex-wrap">
+                <button onClick={() => load(timedOut.maxTimeoutMs)} disabled={loading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:opacity-50">
+                  <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+                  {loading
+                    ? `Running — up to ${Math.round(timedOut.maxTimeoutMs / 1000)}s…`
+                    : `Retry, allow up to ${Math.round(timedOut.maxTimeoutMs / 1000)}s`}
+                </button>
+                <span className="text-xs text-amber-700">
+                  Or narrow it: turn off <em>Include sub levels</em>, or leave
+                  {' '}<em>This work order only</em> on.
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

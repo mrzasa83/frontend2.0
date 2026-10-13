@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { queryMSSQL } from '@/lib/db/mssql'
+import { queryMSSQL, clampMSSQLTimeout, MSSQL_DEFAULT_TIMEOUT_MS, MSSQL_MAX_TIMEOUT_MS } from '@/lib/db/mssql'
 import {
   buildTraceabilityQuery, buildEmptyResultProbes, normalizeWorkOrder,
 } from '@/lib/inspections/rawMaterialTraceability'
 import { findCertsForLots, normalizePoNumber } from '@/lib/inspections/certLookup'
 
 const READ_CONN = '1'
+
+export const dynamic = 'force-dynamic'
+/**
+ * Above the 60s query ceiling, with room for the certificate lookups that
+ * follow it. Without this, the platform could cut the request off before the
+ * query the user explicitly asked to wait for had a chance to finish.
+ */
+export const maxDuration = 90
 
 /**
  * Raw Material Traceability — what was actually issued to a work order.
@@ -48,9 +56,20 @@ export async function GET(request: NextRequest) {
     exactWorkOrder: flag('exactWorkOrder', false),
   }
 
+  /**
+   * How long this report may take.
+   *
+   * Deep assemblies genuinely run long — the same report takes well past 15s
+   * to print from Paradigm itself — so a timeout here means slow, not stuck.
+   * The default stays short so an ordinary report fails fast; the caller asks
+   * for more only after seeing one time out, which keeps a pathological query
+   * from tying up a connection by default.
+   */
+  const timeoutMs = clampMSSQLTimeout(searchParams.get('timeoutMs'))
+
   try {
     const { sql, params } = buildTraceabilityQuery(opts)
-    const rows = await queryMSSQL<any[]>(READ_CONN, sql, params)
+    const rows = await queryMSSQL<any[]>(READ_CONN, sql, params, timeoutMs)
 
     const str = (v: any) => (v == null ? '' : String(v).trim())
     const num = (v: any) => (v == null ? null : Number(v))
@@ -196,7 +215,7 @@ export async function GET(request: NextRequest) {
     if (!materials.length) {
       const probes = buildEmptyResultProbes(workOrder)
       const run = async (q: { sql: string; params: Record<string, unknown> }) => {
-        try { return await queryMSSQL<any[]>(READ_CONN, q.sql, q.params) }
+        try { return await queryMSSQL<any[]>(READ_CONN, q.sql, q.params, timeoutMs) }
         catch { return null }
       }
       const [ledger, header, coverage] = await Promise.all([
@@ -251,6 +270,35 @@ export async function GET(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error fetching raw material traceability:', error)
+
+    /**
+     * A timeout is reported as a timeout, with the limit that was in force and
+     * whether a longer one is available. "Failed to fetch" on its own gives
+     * the user nothing to act on, when the useful answer is "this report is
+     * slow — ask for more time".
+     */
+    const code = (error as any)?.code
+    const timedOut = code === 'ETIMEOUT' || code === 'ETIMEOUT_REQUEST'
+      || /timeout/i.test(String((error as any)?.message || ''))
+
+    if (timedOut) {
+      const canRetryLonger = timeoutMs < MSSQL_MAX_TIMEOUT_MS
+      return NextResponse.json({
+        error: 'Paradigm did not finish this report in time',
+        timedOut: true,
+        timeoutMs,
+        maxTimeoutMs: MSSQL_MAX_TIMEOUT_MS,
+        canRetryLonger,
+        details: canRetryLonger
+          ? `The query ran past ${Math.round(timeoutMs / 1000)}s. This work order's `
+            + `traceability is slow in Paradigm itself; retrying with up to `
+            + `${Math.round(MSSQL_MAX_TIMEOUT_MS / 1000)}s usually completes it.`
+          : `The query ran past ${Math.round(timeoutMs / 1000)}s, which is the maximum. `
+            + `Narrowing the report — "this work order only", or without sub levels — `
+            + `will cut the work Paradigm has to do.`,
+      }, { status: 504 })
+    }
+
     return NextResponse.json({
       error: 'Failed to fetch raw material traceability',
       details: error instanceof Error ? error.message : String(error),
