@@ -141,8 +141,10 @@ export async function GET(request: NextRequest) {
           // cert file does not (F16042601B), so most of these are matched with
           // punctuation removed — worth showing, because it is an inference
           // rather than a literal match.
-          m.poNumberSource = fromCert.matchedOn === 'lot-normalized'
-            ? 'cert-archive-normalized' : 'cert-archive'
+          m.poNumberSource =
+            fromCert.matchedOn === 'lot-base' ? 'cert-archive-base'
+              : fromCert.matchedOn === 'lot-normalized' ? 'cert-archive-normalized'
+                : 'cert-archive'
           m.lotMatchAmbiguous = !!fromCert.ambiguous
           m.certLotSpelling = fromCert.lot
         }

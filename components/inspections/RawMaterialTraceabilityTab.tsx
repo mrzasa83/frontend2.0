@@ -46,7 +46,7 @@ type Material = {
     materialType: string; fileName: string; filePath: string
     fileMtime: string | null; partMatches: boolean
   }[]
-  poNumberSource?: 'paradigm' | 'cert-archive' | 'cert-archive-normalized'
+  poNumberSource?: 'paradigm' | 'cert-archive' | 'cert-archive-normalized' | 'cert-archive-base'
   /** The archive's own spelling of the lot, when it differs from Paradigm's. */
   certLotSpelling?: string
   /** More than one lot spelling matched — the cert needs eyeballing. */
@@ -585,7 +585,13 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                   <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
                     {m.poNumber
                       ? <span title={
-                          m.poNumberSource === 'cert-archive-normalized'
+                          m.poNumberSource === 'cert-archive-base'
+                            ? `From the certificate archive, matched on lot ${m.certLotSpelling || ''} — `
+                              + 'Paradigm appends a temper code to the lot and the cert is filed without it'
+                              + (m.lotMatchAmbiguous
+                                ? '. More than one lot matched; check the cert before relying on it.'
+                                : '')
+                            : m.poNumberSource === 'cert-archive-normalized'
                             ? `From the certificate archive, matched on lot ${m.certLotSpelling || ''} — `
                               + 'Paradigm punctuates the lot and the cert file does not'
                               + (m.lotMatchAmbiguous
@@ -596,7 +602,8 @@ export default function RawMaterialTraceabilityTab({ workOrder }: { workOrder?: 
                               : 'From Paradigm'}>
                           {m.poNumber}
                           {(m.poNumberSource === 'cert-archive'
-                            || m.poNumberSource === 'cert-archive-normalized') &&
+                            || m.poNumberSource === 'cert-archive-normalized'
+                            || m.poNumberSource === 'cert-archive-base') &&
                             <span className={m.lotMatchAmbiguous ? 'ml-1 text-amber-600' : 'ml-1 text-blue-500'}
                               aria-hidden>{m.lotMatchAmbiguous ? '!' : '*'}</span>}
                         </span>

@@ -46,7 +46,7 @@ export type CertMatch = {
    * Paradigm's F160426-01B against the archive's F16042601B — and the match
    * was made with punctuation removed.
    */
-  matchedOn: 'lot' | 'lot-normalized'
+  matchedOn: 'lot' | 'lot-normalized' | 'lot-base'
   /**
    * Set on a normalized match where the archive held MORE THAN ONE distinct
    * spelling under the same normalized key. A plain punctuation difference
@@ -97,6 +97,55 @@ const SQL_NORM_LOT = (col: string) =>
 const MIN_NORM_LOT = 6
 
 /**
+ * Material temper codes Paradigm appends to a purchased lot.
+ *
+ * An ALLOWLIST, not a pattern, and the survey of real lot suffixes is why.
+ * A first version stripped any trailing run of letters, which the data says
+ * is badly wrong:
+ *
+ *   C006720-A .. -F   six SUB-LOT SEQUENCE letters under one base. Stripping
+ *                     collapses six distinct lots into one. The same shape
+ *                     repeats on C006117, C038416, C007417, 622762.
+ *   S0-…-01-100-RTS   a process marker on a WORK ORDER lot, where the base
+ *                     (S0-038949-01-100) is itself a real and different lot.
+ *   -RW -DRL -RE -MX  the same: status markers on manufactured lots, which
+ *   -IN -FSA -OTL     have no purchased-material certificate to find anyway.
+ *
+ * Only a designation of the MATERIAL belongs here, because only that leaves
+ * the lot's identity intact. Extend the set if another temper turns up; do
+ * not replace it with a pattern.
+ */
+const TEMPER_SUFFIXES = new Set(['HH', 'QH', 'FH', 'SH', 'EH', 'OH'])
+
+/**
+ * A lot with its temper code removed: 283346300-HH -> 283346300.
+ *
+ * Paradigm appends the temper to the lot on some purchased rows — HH for half
+ * hard, on a part described "CU C110 HALF HRD" — while the supplier files the
+ * certificate under the bare number. That is not a punctuation difference, so
+ * normalizeLot cannot reach it: 283346300HH and 283346300 are different
+ * strings.
+ *
+ * Stripping it is NOT sufficient on its own. 283346300 carries both -HH (5
+ * lots) and -QH (2 lots) in Paradigm while the archive holds exactly one
+ * certificate for 283346300, so the base alone would hand the same cert to
+ * two different materials. The caller must also require the certificate's
+ * part to match the issued part — the temper is carried in the part number
+ * (CUETP0000**HH**01002419), which is what tells the two apart.
+ *
+ * Returns '' when there is no temper suffix, or when what remains is too
+ * short to identify anything.
+ */
+export function lotBase(lot: string): string {
+  const raw = String(lot ?? '').trim()
+  const m = raw.match(/^(.+?)[-_ ]([A-Za-z]{2,3})$/)
+  if (!m) return ''
+  if (!TEMPER_SUFFIXES.has(m[2].toUpperCase())) return ''
+  const base = normalizeLot(m[1])
+  return base.length >= MIN_NORM_LOT ? base : ''
+}
+
+/**
  * Folds the PUR0 / PURO prefix difference so a Paradigm-printed PO and an
  * archived one compare equal. Only the prefix is touched — digits inside the
  * number are left alone, since 0 and O are not interchangeable there.
@@ -134,7 +183,7 @@ export async function findCertsForLots(
   const collect = (
     rows: any[],
     lotFor: (r: any) => string,
-    matchedOn: 'lot' | 'lot-normalized' = 'lot',
+    matchedOn: 'lot' | 'lot-normalized' | 'lot-base' = 'lot',
   ) => {
     for (const r of rows) {
       const stored = String(r.lot || '').trim()
@@ -226,15 +275,69 @@ export async function findCertsForLots(
     }
   }
 
+  /**
+   * Pass 3: lots that STILL found nothing, with a trailing temper code
+   * removed — 283346300-HH against the archive's 283346300.
+   *
+   * Last on purpose. It is the loosest of the three, because it discards
+   * characters rather than just ignoring punctuation, so it only ever sees
+   * lots that both earlier passes failed on. Matches are marked 'lot-base'
+   * and shown as inferred, since the cert is filed under a shorter number
+   * than the one Paradigm issued.
+   */
+  const stillMissing = unique.filter(l => !byLot[l]?.length)
+  if (stillMissing.length) {
+    const wantedBase = new Map<string, string>()   // base -> the lot we asked about
+    for (const l of stillMissing) {
+      const b = lotBase(l)
+      if (b) wantedBase.set(b, l)
+    }
+    const keys = Array.from(wantedBase.keys())
+
+    for (let i = 0; i < keys.length; i += CHUNK) {
+      const chunk = keys.slice(i, i + CHUNK)
+      const placeholders = chunk.map(() => '?').join(',')
+      try {
+        const rows = await queryPrimary<any[]>(
+          `SELECT ${SELECT_COLS}
+           FROM material_cert_pos
+           WHERE ${SQL_NORM_LOT('lot')} IN (${placeholders})
+           ORDER BY file_mtime DESC, id DESC`,
+          chunk
+        )
+        /**
+         * The part must agree, and this is the guard that makes a base match
+         * safe rather than merely plausible.
+         *
+         * 283346300 exists in Paradigm as both -HH and -QH, against a single
+         * archived certificate. The lot alone cannot tell them apart; the
+         * part can, because the temper is written into it —
+         * CUETP0000HH01002419. A cert whose part does not correspond to the
+         * part that was issued is the wrong cert, so it is dropped rather
+         * than shown with a caveat.
+         */
+        const before = new Set(Object.keys(byLot))
+        collect(rows, r => wantedBase.get(normalizeLot(String(r.lot || ''))) || '', 'lot-base')
+        for (const lot of Object.keys(byLot)) {
+          if (before.has(lot)) continue
+          byLot[lot] = byLot[lot].filter(c => c.matchedOn !== 'lot-base' || c.partMatches)
+          if (!byLot[lot].length) delete byLot[lot]
+        }
+      } catch {
+        break
+      }
+    }
+  }
+
   for (const lot of Object.keys(byLot)) {
     /**
-     * A normalized match that pulled in two DIFFERENT stored spellings has
+     * A loose match that pulled in two DIFFERENT stored spellings has
      * folded two lots together. Punctuation alone cannot do that — Paradigm's
      * F160426-01B and the archive's F16042601B are one spelling each — so
      * more than one means the key was not distinctive enough and every cert
      * under it is marked for a human to check.
      */
-    const loose = byLot[lot].filter(c => c.matchedOn === 'lot-normalized')
+    const loose = byLot[lot].filter(c => c.matchedOn !== 'lot')
     if (loose.length) {
       const spellings = new Set(loose.map(c => c.lot.toUpperCase()))
       if (spellings.size > 1) for (const c of loose) c.ambiguous = true
@@ -245,7 +348,10 @@ export async function findCertsForLots(
     // rather than whichever was indexed last.
     byLot[lot].sort((a, b) => {
       if (a.ambiguous !== b.ambiguous) return a.ambiguous ? 1 : -1
-      if (a.matchedOn !== b.matchedOn) return a.matchedOn === 'lot' ? -1 : 1
+      if (a.matchedOn !== b.matchedOn) {
+        const rank = { lot: 0, 'lot-normalized': 1, 'lot-base': 2 } as const
+        return rank[a.matchedOn] - rank[b.matchedOn]
+      }
       return a.partMatches === b.partMatches ? 0 : a.partMatches ? -1 : 1
     })
   }
