@@ -46,7 +46,17 @@ const fmtDate = (v: any) => {
 /** Key matching inspection_cert_selections' unique constraint. */
 const keyOf = (part: string, po: string, lot: string) => `${part}|${po}|${lot}`
 
-export default function CertInventoryTab({ inspectionId }: { inspectionId: number | string }) {
+/**
+ * The certificate archive.
+ *
+ * inspectionId is OPTIONAL. With one, a cert can be ticked and attached to
+ * that inspection. Without — the standalone Material Traceability app, where
+ * there is no inspection to attach to — the same table is browsable,
+ * searchable and downloadable, and the attach column is simply absent. A
+ * checkbox that silently did nothing would be worse than no checkbox.
+ */
+export default function CertInventoryTab({ inspectionId }: { inspectionId?: number | string }) {
+  const canAttach = inspectionId !== undefined && inspectionId !== null && inspectionId !== ''
   const [rows, setRows] = useState<CertRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -71,13 +81,14 @@ export default function CertInventoryTab({ inspectionId }: { inspectionId: numbe
   }, [filters])
 
   const loadSelections = useCallback(async () => {
+    if (!canAttach) return
     try {
       const res = await fetch(getApiUrl(`/api/operations/inspections/material-certs/selection?inspectionId=${inspectionId}`))
       if (!res.ok) return
       const r = await res.json()
       setSelected(r.selections || {})
     } catch { /* selections are additive; a failure here isn't fatal */ }
-  }, [inspectionId])
+  }, [inspectionId, canAttach])
 
   const load = useCallback(async () => {
     setLoading(true); setError('')
@@ -105,6 +116,7 @@ export default function CertInventoryTab({ inspectionId }: { inspectionId: numbe
   }, [])
 
   const toggle = async (r: CertRow, on: boolean) => {
+    if (!canAttach) return
     const k = keyOf(r.apc_part, r.po_number, r.lot)
     setSaving(k)
     try {
@@ -196,7 +208,7 @@ export default function CertInventoryTab({ inspectionId }: { inspectionId: numbe
         <table className="w-full text-sm border-collapse">
           <thead className="sticky top-0 z-10 bg-slate-50">
             <tr>
-              <th className="px-2 py-2 w-10 border-b border-slate-200" />
+              {canAttach && <th className="px-2 py-2 w-10 border-b border-slate-200" />}
               {COLS.map(c => {
                 const active = sort.key === c.key
                 return (
@@ -211,7 +223,7 @@ export default function CertInventoryTab({ inspectionId }: { inspectionId: numbe
               <th className="px-3 py-2 border-b border-slate-200 w-20 text-right text-xs font-medium text-slate-600">View</th>
             </tr>
             <tr>
-              <th className="border-b border-slate-200 bg-white" />
+              {canAttach && <th className="border-b border-slate-200 bg-white" />}
               {COLS.map(c => (
                 <th key={c.key} className="px-1 py-1 border-b border-slate-200 bg-white">
                   {c.filter === 'type' ? (
@@ -228,7 +240,7 @@ export default function CertInventoryTab({ inspectionId }: { inspectionId: numbe
                   ) : null}
                 </th>
               ))}
-              <th className="border-b border-slate-200 bg-white" />
+              {canAttach && <th className="border-b border-slate-200 bg-white" />}
             </tr>
           </thead>
           <tbody>
@@ -245,11 +257,13 @@ export default function CertInventoryTab({ inspectionId }: { inspectionId: numbe
               const isOn = !!selected[k]
               return (
                 <tr key={r.id} className={`border-b border-slate-100 ${isOn ? 'bg-green-50/60' : 'hover:bg-slate-50'}`}>
-                  <td className="px-2 py-1.5 text-center">
-                    <input type="checkbox" checked={isOn} disabled={saving === k}
-                      onChange={e => toggle(r, e.target.checked)}
-                      title="Tie this certificate to this inspection" />
-                  </td>
+                  {canAttach && (
+                    <td className="px-2 py-1.5 text-center">
+                      <input type="checkbox" checked={isOn} disabled={saving === k}
+                        onChange={e => toggle(r, e.target.checked)}
+                        title="Tie this certificate to this inspection" />
+                    </td>
+                  )}
                   <td className="px-3 py-1.5 font-mono text-slate-800">{r.po_number || <span className="text-amber-600 text-xs">no PUR#</span>}</td>
                   <td className="px-3 py-1.5 font-mono text-slate-700">{r.lot || <span className="text-slate-300">—</span>}</td>
                   <td className="px-3 py-1.5 font-mono text-slate-700">

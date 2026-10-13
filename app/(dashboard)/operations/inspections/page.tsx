@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { ClipboardCheck, Microscope, ScanEye, ArrowLeft } from 'lucide-react'
+import { ClipboardCheck, Microscope, ScanEye, Boxes, ArrowLeft } from 'lucide-react'
 
 export default function InspectionsPage() {
   const cards = [
@@ -11,6 +11,13 @@ export default function InspectionsPage() {
       icon: ClipboardCheck,
       href: '/operations/inspections/first-article',
       color: 'blue',
+    },
+    {
+      title: 'Material Traceability',
+      description: 'What was issued to a work order, with the certificate for every lot',
+      icon: Boxes,
+      href: '/operations/inspections/material-traceability',
+      color: 'amber',
     },
     {
       title: 'X-Section Lab',
@@ -34,6 +41,7 @@ export default function InspectionsPage() {
     blue: 'bg-blue-100 text-blue-600',
     purple: 'bg-purple-100 text-purple-600',
     emerald: 'bg-emerald-100 text-emerald-600',
+    amber: 'bg-amber-100 text-amber-600',
   }
 
   return (
