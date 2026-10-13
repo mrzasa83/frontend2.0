@@ -91,9 +91,19 @@ export async function GET() {
         ? row.asDriverParsesIt.toISOString().replace('T', ' ').slice(0, 19)
         : String(row.asDriverParsesIt ?? '')
 
+      /**
+       * The skew is the driver's instant against the TRUE instant, which is
+       * asUtcString — MySQL's own conversion of the row to UTC.
+       *
+       * An earlier version compared it against asStoredString instead. That
+       * is the same wall clock the driver read, so the two always agreed and
+       * the check reported OK on a stack that was four hours out. Comparing
+       * an output with its own input measures nothing.
+       */
       const ms = (s: string) => Date.parse(s.replace(' ', 'T') + 'Z')
-      const skew = Number.isFinite(ms(stored)) && Number.isFinite(ms(parsedUtc))
-        ? Math.round((ms(parsedUtc) - ms(stored)) / 60000)
+      const trueUtc = String(row.asUtcString || '')
+      const skew = Number.isFinite(ms(trueUtc)) && Number.isFinite(ms(parsedUtc))
+        ? Math.round((ms(parsedUtc) - ms(trueUtc)) / 60000)
         : null
 
       roundTrip = {
@@ -106,12 +116,33 @@ export async function GET() {
         skewMinutes: skew,
         verdict: skew === null ? 'could not compare'
           : skew === 0 ? 'OK — MySQL and Node agree'
-            : `OFF BY ${skew / 60} hour(s) — the driver is reading MySQL's wall clock as ${
-              skew > 0 ? 'UTC when it is local' : 'local when it is UTC'}`,
+            : `OFF BY ${skew / 60} hour(s) — this row really happened at ${trueUtc} UTC, `
+              + `and the app serves it as ${parsedUtc} UTC. Set TZ on the app container `
+              + `to the database host's zone.`,
       }
     }
 
     const c = clock?.[0] || {}
+
+    /**
+     * The same question asked without a row: do the two ends agree about what
+     * zone they are in? Independent of roundTrip on purpose — two checks that
+     * can fail separately are worth more than one that can be subtly wrong.
+     */
+    const mysqlOffset = Number(c.sessionOffsetMinutes)
+    const zoneMatch = Number.isFinite(mysqlOffset)
+      ? {
+          nodeOffsetMinutes: node.offsetMinutesFromUTC,
+          mysqlOffsetMinutes: mysqlOffset,
+          agree: node.offsetMinutesFromUTC === mysqlOffset,
+          note: node.offsetMinutesFromUTC === mysqlOffset
+            ? 'Node and MySQL are in the same zone.'
+            : `Node is at ${node.offsetMinutesFromUTC / 60}h and MySQL at ${mysqlOffset / 60}h `
+              + `from UTC. Every timestamp read through the driver is off by `
+              + `${(node.offsetMinutesFromUTC - mysqlOffset) / 60}h.`,
+        }
+      : { note: 'Could not read the MySQL session offset.' }
+
     return NextResponse.json({
       success: true,
       node,
@@ -124,9 +155,10 @@ export async function GET() {
         nowUTC: c.nowUtcStr,
         sessionOffsetMinutes: Number(c.sessionOffsetMinutes),
       },
+      zoneMatch,
       roundTrip,
       // The one line to read first.
-      summary: roundTrip?.verdict || 'no sample row',
+      summary: roundTrip?.verdict || (zoneMatch as any)?.note || 'no sample row',
     })
   } catch (error) {
     return NextResponse.json({

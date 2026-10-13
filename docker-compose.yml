@@ -40,6 +40,14 @@ services:
     env_file: .env.local
 
     environment:
+      # ── Clock ───────────────────────────────────────────────────────
+      # Must match the MySQL host's zone. MySQL runs time_zone = SYSTEM and
+      # hands back wall-clock strings in that zone; mysql2 interprets them
+      # using this process's zone. A mismatch shifts every stored timestamp
+      # by the offset between the two — see /api/admin/time-check, which
+      # reports the skew and names the layer that is wrong.
+      TZ: "America/New_York"
+
       # ── NextAuth ────────────────────────────────────────────────────
       # MUST include the basePath so login/logout redirects work!
       # NEXTAUTH_URL comes from .env.local

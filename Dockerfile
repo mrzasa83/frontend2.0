@@ -91,6 +91,23 @@ EXPOSE 3000
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
+# ── Clock ──────────────────────────────────────────────────────────────
+# The container defaults to UTC; MySQL 5.6 runs with time_zone = SYSTEM,
+# which on the database host is Eastern. mysql2 is given no `timezone`
+# option, so it builds JS Dates from MySQL's wall-clock strings using THIS
+# process's zone — reading 13:59 Eastern as 13:59 UTC and landing every
+# timestamp four hours early. A 1:59pm entry displayed as 9:59am.
+#
+# Matching the database's zone rather than forcing both ends to UTC is the
+# smaller change and the safer one: every TIMESTAMP, DATETIME and DATE
+# already in the database was written in Eastern, so aligning here makes the
+# existing rows correct with no migration. Forcing UTC would fix TIMESTAMP
+# (stored as a UTC epoch) while silently shifting the 15 DATETIME columns,
+# which carry no zone at all.
+#
+# Override at deploy time if the database host ever moves zones.
+ENV TZ=America/New_York
+
 # Repeat the provenance in the runtime stage: NEXT_PUBLIC_* values are inlined
 # into the client bundle at build time, but the server-side /api/system/info
 # route reads them from the environment at request time.

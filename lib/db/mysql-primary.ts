@@ -46,12 +46,49 @@ function isRetryable(err: any): boolean {
   return RETRYABLE.has(code) || (err?.fatal === true && /timeout|reset|lost|pipe/i.test(err?.message || ''))
 }
 
+/**
+ * One-shot check that this process and MySQL agree about the clock.
+ *
+ * mysql2 is given no `timezone` option, so it builds JS Dates from MySQL's
+ * wall-clock strings using THIS process's zone. If the two disagree, every
+ * timestamp the app reads is silently off by the difference — four hours, in
+ * the case this was written for, with nothing in the logs to say so.
+ *
+ * The real fix is the TZ environment variable on the container (see the
+ * Dockerfile). This exists so that a deploy which forgets it says so loudly
+ * instead of quietly serving wrong times. Logged once, never throws, and
+ * never blocks a query: a clock warning is not worth failing a request over.
+ */
+let tzChecked = false
+async function warnOnTimezoneSkew(pool: mysql.Pool): Promise<void> {
+  if (tzChecked) return
+  tzChecked = true
+  try {
+    const [rows]: any = await pool.query(
+      'SELECT TIMESTAMPDIFF(MINUTE, UTC_TIMESTAMP(), NOW()) AS mysqlOffset, @@system_time_zone AS systemTZ')
+    const mysqlOffset = Number(rows?.[0]?.mysqlOffset)
+    const nodeOffset = -new Date().getTimezoneOffset()
+    if (Number.isFinite(mysqlOffset) && mysqlOffset !== nodeOffset) {
+      console.warn(
+        `[mysql-primary] TIMEZONE MISMATCH: Node is ${nodeOffset / 60}h from UTC `
+        + `(TZ=${process.env.TZ || 'unset'}, ${Intl.DateTimeFormat().resolvedOptions().timeZone}) `
+        + `but MySQL is ${mysqlOffset / 60}h (@@system_time_zone=${rows?.[0]?.systemTZ}). `
+        + `Every timestamp read through this pool is off by ${(nodeOffset - mysqlOffset) / 60}h. `
+        + `Set TZ on the app container to match the database host.`)
+    }
+  } catch {
+    // A failed probe tells us nothing; it must not affect the query that
+    // triggered it.
+  }
+}
+
 export async function queryPrimary<T = any>(
   sql: string,
   params?: any[],
   timeoutMs?: number,
 ): Promise<T> {
   const pool = getMySQLPrimaryPool()
+  void warnOnTimezoneSkew(pool)
 
   // Note: the per-query `timeout` option applies to pool.query (text protocol),
   // not pool.execute (binary prepared protocol). Parameters are still bound and
