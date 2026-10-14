@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, AlertTriangle, Printer } from 'lucide-react'
+import { RefreshCw, AlertTriangle, Printer, X, FileSpreadsheet } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 /**
@@ -41,6 +41,9 @@ export default function ChangeAnalysisPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [months, setMonths] = useState(12)
+  /** The change opened for reading. Null = nothing open. */
+  const [openChange, setOpenChange] = useState<number | null>(null)
+  const [exporting, setExporting] = useState(false)
 
   const load = useCallback(async (m: number) => {
     setLoading(true); setError('')
@@ -55,6 +58,38 @@ export default function ChangeAnalysisPage() {
   }, [])
 
   useEffect(() => { load(months) }, [load, months])
+
+  /**
+   * The reason text, as a spreadsheet.
+   *
+   * The whole closed population, not just the overlap: themes live in the
+   * volume, and twenty rows would not show one. Built client-side with the
+   * same xlsx import the Product Changes list already uses.
+   */
+  const exportReasons = async () => {
+    setExporting(true); setError('')
+    try {
+      const res = await fetch(getApiUrl(
+        `/api/products/changes/analysis?export=reasons&months=${months}`))
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+      const XLSX = await import('xlsx')
+      const ws = XLSX.utils.json_to_sheet((d.rows || []).map((r: any) => ({
+        ID: r.id, Request: r.request, 'Part #': r.part, Customer: r.customer,
+        'Reason Code': r.reasonCode, Team: r.team, Kind: r.kind,
+        Reason: r.reason, Change: r.change,
+        PE: r.pe, Closed: fmtDate(r.closedOn),
+      })))
+      // Reason and Change are the columns being read; the rest is context.
+      ws['!cols'] = [{ wch: 8 }, { wch: 22 }, { wch: 12 }, { wch: 18 }, { wch: 20 },
+                     { wch: 20 }, { wch: 14 }, { wch: 80 }, { wch: 80 }, { wch: 16 }, { wch: 12 }]
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Change Reasons')
+      XLSX.writeFile(wb, `change-reasons_${months}mo_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally { setExporting(false) }
+  }
 
   if (loading && !data) {
     return <div className="flex items-center gap-2 py-24 justify-center text-slate-500">
@@ -88,10 +123,18 @@ export default function ChangeAnalysisPage() {
           </select>
           {loading && <RefreshCw size={14} className="animate-spin text-slate-400" />}
         </div>
-        <button onClick={() => window.print()}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900">
-          <Printer size={14} /> Print / Save as PDF
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={exportReasons} disabled={exporting}
+            title="Every closed change's reason text, for thematic analysis elsewhere"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50 disabled:opacity-50">
+            {exporting ? <RefreshCw size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
+            {exporting ? 'Building…' : 'Reasons → Excel'}
+          </button>
+          <button onClick={() => window.print()}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900">
+            <Printer size={14} /> Print / Save as PDF
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -259,52 +302,110 @@ export default function ChangeAnalysisPage() {
         </div>
       </section>
 
-      {/* ── the overlap ── */}
+      {/* ── poor methodizing rejects ── */}
       <section className="mb-7">
-        <h2 className="text-base font-semibold text-slate-900 mb-1">
-          Parts with both a closed change and a poor-methodizing reject
-        </h2>
+        <h2 className="text-base font-semibold text-slate-900 mb-1">Poor Methodizing Rejects</h2>
         <p className="text-xs text-slate-500 mb-2">
           {data.rejects.available
-            ? <>Paradigm recorded <b>{data.rejects.transactions}</b> poor-methodizing reject
-              transactions across <b>{data.rejects.parts}</b> parts in this window
+            ? <>Parts carrying both a closed change and a poor-methodizing reject.
+              Paradigm recorded <b>{data.rejects.transactions}</b> such reject transactions across{' '}
+              <b>{data.rejects.parts}</b> parts in this window
               ({data.rejects.quantity.toLocaleString()} pieces). Listed in full rather than as a
               rate — the population is too small for a percentage to mean anything, and a part
               appearing here is not evidence the change caused the reject.</>
             : <>Paradigm could not be reached, so the reject half of this report is missing.
               Everything above is unaffected.</>}
         </p>
+
+        {!!data.overlap.length && (
+          <div className="flex items-center gap-4 flex-wrap mb-2 text-xs">
+            <span className="text-slate-600">
+              <b className="text-slate-900">{data.overlapTotals.parts}</b> parts ·{' '}
+              <b className="text-slate-900">{data.overlapTotals.changes}</b> changes ·{' '}
+              <b className="text-slate-900">{data.overlapTotals.rejects}</b> rejects ·{' '}
+              <b className="text-slate-900">{data.overlapTotals.quantity.toLocaleString()}</b> pieces
+            </span>
+            {!!data.overlapTotals.flagged && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-50 border border-red-200 text-red-700">
+                <AlertTriangle size={12} />
+                {data.overlapTotals.flagged} highlighted: a PPE Error closed on a part that also
+                took a poor-methodizing reject
+              </span>
+            )}
+          </div>
+        )}
+
         {data.overlap.length ? (
           <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
             <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500">
-              <tr><th className="px-3 py-2">Part</th><th className="px-3 py-2 text-right">Rejects</th>
+              <tr>
+                <th className="px-3 py-2">Part</th>
+                <th className="px-3 py-2 text-right">Changes</th>
+                <th className="px-3 py-2 text-right">Rejects</th>
                 <th className="px-3 py-2 text-right">Pieces</th>
-                <th className="px-3 py-2">Reject codes</th><th className="px-3 py-2">Closed changes</th></tr>
+                <th className="px-3 py-2">Reject codes</th>
+                <th className="px-3 py-2 w-2/5">Closed changes</th>
+              </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {data.overlap.map((o: any) => (
-                <tr key={o.part} className="align-top">
-                  <td className="px-3 py-1.5 font-mono text-xs">{o.part}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{o.rejectTransactions}</td>
-                  <td className="px-3 py-1.5 text-right tabular-nums">{o.rejectQuantity.toLocaleString()}</td>
-                  <td className="px-3 py-1.5 text-xs text-slate-600">{o.rejectCodes.join('; ')}</td>
-                  <td className="px-3 py-1.5 text-xs text-slate-600">
-                    {o.mcns.map((m: any) => (
-                      <div key={m.request}>
-                        {m.reason}{m.team ? ` · ${m.team}` : ''}{m.closedOn ? ` · ${fmtDate(m.closedOn)}` : ''}
-                      </div>
-                    ))}
+                /* A PPE Error against a poor-methodizing reject on the same
+                   part is the pair worth reading, so the whole row carries it. */
+                <tr key={o.part} className={`align-top ${o.hasPpeError ? 'bg-red-50' : ''}`}>
+                  <td className="px-3 py-2 font-mono text-xs whitespace-nowrap">
+                    {o.part}
+                    {o.hasPpeError && (
+                      <span className="ml-1.5 inline-flex items-center" title="PPE Error closed on this part">
+                        <AlertTriangle size={12} className="text-red-600" />
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right tabular-nums">{o.changeCount}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{o.rejectTransactions}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{o.rejectQuantity.toLocaleString()}</td>
+                  <td className="px-3 py-2 text-xs text-slate-600">{o.rejectCodes.join('; ')}</td>
+                  <td className="px-3 py-2">
+                    <div className="space-y-2">
+                      {o.mcns.map((m: any) => (
+                        <div key={m.id} className="border-l-2 border-slate-200 pl-2">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            {/* Opens the full record without leaving the report. */}
+                            <button onClick={() => setOpenChange(m.id)}
+                              className="font-mono text-xs text-blue-700 hover:underline print:no-underline print:text-slate-800">
+                              {m.request}
+                            </button>
+                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${KIND_TONE[m.kind] || ''}`}>
+                              {m.reasonCode}
+                            </span>
+                            {m.team && <span className="text-[10px] text-slate-500">{m.team}</span>}
+                            {m.closedOn && <span className="text-[10px] text-slate-400">{fmtDate(m.closedOn)}</span>}
+                          </div>
+                          {m.changeText && (
+                            <div className="text-xs text-slate-700 mt-0.5">
+                              <span className="text-slate-400">Change: </span>{m.changeText}
+                            </div>
+                          )}
+                          {m.reasonText && (
+                            <div className="text-xs text-slate-600 mt-0.5">
+                              <span className="text-slate-400">Reason: </span>{m.reasonText}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
         ) : (
-          <p className="text-sm text-slate-500 py-4">
-            No part carries both in this window.
-          </p>
+          <p className="text-sm text-slate-500 py-4">No part carries both in this window.</p>
         )}
       </section>
+
+      {openChange != null && (
+        <ChangeDialog id={openChange} onClose={() => setOpenChange(null)} />
+      )}
 
       <footer className="pt-4 border-t border-slate-200 text-xs text-slate-500">
         <p>
@@ -326,6 +427,134 @@ export default function ChangeAnalysisPage() {
           @page { margin: 14mm; }
         }
       `}</style>
+    </div>
+  )
+}
+
+/* ───────────────────────── one change, in full ───────────────────────── */
+
+/** Fields worth leading with, in the order a reader wants them. Everything
+ *  else on the record follows alphabetically — the legacy table has 99
+ *  columns and most carry nothing. */
+const LEAD_FIELDS: [string, string][] = [
+  ['request', 'Request #'], ['status', 'Status'], ['toolnum', 'Tool #'],
+  ['partnum', 'Part #'], ['customer', 'Customer'], ['custcode', 'Customer Code'],
+  ['chngreason', 'Reason Change Needed'], ['chngeffect', 'Change Affects'],
+  ['software', 'Software Affected'], ['wip', 'WIP / INV / FG Affected'],
+  ['change', 'Change'], ['reason', 'Reason'],
+  ['initiator', 'Initiator'], ['requester', 'Requester'], ['pe', 'PE'],
+  ['ppe', 'PPE'], ['qe', 'QE'], ['disposition', 'Disposition'],
+  ['pe_disposition', 'PE Disposition'], ['dis_reason', 'Disposition Reason'],
+  ['whyreject', 'Why Rejected'], ['eco', 'ECO'], ['to_eco', 'To ECO'],
+  ['subdate', 'Submitted'], ['closeddate', 'Closed'], ['closedby', 'Closed By'],
+]
+
+const HIDE = new Set([
+  'id', 'mcn_status', 'status_group', 'on_hold', 'locations',
+  'hold_status_history', 'attachments', 'costing_attachments',
+])
+
+const prettify = (k: string) =>
+  k.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+
+function ChangeDialog({ id, onClose }: { id: number; onClose: () => void }) {
+  const [record, setRecord] = useState<any>(null)
+  const [loading, setLoading] = useState(true)
+  const [err, setErr] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true); setErr('')
+      try {
+        const res = await fetch(getApiUrl(`/api/products/changes/mcn?id=${id}`))
+        const d = await res.json()
+        if (!res.ok) throw new Error(d.details || d.error || `HTTP ${res.status}`)
+        if (!cancelled) setRecord(d.record)
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : String(e))
+      } finally { if (!cancelled) setLoading(false) }
+    })()
+    return () => { cancelled = true }
+  }, [id])
+
+  // Esc closes, as it would anywhere else.
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onClose])
+
+  const lead = record
+    ? LEAD_FIELDS.filter(([k]) => String(record[k] ?? '').trim() !== '')
+    : []
+  const leadKeys = new Set(LEAD_FIELDS.map(([k]) => k))
+  const rest = record
+    ? Object.keys(record)
+        .filter(k => !leadKeys.has(k) && !HIDE.has(k) && String(record[k] ?? '').trim() !== '')
+        .sort()
+    : []
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 flex items-start justify-center p-6 overflow-y-auto print:hidden"
+      onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl my-4" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 sticky top-0 bg-white rounded-t-xl">
+          <h3 className="font-semibold text-slate-800">
+            {record?.request || `Change #${id}`}
+            {record?.status && (
+              <span className="ml-2 text-xs font-normal text-slate-500">{record.status}</span>
+            )}
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X size={18} /></button>
+        </div>
+
+        <div className="p-5">
+          {loading && (
+            <div className="flex items-center gap-2 py-10 justify-center text-slate-500">
+              <RefreshCw size={16} className="animate-spin" /> Loading…
+            </div>
+          )}
+          {err && (
+            <div className="flex items-start gap-2 p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+              <div className="min-w-0 break-words">{err}</div>
+            </div>
+          )}
+          {record && (
+            <>
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+                {lead.map(([k, label]) => (
+                  <div key={k} className={k === 'change' || k === 'reason' ? 'sm:col-span-2' : ''}>
+                    <dt className="text-[10px] uppercase tracking-wider text-slate-500">{label}</dt>
+                    <dd className="text-sm text-slate-800 whitespace-pre-line break-words">
+                      {String(record[k])}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+
+              {!!rest.length && (
+                <details className="mt-5">
+                  <summary className="text-xs text-blue-600 cursor-pointer hover:underline">
+                    {rest.length} further fields on this record
+                  </summary>
+                  <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2 mt-3 pt-3 border-t border-slate-100">
+                    {rest.map(k => (
+                      <div key={k}>
+                        <dt className="text-[10px] uppercase tracking-wider text-slate-400">{prettify(k)}</dt>
+                        <dd className="text-xs text-slate-700 whitespace-pre-line break-words">
+                          {String(record[k])}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </details>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   )
 }

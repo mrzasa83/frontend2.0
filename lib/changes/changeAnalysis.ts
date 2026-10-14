@@ -221,10 +221,28 @@ export async function buildChangeAnalysis(opts: AnalysisOptions = {}) {
       rejectTransactions: 0,
       rejectQuantity: 0,
       rejectCodes: new Set<string>(),
+      // Everything a reader needs to judge the row without leaving it: what
+      // was changed, why it was asked for, and which reason code closed it.
       mcns: related.map((m: any) => ({
-        request: m.request, reason: m.chngreason || '(not recorded)',
-        closedOn: m.closed_on, pe: m.pe, team: metaFor(m.chngreason).team,
+        id: m.id,
+        request: m.request,
+        reasonCode: String(m.chngreason || '').trim() || '(not recorded)',
+        changeText: m.change_text || '',
+        reasonText: m.reason_text || '',
+        closedOn: m.closed_on,
+        pe: m.pe,
+        team: metaFor(m.chngreason).team,
+        kind: metaFor(m.chngreason).kind,
       })),
+      changeCount: related.length,
+      /**
+       * A PPE Error closed out on a part that ALSO took a poor-methodizing
+       * reject. Every row here already has the reject, so this is the half
+       * that makes the pair worth looking at — flagged rather than filtered,
+       * because the rest of the table is the comparison.
+       */
+      hasPpeError: related.some((m: any) =>
+        String(m.chngreason || '').trim() === 'PPE Error'),
     }
     row.rejectTransactions++
     row.rejectQuantity += Number(r.Quantity || 0)
@@ -233,7 +251,11 @@ export async function buildChangeAnalysis(opts: AnalysisOptions = {}) {
   }
   const overlapRows = Array.from(overlap.values())
     .map(r => ({ ...r, rejectCodes: Array.from(r.rejectCodes).sort() }))
-    .sort((a, b) => b.rejectQuantity - a.rejectQuantity)
+    // Flagged pairs first — they are the reason the table exists — then by
+    // how much material was actually scrapped.
+    .sort((a, b) =>
+      (a.hasPpeError === b.hasPpeError ? 0 : a.hasPpeError ? -1 : 1)
+      || b.rejectQuantity - a.rejectQuantity)
 
   return {
     generatedAt: new Date().toISOString(),
@@ -256,5 +278,41 @@ export async function buildChangeAnalysis(opts: AnalysisOptions = {}) {
           parts: new Set(rejects.map((r: any) => norm(r.CustomerPart)).filter(Boolean)).size,
         },
     overlap: overlapRows,
+    overlapTotals: {
+      parts: overlapRows.length,
+      changes: overlapRows.reduce((n, r) => n + r.changeCount, 0),
+      rejects: overlapRows.reduce((n, r) => n + r.rejectTransactions, 0),
+      quantity: overlapRows.reduce((n, r) => n + r.rejectQuantity, 0),
+      flagged: overlapRows.filter(r => r.hasPpeError).length,
+    },
   }
+}
+
+/**
+ * The reason text on its own, for thematic analysis elsewhere.
+ *
+ * Deliberately a separate call rather than part of the report payload: it is
+ * every closed record in the window, free text and all, which would be dead
+ * weight on a page that only shows counts.
+ *
+ * The free-text `reason` is the column worth reading — chngreason is already
+ * one of twelve fixed values and has nothing left to discover. Both are
+ * returned so a theme can be tied back to the code it was filed under.
+ */
+export async function buildReasonExport(months = 12) {
+  const m = Math.min(Math.max(Number(months) || 12, 1), 60)
+  const rows = await queryPrimary<any[]>(MCN_SQL, [m])
+  return (rows || []).map(r => ({
+    id: r.id,
+    request: String(r.request || '').trim(),
+    part: String(r.partnum || '').trim(),
+    customer: String(r.customer || '').trim(),
+    reasonCode: String(r.chngreason || '').trim(),
+    team: metaFor(r.chngreason).team,
+    kind: metaFor(r.chngreason).kind,
+    reason: String(r.reason_text || '').replace(/\s+/g, ' ').trim(),
+    change: String(r.change_text || '').replace(/\s+/g, ' ').trim(),
+    closedOn: r.closed_on,
+    pe: String(r.pe || '').trim(),
+  }))
 }

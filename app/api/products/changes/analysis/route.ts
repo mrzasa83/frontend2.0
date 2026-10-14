@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { canReadModule } from '@/lib/config/access'
-import { buildChangeAnalysis } from '@/lib/changes/changeAnalysis'
+import { buildChangeAnalysis, buildReasonExport } from '@/lib/changes/changeAnalysis'
 
 export const dynamic = 'force-dynamic'
 /** Above the Paradigm query ceiling, with room for the MySQL side. */
@@ -23,9 +23,25 @@ export async function GET(request: NextRequest) {
   }
 
   const sp = new URL(request.url).searchParams
+  const months = Number(sp.get('months')) || 12
+
+  // The reason text on its own, for thematic analysis outside the app. Its
+  // own mode rather than part of the report, because it is every record in
+  // the window and the report only needs counts.
+  if (sp.get('export') === 'reasons') {
+    try {
+      return NextResponse.json({ success: true, months, rows: await buildReasonExport(months) })
+    } catch (error) {
+      return NextResponse.json({
+        error: 'Failed to export reasons',
+        details: error instanceof Error ? error.message : String(error),
+      }, { status: 500 })
+    }
+  }
+
   try {
     const data = await buildChangeAnalysis({
-      months: Number(sp.get('months')) || 12,
+      months,
       timeoutMs: Number(sp.get('timeoutMs')) || undefined,
     })
     return NextResponse.json({ success: true, ...data })
