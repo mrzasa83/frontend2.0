@@ -5,9 +5,11 @@ import Link from 'next/link'
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Cell } from 'recharts'
 import {
   ArrowLeft, RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, GitBranch,
-  ChevronDown, ChevronRight, Download, PauseCircle,
+  ChevronDown, ChevronRight, Download, PauseCircle, FileBarChart,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
+import { useSession } from 'next-auth/react'
+import { canReadModule } from '@/lib/config/access'
 import Tabs from '@/components/ui/Tabs'
 import McnDetail from '@/components/changes/McnDetail'
 
@@ -104,6 +106,8 @@ export default function ProductChangesPage() {
   const [audit, setAudit] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const { data: session } = useSession()
+  const isAdmin = canReadModule((session?.user as any)?.roles || [], 'admin')
   const [showDash, setShowDash] = useState(true)
   const [showAudit, setShowAudit] = useState(false)
 
@@ -465,6 +469,16 @@ export default function ProductChangesPage() {
           className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 flex items-center gap-1 disabled:opacity-50">
           <Download size={14} /> Excel
         </button>
+        {/* Opens in its own tab, the way a change record does. Admin only: it
+            reads the whole closed population and attributes work to named
+            teams, which is a management view rather than an engineering one. */}
+        {isAdmin && (
+          <a href={getApiUrl('/products/changes/analysis')} target="_blank" rel="noopener noreferrer"
+            className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg border border-slate-200 flex items-center gap-1"
+            title="Reason for change analysis — opens in a new tab">
+            <FileBarChart size={14} /> Analysis
+          </a>
+        )}
         <span className="text-sm text-slate-500 ml-auto">{sorted.length.toLocaleString()} shown</span>
       </div>
 
