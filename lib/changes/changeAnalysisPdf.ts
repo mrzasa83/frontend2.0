@@ -206,20 +206,6 @@ export async function renderChangeAnalysisPdf(data: any): Promise<Uint8Array> {
     y -= 14
   }
 
-  /* ─────────────────────────── how to read ─────────────────────────── */
-  {
-    const h = 34
-    need(h + 8)
-    page.drawRectangle({ x: M, y: y - h, width: PAGE.w - 2 * M, height: h,
-      color: HEAD_BG, borderColor: RULE, borderWidth: 0.7 })
-    textAt('How to read this', M + 8, y - 12, 8.5, bold)
-    textAt(`Most changes are not mistakes. Of ${total.toLocaleString()} closed notices, ${errorTotal.toLocaleString()} (${pct(errorTotal, total)}) record an error or rework; the rest are improvements, deliberate`,
-      M + 8, y - 22, 7.5, regular, MUTED)
-    textAt('changes or customer requests. Team attribution below covers only the error and rework reasons — ranking every reason together would read as blame for work that went right.',
-      M + 8, y - 30, 7.5, regular, MUTED)
-    y -= h + 14
-  }
-
   /* ─────────────────────── generic table helper ─────────────────────── */
   type Col = {
     label: string
@@ -229,6 +215,8 @@ export async function renderChangeAnalysisPdf(data: any): Promise<Uint8Array> {
     get: (r: any) => string
     font?: PDFFont
     ink?: (r: any) => ReturnType<typeof rgb>
+    /** 0–1 of the column drawn as a bar instead of text — the Pareto. */
+    bar?: (r: any) => number
   }
 
   const table = (title: string, note: string, cols: Col[], rows: any[],
@@ -260,6 +248,15 @@ export async function renderChangeAnalysisPdf(data: any): Promise<Uint8Array> {
       let x = M
       const base = y - rowH + 4
       for (const c of cols) {
+        if (c.bar) {
+          const frac = Math.max(0, Math.min(1, c.bar(r)))
+          const bw = (c.w - 12) * frac
+          if (bw > 0.5) {
+            page.drawRectangle({ x: x + 6, y: base - 1, width: bw, height: 6, color: BLUE })
+          }
+          x += c.w
+          continue
+        }
         const f = c.font || regular
         const ink = c.ink ? c.ink(r) : INK
         const s = fit(c.get(r), c.w - 12, 7.5, f)
@@ -276,41 +273,50 @@ export async function renderChangeAnalysisPdf(data: any): Promise<Uint8Array> {
 
   const W = PAGE.w - 2 * M
 
-  /* ─────────────────────── what kind of change ─────────────────────── */
-  table('What kind of change', '',
-    [
-      { label: 'Kind', w: W * 0.30, get: r => KIND_LABEL[r.kind] || r.kind,
-        ink: r => KIND_INK[r.kind] || INK },
-      { label: 'Notices', w: W * 0.12, align: 'r', get: r => r.count.toLocaleString() },
-      { label: 'Share', w: W * 0.12, align: 'r', get: r => pct(r.count, total) },
-      { label: '', w: W * 0.46, get: () => '' },
-    ],
-    [...data.kinds].sort((a: any, b: any) => b.count - a.count))
-
-  // The share bars, drawn over the blank fourth column of the table above.
-  // Done after the fact because the table helper draws text, not geometry.
+  /* ─────────────────────── cause of change ─────────────────────── */
+  // Pareto: ranked by occurrences, with the running cumulative beside the bar,
+  // so the few causes that account for most of the work are the first rows.
+  {
+    const ranked = [...data.kinds].sort((a: any, b: any) => b.count - a.count)
+    const top = ranked[0]?.count || 1
+    let run = 0
+    const rows = ranked.map((r: any) => {
+      run += r.count
+      return { ...r, cum: run, frac: r.count / top }
+    })
+    table('Cause of Change', '',
+      [
+        { label: 'Cause', w: W * 0.26, get: r => KIND_LABEL[r.kind] || r.kind,
+          ink: r => KIND_INK[r.kind] || INK },
+        { label: 'Occurrences', w: W * 0.12, align: 'r', get: r => r.count.toLocaleString() },
+        { label: 'Percent', w: W * 0.10, align: 'r', get: r => pct(r.count, total) },
+        { label: 'Cumulative', w: W * 0.12, align: 'r', get: r => pct(r.cum, total) },
+        { label: '', w: W * 0.40, get: () => '', bar: r => r.frac },
+      ],
+      rows)
+  }
 
   /* ─────────────────────── errors by team ─────────────────────── */
-  table('Errors and rework by team',
-    `${errorTotal.toLocaleString()} notices · ${pct(errorTotal, total)} of all closed changes.`,
+  table('Errors',
+    `${errorTotal.toLocaleString()} occurrences · ${pct(errorTotal, total)} of all closed changes.`,
     [
       { label: 'Team', w: W * 0.22, get: r => r.team, font: bold },
       { label: 'Reasons', w: W * 0.46,
         get: r => Object.entries(r.reasons).map(([k, n]) => `${k} (${n})`).join(', ') },
-      { label: 'Notices', w: W * 0.16, align: 'r', get: r => String(r.count) },
-      { label: 'Share of errors', w: W * 0.16, align: 'r', get: r => pct(r.count, errorTotal) },
+      { label: 'Occurrences', w: W * 0.16, align: 'r', get: r => String(r.count) },
+      { label: 'Percent', w: W * 0.16, align: 'r', get: r => pct(r.count, errorTotal) },
     ],
     data.teams)
 
   /* ─────────────────────── every reason ─────────────────────── */
-  table('Every reason, ranked', '',
+  table('Change Reasons, ranked', '',
     [
       { label: 'Reason', w: W * 0.26, get: r => r.reason },
       { label: 'Kind', w: W * 0.22, get: r => KIND_LABEL[r.meta.kind] || r.meta.kind,
         ink: r => KIND_INK[r.meta.kind] || INK },
       { label: 'Team', w: W * 0.26, get: r => r.meta.team || '—', ink: () => MUTED },
-      { label: 'Notices', w: W * 0.13, align: 'r', get: r => r.count.toLocaleString() },
-      { label: 'Share', w: W * 0.13, align: 'r', get: r => pct(r.count, total) },
+      { label: 'Occurrences', w: W * 0.13, align: 'r', get: r => r.count.toLocaleString() },
+      { label: 'Percent', w: W * 0.13, align: 'r', get: r => pct(r.count, total) },
     ],
     data.reasons)
 
@@ -336,7 +342,9 @@ export async function renderChangeAnalysisPdf(data: any): Promise<Uint8Array> {
     }
     page.drawLine({ start: { x: M, y: baseY }, end: { x: PAGE.w - M, y: baseY },
       thickness: 0.6, color: RULE })
-    y = baseY - 22
+    // Generous gap: the month labels sit below the axis, and the rejects
+    // section is a different subject rather than a continuation of the chart.
+    y = baseY - 46
   }
 
   /* ─────────────────── poor methodizing rejects ─────────────────── */
@@ -345,12 +353,9 @@ export async function renderChangeAnalysisPdf(data: any): Promise<Uint8Array> {
     text('Poor Methodizing Rejects', M, 10.5, bold)
     y -= 12
     const note = data.rejects.available
-      ? `Parts carrying both a closed change and a poor-methodizing reject. Paradigm recorded ${data.rejects.transactions} such reject transactions across ${data.rejects.parts} parts in this window (${data.rejects.quantity.toLocaleString()} pieces).`
+      ? 'Parts carrying both a closed change and a poor-methodizing reject.'
       : 'Paradigm could not be reached, so the reject half of this report is missing. Everything above is unaffected.'
     text(note, M, 7.5, regular, MUTED)
-    y -= 9
-    text('Listed in full rather than as a rate — the population is too small for a percentage to mean anything, and a part appearing here is not evidence the change caused the reject.',
-      M, 7.5, regular, MUTED)
     y -= 12
 
     if (data.overlapTotals) {

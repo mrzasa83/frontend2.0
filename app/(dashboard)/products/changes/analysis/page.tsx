@@ -186,58 +186,60 @@ export default function ChangeAnalysisPage() {
         )}
       </section>
 
-      {/* ── how to read it ── */}
-      <section className="mb-7 p-4 bg-slate-50 border border-slate-200 rounded-lg">
-        <h2 className="text-sm font-semibold text-slate-800 mb-1">How to read this</h2>
-        <p className="text-sm text-slate-700">
-          Most changes are not mistakes. Of {total.toLocaleString()} closed notices,{' '}
-          <b>{errorTotal.toLocaleString()} ({pct(errorTotal, total)})</b> record an error or
-          rework; the rest are improvements, deliberate changes or customer requests. Team
-          attribution below covers <em>only</em> the error and rework reasons — ranking every
-          reason together would read as blame for work that went right.
-        </p>
-      </section>
-
-      {/* ── what kind of change ── */}
+      {/* ── cause of change (pareto) ── */}
       <section className="mb-7 break-inside-avoid">
-        <h2 className="text-base font-semibold text-slate-900 mb-2">What kind of change</h2>
+        <h2 className="text-base font-semibold text-slate-900 mb-2">Cause of Change</h2>
         <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500">
-            <tr><th className="px-3 py-2">Kind</th><th className="px-3 py-2 text-right">Notices</th>
-              <th className="px-3 py-2 text-right">Share</th><th className="px-3 py-2 w-1/3">&nbsp;</th></tr>
+            <tr><th className="px-3 py-2">Cause</th><th className="px-3 py-2 text-right">Occurrences</th>
+              <th className="px-3 py-2 text-right">Percent</th>
+              <th className="px-3 py-2 text-right">Cumulative</th>
+              <th className="px-3 py-2 w-1/3">&nbsp;</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
-            {[...data.kinds].sort((a: any, b: any) => b.count - a.count).map((k: any) => (
-              <tr key={k.kind}>
-                <td className="px-3 py-1.5">
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${KIND_TONE[k.kind] || ''}`}>
-                    {KIND_LABEL[k.kind] || k.kind}
-                  </span>
-                </td>
-                <td className="px-3 py-1.5 text-right tabular-nums">{k.count.toLocaleString()}</td>
-                <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{pct(k.count, total)}</td>
-                <td className="px-3 py-1.5">
-                  <div className="h-2 bg-slate-100 rounded">
-                    <div className="h-2 bg-slate-400 rounded" style={{ width: pct(k.count, total) }} />
-                  </div>
-                </td>
-              </tr>
-            ))}
+            {/* Ranked descending with a running cumulative — the few causes that
+                account for most of the work sit at the top. */}
+            {(() => {
+              const ranked = [...data.kinds].sort((a: any, b: any) => b.count - a.count)
+              const top = ranked[0]?.count || 1
+              let run = 0
+              return ranked.map((k: any) => {
+                run += k.count
+                return (
+                  <tr key={k.kind}>
+                    <td className="px-3 py-1.5">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${KIND_TONE[k.kind] || ''}`}>
+                        {KIND_LABEL[k.kind] || k.kind}
+                      </span>
+                    </td>
+                    <td className="px-3 py-1.5 text-right tabular-nums">{k.count.toLocaleString()}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{pct(k.count, total)}</td>
+                    <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">{pct(run, total)}</td>
+                    <td className="px-3 py-1.5">
+                      <div className="h-2 bg-slate-100 rounded">
+                        <div className="h-2 bg-blue-500/80 rounded"
+                          style={{ width: `${(k.count / top) * 100}%` }} />
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })
+            })()}
           </tbody>
         </table>
       </section>
 
       {/* ── team attribution ── */}
       <section className="mb-7 break-inside-avoid">
-        <h2 className="text-base font-semibold text-slate-900 mb-1">Errors and rework by team</h2>
+        <h2 className="text-base font-semibold text-slate-900 mb-1">Errors</h2>
         <p className="text-xs text-slate-500 mb-2">
-          {errorTotal.toLocaleString()} notices · {pct(errorTotal, total)} of all closed changes.
+          {errorTotal.toLocaleString()} occurrences · {pct(errorTotal, total)} of all closed changes.
         </p>
         <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500">
             <tr><th className="px-3 py-2">Team</th><th className="px-3 py-2">Reasons</th>
-              <th className="px-3 py-2 text-right">Notices</th>
-              <th className="px-3 py-2 text-right">Share of errors</th></tr>
+              <th className="px-3 py-2 text-right">Occurrences</th>
+              <th className="px-3 py-2 text-right">Percent</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {data.teams.map((t: any) => (
@@ -260,12 +262,12 @@ export default function ChangeAnalysisPage() {
 
       {/* ── every reason ── */}
       <section className="mb-7">
-        <h2 className="text-base font-semibold text-slate-900 mb-2">Every reason, ranked</h2>
+        <h2 className="text-base font-semibold text-slate-900 mb-2">Change Reasons, ranked</h2>
         <table className="w-full text-sm border border-slate-200 rounded-lg overflow-hidden">
           <thead className="bg-slate-50 text-left text-xs uppercase tracking-wider text-slate-500">
             <tr><th className="px-3 py-2">Reason</th><th className="px-3 py-2">Kind</th>
-              <th className="px-3 py-2">Team</th><th className="px-3 py-2 text-right">Notices</th>
-              <th className="px-3 py-2 text-right">Share</th></tr>
+              <th className="px-3 py-2">Team</th><th className="px-3 py-2 text-right">Occurrences</th>
+              <th className="px-3 py-2 text-right">Percent</th></tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {data.reasons.map((r: any) => (
@@ -309,16 +311,11 @@ export default function ChangeAnalysisPage() {
       </section>
 
       {/* ── poor methodizing rejects ── */}
-      <section className="mb-7">
+      <section className="mt-12 mb-7">
         <h2 className="text-base font-semibold text-slate-900 mb-1">Poor Methodizing Rejects</h2>
         <p className="text-xs text-slate-500 mb-2">
           {data.rejects.available
-            ? <>Parts carrying both a closed change and a poor-methodizing reject.
-              Paradigm recorded <b>{data.rejects.transactions}</b> such reject transactions across{' '}
-              <b>{data.rejects.parts}</b> parts in this window
-              ({data.rejects.quantity.toLocaleString()} pieces). Listed in full rather than as a
-              rate — the population is too small for a percentage to mean anything, and a part
-              appearing here is not evidence the change caused the reject.</>
+            ? <>Parts carrying both a closed change and a poor-methodizing reject.</>
             : <>Paradigm could not be reached, so the reject half of this report is missing.
               Everything above is unaffected.</>}
         </p>
