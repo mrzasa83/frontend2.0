@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, AlertTriangle, Printer, X, FileSpreadsheet } from 'lucide-react'
+import { RefreshCw, AlertTriangle, FileDown, X, FileSpreadsheet } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
 /**
@@ -130,10 +130,16 @@ export default function ChangeAnalysisPage() {
             {exporting ? <RefreshCw size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}
             {exporting ? 'Building…' : 'Reasons → Excel'}
           </button>
-          <button onClick={() => window.print()}
+          {/* A generated PDF rather than the print dialogue: landscape, fixed
+              margins and page breaks, and none of the app's chrome. The link
+              opens in a tab so the reader can save it from the viewer. */}
+          <a href={getApiUrl(
+              `/api/products/changes/analysis?format=pdf&months=${months}&timeoutMs=60000`)}
+            target="_blank" rel="noopener noreferrer"
+            title="Landscape PDF of this report — takes a few seconds to build"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm bg-slate-800 text-white rounded-lg hover:bg-slate-900">
-            <Printer size={14} /> Print / Save as PDF
-          </button>
+            <FileDown size={14} /> PDF
+          </a>
         </div>
       </div>
 

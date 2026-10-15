@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { canReadModule } from '@/lib/config/access'
 import { buildChangeAnalysis, buildReasonExport } from '@/lib/changes/changeAnalysis'
+import { renderChangeAnalysisPdf } from '@/lib/changes/changeAnalysisPdf'
 
 export const dynamic = 'force-dynamic'
 /** Above the Paradigm query ceiling, with room for the MySQL side. */
@@ -44,6 +45,22 @@ export async function GET(request: NextRequest) {
       months,
       timeoutMs: Number(sp.get('timeoutMs')) || undefined,
     })
+    // The PDF is generated here rather than printed by the browser: the
+    // print dialogue decides margins, scale and page breaks, and every
+    // reader's is set differently.
+    if (sp.get('format') === 'pdf') {
+      const bytes = await renderChangeAnalysisPdf(data)
+      const name = `reason-for-change-analysis_${months}mo_${new Date().toISOString().slice(0, 10)}.pdf`
+      return new NextResponse(Buffer.from(bytes), {
+        headers: {
+          'Content-Type': 'application/pdf',
+          // inline: it opens in the tab, and the reader saves it from there.
+          'Content-Disposition': `inline; filename="${name}"`,
+          'Cache-Control': 'no-store',
+        },
+      })
+    }
+
     return NextResponse.json({ success: true, ...data })
   } catch (error) {
     console.error('Change analysis error:', error)
