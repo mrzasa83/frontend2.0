@@ -5,7 +5,7 @@ import {
   resolveSelection, normalizeType, isSafeJob, isSafeRevision, CLIENT_DEFAULTS,
 } from '@/lib/odb/archive'
 import { mintFetchToken, type FetchItem } from '@/lib/odb/token'
-import { buildAcquireScript, type AcquireFile } from '@/lib/odb/acquireScript'
+import { buildAcquireScript, wrapAsBatch, type AcquireFile } from '@/lib/odb/acquireScript'
 
 export const dynamic = 'force-dynamic'
 
@@ -80,10 +80,16 @@ export async function POST(request: NextRequest) {
   const script = buildAcquireScript({ files, viewerRoot, jobsDir, user, expiresAt })
   const stamp = new Date().toISOString().slice(0, 10)
 
-  return new NextResponse(script, {
+  // .bat is the one people can double-click: Windows opens a .ps1 in Notepad,
+  // and ExecutionPolicy blocks it besides.
+  const asBat = String(body?.format || '').toLowerCase() === 'bat'
+  const payload = asBat ? wrapAsBatch(script) : script
+  const ext = asBat ? 'bat' : 'ps1'
+
+  return new NextResponse(payload, {
     headers: {
       'Content-Type': 'text/plain; charset=utf-8',
-      'Content-Disposition': `attachment; filename="DataView-Acquire_${stamp}.ps1"`,
+      'Content-Disposition': `attachment; filename="DataView-Acquire_${stamp}.${ext}"`,
       'Cache-Control': 'no-store',
       // Surfaced in the UI so a partly-resolvable selection is visible rather
       // than quietly shrinking.

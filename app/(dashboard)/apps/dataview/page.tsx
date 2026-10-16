@@ -49,7 +49,7 @@ export default function DataViewPage() {
   const [error, setError] = useState('')
 
   const [picked, setPicked] = useState<Picked[]>([])
-  const [building, setBuilding] = useState(false)
+  const [building, setBuilding] = useState<'bat' | 'ps1' | null>(null)
 
   const [showSetup, setShowSetup] = useState(false)
   const [viewerRoot, setViewerRoot] = useState('C:\\MentorGraphics\\Valor\\ODB++_Viewer\\odbviewer_2409')
@@ -102,16 +102,16 @@ export default function DataViewPage() {
 
   const totalBytes = picked.reduce((n, p) => n + p.bytes, 0)
 
-  const buildScript = async () => {
+  const buildScript = async (format: 'bat' | 'ps1') => {
     if (!picked.length) return
-    setBuilding(true); setError('')
+    setBuilding(format); setError('')
     try {
       const res = await fetch(getApiUrl('/api/apps/dataview/acquire'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items: picked.map(p => ({ job: p.job, type: p.type, rev: p.rev })),
-          viewerRoot, jobsDir,
+          viewerRoot, jobsDir, format,
         }),
       })
       if (!res.ok) {
@@ -122,12 +122,12 @@ export default function DataViewPage() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `DataView-Acquire_${new Date().toISOString().slice(0, 10)}.ps1`
+      a.download = `DataView-Acquire_${new Date().toISOString().slice(0, 10)}.${format}`
       document.body.appendChild(a); a.click(); a.remove()
       URL.revokeObjectURL(url)
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
-    } finally { setBuilding(false) }
+    } finally { setBuilding(null) }
   }
 
   const oneFileUrl = (p: Picked) => getApiUrl(
@@ -283,17 +283,27 @@ export default function DataViewPage() {
           )}
 
           <div className="mt-auto pt-2">
-            <button onClick={buildScript} disabled={!picked.length || building}
-              className="w-full px-4 py-2.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700
-                disabled:opacity-50 inline-flex items-center justify-center gap-2">
-              {building ? <RefreshCw size={15} className="animate-spin" /> : <HardDriveDownload size={15} />}
-              {building ? 'Building…' : 'Get acquire script'}
-            </button>
+            <div className="flex gap-2">
+              <button onClick={() => buildScript('bat')} disabled={!picked.length || !!building}
+                className="flex-1 px-4 py-2.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700
+                  disabled:opacity-50 inline-flex items-center justify-center gap-2">
+                {building === 'bat' ? <RefreshCw size={15} className="animate-spin" /> : <HardDriveDownload size={15} />}
+                {building === 'bat' ? 'Building…' : 'Acquire (.bat)'}
+              </button>
+              <button onClick={() => buildScript('ps1')} disabled={!picked.length || !!building}
+                title="The same script unwrapped, for running by hand with switches"
+                className="px-3 py-2.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50
+                  disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
+                {building === 'ps1' ? <RefreshCw size={15} className="animate-spin" /> : null}
+                .ps1
+              </button>
+            </div>
             <p className="text-xs text-slate-500 mt-2">
-              Downloads <span className="font-mono">DataView-Acquire.ps1</span>. Right-click it and
-              choose <b>Run with PowerShell</b>. It clears the last acquire, pulls these files to{' '}
-              <span className="font-mono">{jobsDir}</span>, unpacks them where the viewer looks for
-              jobs, and starts the viewer.
+              Double-click the <span className="font-mono">.bat</span>. It clears the last acquire and
+              the viewer&apos;s stale scratch folders, pulls these files to{' '}
+              <span className="font-mono">{jobsDir}</span>, and starts the viewer — open them from there.
+              The <span className="font-mono">.ps1</span> is the same script if you want to run it by
+              hand (<span className="font-mono">-Probe</span> reports without changing anything).
             </p>
 
             <button onClick={() => setShowSetup(s => !s)}
