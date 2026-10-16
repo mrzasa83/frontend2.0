@@ -193,9 +193,15 @@ export const MODULES: Module[] = [
     icon: AppWindow,
     requiredRoles: [],
     subModules: [
-      { 
-        id: 'frontvue', 
-        name: 'FrontVue', 
+      {
+        id: 'dataview',
+        name: 'DataView',
+        path: '/apps/dataview',
+        requiredRoles: []
+      },
+      {
+        id: 'frontvue',
+        name: 'FrontVue',
         path: '/apps/frontvue',
         requiredRoles: []
       },
