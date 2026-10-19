@@ -12,12 +12,7 @@ export default async function proxy(request: NextRequest) {
     pathname.startsWith('/api/auth') ||
     pathname.startsWith('/_next') ||
     pathname.startsWith('/favicon.ico') ||
-    pathname === '/login' ||
-    // The DataView acquire script runs in PowerShell and carries a scoped,
-    // expiring token instead of a session cookie. Without this exemption the
-    // proxy would 302 it to /login and the script would save the login page
-    // as a .tgz. The route authenticates the token itself.
-    pathname.startsWith('/api/apps/dataview/fetch')
+    pathname === '/login'
   ) {
     return NextResponse.next()
   }

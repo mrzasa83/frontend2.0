@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
-import { searchJob, normalizeType, isSafeJob, CLIENT_DEFAULTS, ARCHIVE_ROOT } from '@/lib/odb/archive'
+import { searchJob, normalizeType, isSafeJob, ARCHIVE_ROOT, ARCHIVE_UNC } from '@/lib/odb/archive'
 import fs from 'fs'
 
 export const dynamic = 'force-dynamic'
@@ -39,7 +39,7 @@ export async function GET(request: NextRequest) {
   try {
     return NextResponse.json({
       success: true,
-      defaults: CLIENT_DEFAULTS(),
+      shareConfigured: !!ARCHIVE_UNC(),
       ...searchJob(job, type),
     })
   } catch (error) {

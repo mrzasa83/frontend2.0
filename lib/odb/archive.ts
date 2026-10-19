@@ -33,6 +33,8 @@ export type Revision = {
   bytes: number
   /** What this file is called once it lands on the client. */
   downloadName: string
+  /** Share path for opening in place, when ODB_ARCHIVE_UNC is set. */
+  uncPath: string | null
 }
 
 export type JobSearch = {
@@ -53,12 +55,25 @@ export type JobSearch = {
 export const ARCHIVE_ROOT = () =>
   process.env.ODB_ARCHIVE_ROOT || '/archive'
 
-/** Defaults for the client side of the proof of concept, overridable per site. */
-export const CLIENT_DEFAULTS = () => ({
-  viewerRoot: process.env.ODB_VIEWER_ROOT
-    || 'C:\\MentorGraphics\\Valor\\ODB++_Viewer\\odbviewer_2409',
-  jobsDir: process.env.ODB_CLIENT_JOBS_DIR || 'C:\\ODBView\\jobs',
-})
+/**
+ * The same archive as a Windows path, when it is also reachable from the PCs
+ * as a share — e.g. \\\\apcfs0x\\camfs\\archive.
+ *
+ * Set ODB_ARCHIVE_UNC to turn on the "open it straight from the share" route,
+ * where the viewer reads the .tgz over the wire and unpacks it into its own
+ * local temp folder. That is one large sequential read rather than thousands
+ * of small ones, so it is usually fast, and it means nothing is downloaded or
+ * cleaned up on the PC at all.
+ */
+export const ARCHIVE_UNC = () => (process.env.ODB_ARCHIVE_UNC || '').replace(/[\\/]+$/, '')
+
+/** The share path for one revision's data.tgz, or null when unconfigured. */
+export function uncPathFor(job: string, type: DataType, rev: string): string | null {
+  const base = ARCHIVE_UNC()
+  if (!base) return null
+  if (!isSafeJob(job) || !isSafeRevision(rev)) return null
+  return `${base}\\${job}\\${type}\\${rev}\\data.tgz`
+}
 
 const MONTHS: Record<string, number> = {
   jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
@@ -202,6 +217,7 @@ export function searchJob(jobRaw: string, typeRaw: string): JobSearch {
       released: rev === releasedRev,
       bytes,
       downloadName: downloadNameFor(job, type, rev, names),
+      uncPath: uncPathFor(job, type, rev),
     }
   })
 

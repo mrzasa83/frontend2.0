@@ -3,7 +3,7 @@
 import { useState, useCallback, useEffect } from 'react'
 import {
   Search, Plus, Trash2, Download, RefreshCw, AlertTriangle, CheckCircle2,
-  Settings2, HardDriveDownload, FileArchive, Info,
+  FileArchive, Info, Copy, Check,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 
@@ -16,6 +16,7 @@ type Revision = {
   released: boolean
   bytes: number
   downloadName: string
+  uncPath: string | null
 }
 
 type SearchResult = {
@@ -24,7 +25,7 @@ type SearchResult = {
   releasedRev: string | null
   releasedNote: string | null
   revisions: Revision[]
-  defaults: { viewerRoot: string; jobsDir: string }
+  shareConfigured: boolean
 }
 
 type Picked = {
@@ -34,6 +35,7 @@ type Picked = {
   name: string
   bytes: number
   released: boolean
+  uncPath: string | null
 }
 
 const mb = (n: number) => n >= 1048576
@@ -44,17 +46,12 @@ export default function DataViewPage() {
   const [job, setJob] = useState('')
   const [type, setType] = useState<DataType>('CAM')
   const [result, setResult] = useState<SearchResult | null>(null)
-  const [rev, setRev] = useState('')           // '' means "the released one"
+  const [rev, setRev] = useState('')
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState('')
 
   const [picked, setPicked] = useState<Picked[]>([])
-  const [building, setBuilding] = useState<'bat' | 'ps1' | null>(null)
-
-  const [showSetup, setShowSetup] = useState(false)
-  const [viewerRoot, setViewerRoot] = useState('C:\\MentorGraphics\\Valor\\ODB++_Viewer\\odbviewer_2409')
-  const [jobsDir, setJobsDir] = useState('C:\\ODBView\\jobs')
-  const [gotDefaults, setGotDefaults] = useState(false)
+  const [copied, setCopied] = useState('')
 
   const search = useCallback(async (j: string, t: DataType) => {
     const trimmed = j.trim()
@@ -66,20 +63,12 @@ export default function DataViewPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || `Search failed (${res.status})`)
       setResult(data)
-      // Released is the default selection, which is what the floor wants
-      // almost every time.
+      // Released is the default, which is what the floor wants almost every time.
       setRev(data.releasedRev || data.revisions[0]?.rev || '')
-      // The server knows the site defaults; adopt them once so the Setup panel
-      // starts from whatever deploy.sh was told, not from what is hardcoded here.
-      if (!gotDefaults && data.defaults) {
-        setViewerRoot(data.defaults.viewerRoot)
-        setJobsDir(data.defaults.jobsDir)
-        setGotDefaults(true)
-      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally { setSearching(false) }
-  }, [gotDefaults])
+  }, [])
 
   // Re-run when the CAM/PCB toggle flips on an already-searched job.
   useEffect(() => {
@@ -92,7 +81,8 @@ export default function DataViewPage() {
     if (!result || !selected) return
     const item: Picked = {
       job: result.job, type: result.type, rev: selected.rev,
-      name: selected.downloadName, bytes: selected.bytes, released: selected.released,
+      name: selected.downloadName, bytes: selected.bytes,
+      released: selected.released, uncPath: selected.uncPath,
     }
     setPicked(prev => prev.some(p => p.name === item.name) ? prev : [...prev, item])
   }
@@ -102,44 +92,39 @@ export default function DataViewPage() {
 
   const totalBytes = picked.reduce((n, p) => n + p.bytes, 0)
 
-  const buildScript = async (format: 'bat' | 'ps1') => {
-    if (!picked.length) return
-    setBuilding(format); setError('')
-    try {
-      const res = await fetch(getApiUrl('/api/apps/dataview/acquire'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items: picked.map(p => ({ job: p.job, type: p.type, rev: p.rev })),
-          viewerRoot, jobsDir, format,
-        }),
-      })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        throw new Error(d.error || `Could not build the script (${res.status})`)
-      }
-      const blob = await res.blob()
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `DataView-Acquire_${new Date().toISOString().slice(0, 10)}.${format}`
-      document.body.appendChild(a); a.click(); a.remove()
-      URL.revokeObjectURL(url)
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally { setBuilding(null) }
+  const fileUrl = (p: Picked) => getApiUrl(
+    `/api/apps/dataview/fetch?job=${encodeURIComponent(p.job)}&type=${p.type}&rev=${encodeURIComponent(p.rev)}`)
+
+  /**
+   * Ordinary browser downloads, one anchor click each, spaced out so the
+   * browser does not treat a burst as a popup. Nothing is scripted on the PC.
+   */
+  const downloadAll = () => {
+    picked.forEach((p, i) => {
+      setTimeout(() => {
+        const a = document.createElement('a')
+        a.href = fileUrl(p)
+        a.download = p.name
+        document.body.appendChild(a); a.click(); a.remove()
+      }, i * 700)
+    })
   }
 
-  const oneFileUrl = (p: Picked) => getApiUrl(
-    `/api/apps/dataview/fetch?job=${encodeURIComponent(p.job)}&type=${p.type}&rev=${encodeURIComponent(p.rev)}`)
+  const copy = async (text: string, key: string) => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(key)
+      setTimeout(() => setCopied(''), 1500)
+    } catch { /* clipboard blocked; the path is on screen to read */ }
+  }
 
   return (
     <div className="p-6 max-w-6xl">
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-slate-800">DataView</h1>
         <p className="text-sm text-slate-600 mt-1">
-          Find released job data in the archive, download it to this PC, and hand it to
-          the ODB++ Viewer.
+          Find released job data in the archive and download it, named for the job and
+          revision. Open the downloaded file in the ODB++ Viewer.
         </p>
       </div>
 
@@ -257,86 +242,72 @@ export default function DataViewPage() {
               Nothing selected yet.
             </p>
           ) : (
-            <ul className="divide-y divide-slate-100 mb-3 max-h-72 overflow-auto">
+            <ul className="divide-y divide-slate-100 mb-3 max-h-80 overflow-auto">
               {picked.map(p => (
-                <li key={p.name} className="flex items-center justify-between gap-2 py-2">
-                  <div className="min-w-0">
-                    <div className="font-mono text-sm text-slate-800 truncate">{p.name}</div>
-                    <div className="text-xs text-slate-500">
-                      {p.job} · {p.type} · {p.rev}{p.released && ' · released'} · {mb(p.bytes)}
+                <li key={p.name} className="py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <div className="font-mono text-sm text-slate-800 truncate">{p.name}</div>
+                      <div className="text-xs text-slate-500">
+                        {p.job} · {p.type} · {p.rev}{p.released && ' · released'} · {mb(p.bytes)}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <a href={fileUrl(p)} download={p.name} title="Download this one"
+                        className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded">
+                        <Download size={15} />
+                      </a>
+                      <button onClick={() => setPicked(prev => prev.filter(x => x.name !== p.name))}
+                        title="Remove"
+                        className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded">
+                        <Trash2 size={15} />
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1 shrink-0">
-                    <a href={oneFileUrl(p)} title="Download just this one, to wherever your browser puts it"
-                      className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded">
-                      <Download size={15} />
-                    </a>
-                    <button onClick={() => setPicked(prev => prev.filter(x => x.name !== p.name))}
-                      title="Remove"
-                      className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded">
-                      <Trash2 size={15} />
+                  {p.uncPath && (
+                    <button onClick={() => copy(p.uncPath!, p.name)}
+                      title="Copy the share path and paste it into the viewer's File ▸ Open"
+                      className="mt-1 inline-flex items-center gap-1 text-[11px] text-slate-400
+                        hover:text-slate-700 font-mono truncate max-w-full">
+                      {copied === p.name ? <Check size={11} /> : <Copy size={11} />}
+                      {copied === p.name ? 'Copied' : p.uncPath}
                     </button>
-                  </div>
+                  )}
                 </li>
               ))}
             </ul>
           )}
 
           <div className="mt-auto pt-2">
-            <div className="flex gap-2">
-              <button onClick={() => buildScript('bat')} disabled={!picked.length || !!building}
-                className="flex-1 px-4 py-2.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700
-                  disabled:opacity-50 inline-flex items-center justify-center gap-2">
-                {building === 'bat' ? <RefreshCw size={15} className="animate-spin" /> : <HardDriveDownload size={15} />}
-                {building === 'bat' ? 'Building…' : 'Acquire (.bat)'}
-              </button>
-              <button onClick={() => buildScript('ps1')} disabled={!picked.length || !!building}
-                title="The same script unwrapped, for running by hand with switches"
-                className="px-3 py-2.5 text-sm border border-slate-300 rounded-lg hover:bg-slate-50
-                  disabled:opacity-50 inline-flex items-center justify-center gap-1.5">
-                {building === 'ps1' ? <RefreshCw size={15} className="animate-spin" /> : null}
-                .ps1
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mt-2">
-              Double-click the <span className="font-mono">.bat</span>. It clears the last acquire and
-              the viewer&apos;s stale scratch folders, pulls these files to{' '}
-              <span className="font-mono">{jobsDir}</span>, and starts the viewer — open them from there.
-              The <span className="font-mono">.ps1</span> is the same script if you want to run it by
-              hand (<span className="font-mono">-Probe</span> reports without changing anything).
-            </p>
-
-            <button onClick={() => setShowSetup(s => !s)}
-              className="mt-3 text-xs text-slate-500 hover:text-slate-800 inline-flex items-center gap-1.5">
-              <Settings2 size={13} /> {showSetup ? 'Hide' : 'Where things go on this PC'}
+            <button onClick={downloadAll} disabled={!picked.length}
+              className="w-full px-4 py-2.5 text-sm bg-emerald-600 text-white rounded-lg hover:bg-emerald-700
+                disabled:opacity-50 inline-flex items-center justify-center gap-2">
+              <Download size={15} />
+              {picked.length > 1 ? `Download ${picked.length} files` : 'Download'}
             </button>
-
-            {showSetup && (
-              <div className="mt-2 p-3 bg-slate-50 border border-slate-200 rounded-lg space-y-3">
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">ODB++ Viewer install folder</label>
-                  <input value={viewerRoot} onChange={e => setViewerRoot(e.target.value)}
-                    className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded font-mono" />
-                </div>
-                <div>
-                  <label className="block text-xs text-slate-500 mb-1">Download folder on the PC</label>
-                  <input value={jobsDir} onChange={e => setJobsDir(e.target.value)}
-                    className="w-full px-2 py-1.5 text-xs border border-slate-300 rounded font-mono" />
-                </div>
-                <p className="text-xs text-slate-500">
-                  These are written into the script you download. Keep the download folder
-                  short — ODB++ jobs nest deeply and most Windows tools still stop at 260
-                  characters.
-                </p>
-              </div>
+            <p className="text-xs text-slate-500 mt-2">
+              Saves to your browser&apos;s download folder on C:. Then open the ODB++ Viewer and
+              use <b>File ▸ Open</b> on the downloaded <span className="font-mono">.tgz</span> —
+              the viewer unpacks it into its own local folder.
+            </p>
+            {picked.length > 1 && (
+              <p className="text-xs text-slate-400 mt-1">
+                Your browser may ask once whether to allow multiple downloads.
+              </p>
+            )}
+            {picked.some(p => p.uncPath) && (
+              <p className="text-xs text-slate-500 mt-2">
+                Or skip the download entirely: copy a share path above and paste it into
+                File ▸ Open. The viewer reads the one file over the network and still
+                unpacks locally.
+              </p>
             )}
           </div>
         </section>
       </div>
 
       <p className="text-xs text-slate-400 mt-5">
-        Proof of concept. The viewer path and download folder above are the test-bench
-        values and are meant to be settled with IT.
+        Downloads only. Nothing is installed or run on your PC.
       </p>
     </div>
   )
