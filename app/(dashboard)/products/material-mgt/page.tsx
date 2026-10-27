@@ -5,7 +5,7 @@ import { useSession } from 'next-auth/react'
 import Tabs from '@/components/ui/Tabs'
 import FilePreviewModal from '@/components/products/FilePreviewModal'
 import {
-  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Plus, X, Trash2, Download, Eye,
+  RefreshCw, Search, ArrowUpDown, ArrowUp, ArrowDown, Plus, X, Trash2, Download, Eye, ChevronDown,
   ShieldCheck, FileText, ListFilter, AlertTriangle, Upload, Save, Pencil, ClipboardList, Files, Layers,
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
@@ -173,6 +173,8 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
   const [pages, setPages] = useState(1)
   const [total, setTotal] = useState(0)
   const [summary, setSummary] = useState({ totalParts: 0, assigned: 0, unassigned: 0 })
+  const [exporting, setExporting] = useState<'view' | 'all' | null>(null)
+  const [exportOpen, setExportOpen] = useState(false)
 
   useEffect(() => {
     const t = setTimeout(() => { setApplied(filters); setPage(1) }, 350)
@@ -203,17 +205,49 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
     setPage(1)
   }
 
-  const exportExcel = async () => {
-    const XLSX = await import('xlsx')
-    const ws = XLSX.utils.json_to_sheet(rows.map(r => ({
-      RKEY: r.RKEY, 'Part Number': r.INV_PART_NUMBER, Description: r.INV_PART_DESCRIPTION,
-      Manufacturer: r.MANUFACTURER_NAME, 'Product Family': r.PRODUCT_FAMILY,
-      REACH: r.reach_status, RoHS: r.rohs_status, 'Prop 65': r.prop65_status, PFAS: r.pfas_status, Active: r.ACTIVE_FLAG,
-    })))
-    ws['!cols'] = [{ wch: 10 }, { wch: 20 }, { wch: 46 }, { wch: 24 }, { wch: 22 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }]
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Parts')
-    XLSX.writeFile(wb, `ehs-parts_${new Date().toISOString().slice(0, 10)}.xlsx`)
+  /**
+   * Excel export.
+   *
+   * 'view' honours the filters and sort currently on screen; 'all' ignores
+   * them and takes every active purchased part. Both re-fetch with all=1
+   * rather than exporting `rows`, which holds only the visible page — a
+   * hundred rows out of twenty-odd thousand, which is what made the old
+   * button useless for working out how material names have drifted.
+   */
+  const exportExcel = async (scope: 'view' | 'all') => {
+    setExporting(scope)
+    try {
+      const p = new URLSearchParams({ all: '1', sort: sort.key, dir: sort.dir })
+      if (scope === 'view') {
+        for (const [k, v] of Object.entries(applied)) if (v.trim()) p.set(k, v.trim())
+        p.set('f_part_mode', partMode)
+        if (unassignedOnly) p.set('unassigned', '1')
+      }
+      const res = await fetch(getApiUrl(`/api/ehs/parts?${p.toString()}`))
+      const r = await res.json()
+      if (!res.ok) throw new Error(r.error || r.details || 'Export failed')
+      const data: Part[] = r.rows || []
+
+      const XLSX = await import('xlsx')
+      const ws = XLSX.utils.json_to_sheet(data.map(x => ({
+        RKEY: x.RKEY, 'Part Number': x.INV_PART_NUMBER, Description: x.INV_PART_DESCRIPTION,
+        Manufacturer: x.MANUFACTURER_NAME, 'Product Family': x.PRODUCT_FAMILY,
+        REACH: x.reach_status, RoHS: x.rohs_status, 'Prop 65': x.prop65_status,
+        PFAS: x.pfas_status, Active: x.ACTIVE_FLAG,
+      })))
+      ws['!cols'] = [{ wch: 10 }, { wch: 20 }, { wch: 46 }, { wch: 24 }, { wch: 22 },
+        { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }]
+      ws['!autofilter'] = { ref: XLSX.utils.encode_range({
+        s: { r: 0, c: 0 }, e: { r: data.length, c: 9 } }) }
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, 'Parts')
+      XLSX.writeFile(wb, `ehs-parts-${scope}_${data.length}_${new Date().toISOString().slice(0, 10)}.xlsx`)
+    } catch (e: any) {
+      setError(e.message || String(e))
+    } finally {
+      setExporting(null)
+      setExportOpen(false)
+    }
   }
 
   return (
@@ -222,7 +256,14 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
         <p className="text-sm text-slate-500">
           {loading ? 'Loading…' : (
             <>
-              {total.toLocaleString()} shown · {summary.totalParts.toLocaleString()} purchased parts ·{' '}
+              {total.toLocaleString()} matching ·{' '}
+              {/* Say what the denominator actually is. "21,000 parts" reads as
+                  "every material we buy"; it is in fact every ACTIVE purchased
+                  line in Paradigm, Z-numbers excluded — laminate and prepreg
+                  sit in there alongside drill bits and packaging. */}
+              <span title="Paradigm DATA0017: P_M = 'P', ACTIVE_FLAG = 'Y', part number not starting Z">
+                {summary.totalParts.toLocaleString()} active purchased parts
+              </span> ·{' '}
               <span className="text-green-700">{summary.assigned.toLocaleString()} in a family</span> ·{' '}
               <span className="text-amber-600">{summary.unassigned.toLocaleString()} unassigned</span>
             </>
@@ -234,10 +275,38 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
               onChange={e => { setUnassignedOnly(e.target.checked); setPage(1) }} />
             Unassigned only
           </label>
-          <button onClick={exportExcel} disabled={!rows.length}
-            className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 border border-slate-200 disabled:opacity-50">
-            <Download size={14} /> Excel
-          </button>
+          <div className="relative">
+            <button onClick={() => setExportOpen(o => !o)} disabled={!!exporting || loading}
+              className="px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 rounded-lg flex items-center gap-1 border border-slate-200 disabled:opacity-50">
+              {exporting
+                ? <RefreshCw size={14} className="animate-spin" />
+                : <Download size={14} />}
+              {exporting ? 'Building…' : 'Excel'}
+              <ChevronDown size={13} className="text-slate-400" />
+            </button>
+            {exportOpen && !exporting && (
+              <>
+                {/* Click-away layer, so the menu closes like a menu should. */}
+                <div className="fixed inset-0 z-20" onClick={() => setExportOpen(false)} />
+                <div className="absolute right-0 mt-1 z-30 w-60 bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                  <button onClick={() => exportExcel('view')}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+                    <div className="text-slate-800">This view</div>
+                    <div className="text-xs text-slate-500">
+                      {total.toLocaleString()} row{total === 1 ? '' : 's'} — current filters and sort
+                    </div>
+                  </button>
+                  <button onClick={() => exportExcel('all')}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-slate-50">
+                    <div className="text-slate-800">All parts</div>
+                    <div className="text-xs text-slate-500">
+                      {summary.totalParts.toLocaleString()} rows — ignores filters
+                    </div>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           <button onClick={load} disabled={loading}
             className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-1 disabled:opacity-50">
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} /> Refresh

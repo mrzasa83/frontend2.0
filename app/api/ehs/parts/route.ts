@@ -77,9 +77,17 @@ export async function GET(request: NextRequest) {
 
     const total = filtered.length
     const assigned = rows.filter(r => r.PRODUCT_FAMILY).length
-    const page = Math.max(1, parseInt(sp.get('page') || '1', 10) || 1)
-    const pageSize = Math.min(500, Math.max(1, parseInt(sp.get('pageSize') || '100', 10) || 100))
-    const paged = filtered.slice((page - 1) * pageSize, page * pageSize)
+
+    // all=1 returns every matching row in one response, for the Excel export.
+    // The table never asks for this — it pages — so the 500-row cap below
+    // still protects the interactive path. Everything is already in memory
+    // from the cache, so this costs a serialization, not a query.
+    const all = sp.get('all') === '1'
+    const page = all ? 1 : Math.max(1, parseInt(sp.get('page') || '1', 10) || 1)
+    const pageSize = all
+      ? Math.max(total, 1)
+      : Math.min(500, Math.max(1, parseInt(sp.get('pageSize') || '100', 10) || 100))
+    const paged = all ? filtered : filtered.slice((page - 1) * pageSize, page * pageSize)
 
     return NextResponse.json({
       success: true,
