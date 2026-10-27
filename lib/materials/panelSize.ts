@@ -45,8 +45,15 @@ const MAX_DIM = 60
 
 const inRange = (n: number) => n >= MIN_DIM && n <= MAX_DIM
 
-/** Two 2-digit dimensions at the end, each optionally H for +0.5". */
-const PN_TAIL = /(\d{2})(H?)(\d{2})(H?)$/
+/**
+ * Two 2-digit dimensions at the end, each optionally suffixed:
+ *   H = +0.5"   (FCCU4KUT.HOZ18H24H -> 18.5 x 24.5)
+ *   Q = +0.25"  (PPGLD0U108038Q24Q  -> 38.25 x 24.25)
+ * Both conventions are live; Q appears on untooled prepreg.
+ */
+const PN_TAIL = /(\d{2})([HQ]?)(\d{2})([HQ]?)$/
+
+const bump = (sfx: string) => sfx === 'H' ? 0.5 : sfx === 'Q' ? 0.25 : 0
 
 /**
  * Letters then a zero-padded counter: HDW0000011063, CSM0000005512,
@@ -58,7 +65,7 @@ const PN_TAIL = /(\d{2})(H?)(\d{2})(H?)$/
 const SERIAL = /^[A-Z_]+0{4,}\d*$/
 
 /** <letters><4-digit thickness><copper><size>, the laminate/prepreg grammar. */
-const FULL = /^([A-Z]{2,8})(\d{4})([A-Z0-9]*?)(\d{2})(H?)(\d{2})(H?)$/
+const FULL = /^([A-Z]{2,8})(\d{4})([A-Z0-9]*?)(\d{2})([HQ]?)(\d{2})([HQ]?)$/
 
 /** Size from the tail of a part number, whatever precedes it. */
 export function sizeFromPartNumber(pn: string): PanelSize | null {
@@ -66,18 +73,22 @@ export function sizeFromPartNumber(pn: string): PanelSize | null {
   if (SERIAL.test(s)) return null
   const m = PN_TAIL.exec(s)
   if (!m) return null
-  const grain = Number(m[1]) + (m[2] ? 0.5 : 0)
-  const cross = Number(m[3]) + (m[4] ? 0.5 : 0)
+  const grain = Number(m[1]) + bump(m[2])
+  const cross = Number(m[3]) + bump(m[4])
   return inRange(grain) && inRange(cross) ? { grain, cross } : null
 }
 
 /** The full grammar: code, thickness, copper and size. Null if it doesn't fit. */
 export function parseMaterialName(pn: string): MaterialName | null {
   const s = String(pn ?? '').trim().toUpperCase()
+  // Same guard as the tail parser. Without it CSM0000001010 reads as a
+  // "laminate" of thickness .0000 and size 10 x 10, and the CSM family alone
+  // is 3,353 parts.
+  if (SERIAL.test(s)) return null
   const m = FULL.exec(s)
   if (m) {
-    const grain = Number(m[4]) + (m[5] ? 0.5 : 0)
-    const cross = Number(m[6]) + (m[7] ? 0.5 : 0)
+    const grain = Number(m[4]) + bump(m[5])
+    const cross = Number(m[6]) + bump(m[7])
     if (inRange(grain) && inRange(cross)) {
       return {
         code: m[1],
@@ -95,7 +106,7 @@ export function parseMaterialName(pn: string): MaterialName | null {
 }
 
 /** "28GRX24", "24GX36", "19X25", "18HX24H". */
-const DESC_SIZE = /(\d{1,3}(?:\.\d+)?)\s*(H?)\s*(GR|G|R)?\s*X\s*(\d{1,3}(?:\.\d+)?)\s*(H?)/gi
+const DESC_SIZE = /(\d{1,3}(?:\.\d+)?)\s*([HQ]?)\s*(GR|G|R)?\s*X\s*(\d{1,3}(?:\.\d+)?)\s*([HQ]?)/gi
 
 export function sizeFromDescription(desc: string): PanelSize | null {
   const s = String(desc ?? '').trim().toUpperCase()
@@ -104,8 +115,8 @@ export function sizeFromDescription(desc: string): PanelSize | null {
   // there loses the size altogether.
   let best: { grain: number; cross: number; score: number } | null = null
   for (const m of s.matchAll(DESC_SIZE)) {
-    const grain = Number(m[1]) + (m[2] ? 0.5 : 0)
-    const cross = Number(m[4]) + (m[5] ? 0.5 : 0)
+    const grain = Number(m[1]) + bump(m[2])
+    const cross = Number(m[4]) + bump(m[5])
     if (!isFinite(grain) || !isFinite(cross)) continue
     if (!inRange(grain) || !inRange(cross)) continue
     // An explicit grain marker is the real panel callout; a bare 19X25 counts
@@ -145,4 +156,96 @@ export function panelSizeOf(pn: string, desc: string): SizeVerdict {
   } else if (fromPart) confidence = 'part-only'
   else if (fromDesc) confidence = 'desc-only'
   return { fromPart, fromDesc, size: fromPart || fromDesc, confidence }
+}
+
+/* ───────────────────────── what kind of material is it ────────────────────── */
+
+/**
+ * The buckets that matter for "show me PCB materials".
+ *
+ * Derived from the 20,400-row census rather than invented: laminate, prepreg
+ * and copper foil are the board stack itself; entry and backup are panel-sized
+ * drilling consumables that share the naming and the machine constraint but
+ * are not part of the board. They are kept separate so the filter can include
+ * or exclude them deliberately instead of by accident.
+ */
+export type MaterialKind =
+  | 'laminate' | 'prepreg' | 'foil' | 'entry-backup' | 'other-panel' | 'non-panel'
+
+export const PCB_KINDS: MaterialKind[] = ['laminate', 'prepreg', 'foil']
+
+export const KIND_LABEL: Record<MaterialKind, string> = {
+  laminate: 'Laminate / core',
+  prepreg: 'Prepreg',
+  foil: 'Copper foil',
+  'entry-backup': 'Entry / backup',
+  'other-panel': 'Other panel material',
+  'non-panel': 'Not a panel material',
+}
+
+/** A roll or a liquid is sold by length or volume, never as a panel. */
+const ROLL = /\bROLL\b|\bRL\b|\d\s*'|\bQT\b|\bGAL\b|\bML\b|\bLB\b/i
+
+/**
+ * Classify from the part number and description together.
+ *
+ * Order matters: prepreg and foil are recognised before the generic laminate
+ * test, because a prepreg number also satisfies the laminate grammar.
+ */
+export function materialKind(pn: string, desc: string): MaterialKind {
+  const p = String(pn ?? '').trim().toUpperCase()
+  const d = String(desc ?? '').trim().toUpperCase()
+
+  // A roll is sold by the foot whatever it is made of, so it is never a panel
+  // material — this has to come first, or "PSA 467MP 24\" ROLL DOUBLE BACKER"
+  // is filed as backup board.
+  if (ROLL.test(d)) return 'non-panel'
+
+  if (/^EE/.test(p) || /\bENTRY\b/.test(d)) return 'entry-backup'
+  if (/^EB/.test(p) || /\bBACK ?UP\b|\bBACKER\b/.test(d)) return 'entry-backup'
+  // Dry film and other imaging stock is panel-sized but is not board material.
+  if (/^DF/.test(p) || /\bDRY FILM\b|\bSOLDERMASK\b/.test(d)) return 'other-panel'
+  if (/^PP/.test(p) || /\bPREPREG\b|\bRC\s*\d+\s*%/.test(d)) return 'prepreg'
+  if (/^(FC|CU|AL)/.test(p) || /\bCU FOIL\b|\bCOPPER FOIL\b/.test(d)) return 'foil'
+
+  const parsed = parseMaterialName(p)
+  // The full grammar — letters, thickness, copper weight, size — is what a
+  // laminate number is. The copper code is the distinguishing part, and it
+  // must look like one: at least two characters with a letter in it. Without
+  // that test CHASSYX0005961111 (an adhesive film) parses as a laminate with
+  // copper code "96".
+  const copperish = parsed && parsed.copper.length >= 2 && /[A-Z]/.test(parsed.copper)
+  // Board stock runs about .0005" to .250". A parse claiming .8512"
+  // (DFPLYSLS85122DL2418, a dry film) has mis-split the number.
+  const plausible = parsed && parsed.thicknessIn !== null
+    && parsed.thicknessIn >= 0.0005 && parsed.thicknessIn <= 0.5
+  if (parsed && plausible && copperish) return 'laminate'
+
+  // Carries a grain callout, so it is a panel, but not one of the above.
+  if (/\d\s*(?:GR|G)\s*X\s*\d/.test(d) && !ROLL.test(d)) return 'other-panel'
+  return 'non-panel'
+}
+
+export const isPcbMaterial = (kind: MaterialKind) =>
+  (PCB_KINDS as string[]).includes(kind)
+
+/**
+ * Panel size as width x length, width always the narrow side.
+ *
+ * The part number records grain direction, so the same panel appears as both
+ * 18 x 24 and 24 x 18. For asking what a machine will take, grain is noise and
+ * the narrow dimension is the constraint — it is the most the machine accepts.
+ */
+export function standardWidthLength(size: PanelSize | null):
+  { width: number; length: number } | null {
+  if (!size) return null
+  return {
+    width: Math.min(size.grain, size.cross),
+    length: Math.max(size.grain, size.cross),
+  }
+}
+
+export const formatWL = (size: PanelSize | null): string => {
+  const wl = standardWidthLength(size)
+  return wl ? `${wl.width} x ${wl.length}` : ''
 }

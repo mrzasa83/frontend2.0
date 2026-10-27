@@ -27,6 +27,15 @@ type Part = {
   pfas_status: string
   per_part_evidence?: boolean
   overlap: string[] | null
+  material_kind: string
+  material_code: string
+  thickness_in: number | null
+  copper_code: string
+  panel_grain: number | null
+  panel_cross: number | null
+  panel_width: number | null
+  panel_length: number | null
+  size_check: string
 }
 type Family = {
   id: number
@@ -146,10 +155,30 @@ export default function MaterialMgtPage() {
 const PART_COLS = [
   { key: 'INV_PART_NUMBER', label: 'Part Number', filter: 'f_part', w: 160 },
   { key: 'INV_PART_DESCRIPTION', label: 'Description', filter: 'f_desc' },
-  { key: 'MANUFACTURER_NAME', label: 'Manufacturer', filter: 'f_mfr', w: 200 },
-  { key: 'PRODUCT_FAMILY', label: 'Product Family', filter: 'f_family', w: 190 },
+  { key: 'MANUFACTURER_NAME', label: 'Manufacturer', filter: 'f_mfr', w: 170 },
+  // Width x Length with the narrow side first: grain direction is dropped on
+  // purpose, because what a machine will take is set by the narrow side.
+  { key: 'panel_width', label: 'W x L', filter: 'f_size', w: 110 },
+  { key: 'PRODUCT_FAMILY', label: 'Product Family', filter: 'f_family', w: 160 },
   { key: 'ACTIVE_FLAG', label: 'Active', filter: '', w: 70 },
 ]
+
+const KIND_LABELS: Record<string, string> = {
+  laminate: 'Laminate / core',
+  prepreg: 'Prepreg',
+  foil: 'Copper foil',
+  'entry-backup': 'Entry / backup',
+  'other-panel': 'Other panel',
+  'non-panel': 'Not a panel',
+}
+const KIND_TONES: Record<string, string> = {
+  laminate: 'bg-blue-100 text-blue-700',
+  prepreg: 'bg-violet-100 text-violet-700',
+  foil: 'bg-amber-100 text-amber-700',
+  'entry-backup': 'bg-teal-100 text-teal-700',
+  'other-panel': 'bg-slate-100 text-slate-600',
+  'non-panel': 'bg-slate-50 text-slate-400',
+}
 
 function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) => void }) {
   const [rows, setRows] = useState<Part[]>([])
@@ -159,6 +188,7 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
   const [applied, setApplied] = useState<Record<string, string>>({})
   const [unassignedOnly, setUnassignedOnly] = useState(false)
   const [partMode, setPartMode] = useState<'contains' | 'starts'>('starts')
+  const [kind, setKind] = useState('')
   const [famOptions, setFamOptions] = useState<string[]>([])
 
   // Family names for the Product Family dropdown.
@@ -172,7 +202,7 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
   const [page, setPage] = useState(1)
   const [pages, setPages] = useState(1)
   const [total, setTotal] = useState(0)
-  const [summary, setSummary] = useState({ totalParts: 0, assigned: 0, unassigned: 0 })
+  const [summary, setSummary] = useState({ totalParts: 0, assigned: 0, unassigned: 0, pcbTotal: 0 })
   const [exporting, setExporting] = useState<'view' | 'all' | null>(null)
   const [exportOpen, setExportOpen] = useState(false)
 
@@ -189,15 +219,17 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
       })
       for (const [k, v] of Object.entries(applied)) if (v.trim()) p.set(k, v.trim())
       p.set('f_part_mode', partMode)
+      if (kind) p.set('kind', kind)
       if (unassignedOnly) p.set('unassigned', '1')
       const res = await fetch(getApiUrl(`/api/ehs/parts?${p.toString()}`))
       const r = await res.json()
       if (!res.ok) throw new Error(r.error || r.details || 'Failed to load parts')
       setRows(r.rows || []); setPages(r.pages || 1); setTotal(r.total || 0)
-      setSummary({ totalParts: r.totalParts || 0, assigned: r.assigned || 0, unassigned: r.unassigned || 0 })
+      setSummary({ totalParts: r.totalParts || 0, assigned: r.assigned || 0,
+        unassigned: r.unassigned || 0, pcbTotal: r.pcbTotal || 0 })
     } catch (e: any) { setError(e.message) }
     setLoading(false)
-  }, [page, sort, applied, unassignedOnly, partMode])
+  }, [page, sort, applied, unassignedOnly, partMode, kind])
   useEffect(() => { load() }, [load])
 
   const toggleSort = (key: string) => {
@@ -221,6 +253,7 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
       if (scope === 'view') {
         for (const [k, v] of Object.entries(applied)) if (v.trim()) p.set(k, v.trim())
         p.set('f_part_mode', partMode)
+        if (kind) p.set('kind', kind)
         if (unassignedOnly) p.set('unassigned', '1')
       }
       const res = await fetch(getApiUrl(`/api/ehs/parts?${p.toString()}`))
@@ -229,41 +262,42 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
       const data: Part[] = r.rows || []
 
       const XLSX = await import('xlsx')
-      const { parseMaterialName, panelSizeOf } = await import('@/lib/materials/panelSize')
+
 
       // Parsed columns alongside the raw ones. Board material carries its spec
       // in the name, so pulling thickness / copper / panel size into their own
       // columns makes the sheet pivotable instead of something to eyeball.
       // Size Check is the useful one: 'conflict' means the part number and the
       // description disagree about the panel, which is the drift worth finding.
-      const rowsOut = data.map(x => {
-        const pn = String(x.INV_PART_NUMBER || '').trim()
-        const de = String(x.INV_PART_DESCRIPTION || '').trim()
-        const name = parseMaterialName(pn)
-        const v = panelSizeOf(pn, de)
-        return {
-          RKEY: x.RKEY, 'Part Number': pn, Description: de,
-          Manufacturer: x.MANUFACTURER_NAME, 'Product Family': x.PRODUCT_FAMILY,
-          'Material Code': name?.code || '',
-          'Thickness (in)': name?.thicknessIn ?? '',
-          'Copper Code': name?.copper || '',
-          'Panel Grain': v.size?.grain ?? '',
-          'Panel Cross': v.size?.cross ?? '',
-          'Panel Size': v.size ? `${v.size.grain} x ${v.size.cross}` : '',
-          'Size Check': v.confidence,
-          'Size in Desc': v.fromDesc ? `${v.fromDesc.grain} x ${v.fromDesc.cross}` : '',
-          REACH: x.reach_status, RoHS: x.rohs_status, 'Prop 65': x.prop65_status,
-          PFAS: x.pfas_status, Active: x.ACTIVE_FLAG,
-        }
-      })
+      const rowsOut = data.map(x => ({
+        RKEY: x.RKEY,
+        'Part Number': String(x.INV_PART_NUMBER || '').trim(),
+        Description: String(x.INV_PART_DESCRIPTION || '').trim(),
+        Manufacturer: x.MANUFACTURER_NAME,
+        'Product Family': x.PRODUCT_FAMILY,
+        'Material Kind': KIND_LABELS[x.material_kind] || x.material_kind,
+        'Material Code': x.material_code || '',
+        'Thickness (in)': x.thickness_in ?? '',
+        'Copper Code': x.copper_code || '',
+        // Narrow side first, grain dropped — the form to pivot on.
+        Width: x.panel_width ?? '',
+        Length: x.panel_length ?? '',
+        'W x L': x.panel_width != null ? `${x.panel_width} x ${x.panel_length}` : '',
+        // As named, grain first, for tying back to the part number.
+        'Panel Grain': x.panel_grain ?? '',
+        'Panel Cross': x.panel_cross ?? '',
+        'Size Check': x.size_check,
+        REACH: x.reach_status, RoHS: x.rohs_status, 'Prop 65': x.prop65_status,
+        PFAS: x.pfas_status, Active: x.ACTIVE_FLAG,
+      }))
 
       const ws = XLSX.utils.json_to_sheet(rowsOut)
-      ws['!cols'] = [{ wch: 10 }, { wch: 22 }, { wch: 44 }, { wch: 22 }, { wch: 20 },
-        { wch: 14 }, { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 13 },
-        { wch: 12 }, { wch: 13 },
+      ws['!cols'] = [{ wch: 10 }, { wch: 22 }, { wch: 44 }, { wch: 20 }, { wch: 18 },
+        { wch: 16 }, { wch: 13 }, { wch: 13 }, { wch: 12 },
+        { wch: 8 }, { wch: 8 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 11 },
         { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 8 }]
       ws['!autofilter'] = { ref: XLSX.utils.encode_range({
-        s: { r: 0, c: 0 }, e: { r: rowsOut.length, c: 17 } }) }
+        s: { r: 0, c: 0 }, e: { r: rowsOut.length, c: 19 } }) }
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Parts')
       XLSX.writeFile(wb, `ehs-parts-${scope}_${data.length}_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -289,12 +323,28 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
               <span title="Paradigm DATA0017: P_M = 'P', ACTIVE_FLAG = 'Y', part number not starting Z">
                 {summary.totalParts.toLocaleString()} active purchased parts
               </span> ·{' '}
+              <span className="text-blue-700">{summary.pcbTotal.toLocaleString()} PCB materials</span> ·{' '}
               <span className="text-green-700">{summary.assigned.toLocaleString()} in a family</span> ·{' '}
               <span className="text-amber-600">{summary.unassigned.toLocaleString()} unassigned</span>
             </>
           )}
         </p>
         <div className="flex items-center gap-2">
+          {/* The board stack is three kinds of thing; entry, backup and dry
+              film are panel-sized consumables and are reachable by name so
+              they are never swept in by accident. */}
+          <select value={kind} onChange={e => { setKind(e.target.value); setPage(1) }}
+            title="Narrow to board material"
+            className="px-2 py-1.5 text-sm border border-slate-300 rounded-lg bg-white">
+            <option value="">All materials</option>
+            <option value="pcb">PCB materials ({summary.pcbTotal.toLocaleString()})</option>
+            <option value="laminate">— Laminate / core</option>
+            <option value="prepreg">— Prepreg</option>
+            <option value="foil">— Copper foil</option>
+            <option value="entry-backup">Entry / backup</option>
+            <option value="other-panel">Other panel material</option>
+            <option value="non-panel">Not a panel material</option>
+          </select>
           <label className="flex items-center gap-1.5 text-sm text-slate-600">
             <input type="checkbox" checked={unassignedOnly}
               onChange={e => { setUnassignedOnly(e.target.checked); setPage(1) }} />
@@ -403,6 +453,30 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
                 <td className="px-3 py-1.5 font-mono text-blue-600 font-medium">{r.INV_PART_NUMBER}</td>
                 <td className="px-3 py-1.5 text-slate-600">{r.INV_PART_DESCRIPTION}</td>
                 <td className="px-3 py-1.5 text-slate-600">{r.MANUFACTURER_NAME}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  {r.panel_width != null ? (
+                    <>
+                      <span className="tabular-nums text-slate-800">
+                        {r.panel_width} x {r.panel_length}
+                      </span>
+                      {/* The as-named size, when the grain order differs from
+                          the standardised narrow-first form. */}
+                      {r.panel_grain !== r.panel_width && (
+                        <span className="ml-1.5 text-[10px] text-slate-400 tabular-nums"
+                          title="As named, grain first">
+                          {r.panel_grain}x{r.panel_cross}
+                        </span>
+                      )}
+                      {r.size_check === 'conflict' && (
+                        <span className="ml-1 text-[10px] text-amber-600"
+                          title="The part number and the description disagree about this panel">!</span>
+                      )}
+                      <span className={`ml-1.5 text-[10px] px-1 py-0.5 rounded ${KIND_TONES[r.material_kind] || ''}`}>
+                        {KIND_LABELS[r.material_kind] || r.material_kind}
+                      </span>
+                    </>
+                  ) : <span className="text-slate-300">—</span>}
+                </td>
                 <td className="px-3 py-1.5">
                   {r.PRODUCT_FAMILY ? (
                     <span className="inline-flex items-center gap-1">

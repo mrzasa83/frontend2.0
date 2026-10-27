@@ -1,6 +1,10 @@
 import { queryMSSQL } from '@/lib/db/mssql'
 import { loadFamilies } from '@/lib/ehs/loadFamilies'
 import { familyForPart, allFamiliesForPart, type PartRow } from '@/lib/ehs/familyMatch'
+import {
+  parseMaterialName, panelSizeOf, materialKind, standardWidthLength,
+  type MaterialKind,
+} from '@/lib/materials/panelSize'
 
 /**
  * Purchased parts with their resolved family, cached in memory.
@@ -36,6 +40,19 @@ export type ResolvedPart = {
   pfas_status: string
   per_part_evidence: boolean
   overlap: string[] | null
+
+  // Parsed out of the name. Board material carries its spec in the part
+  // number, so this is derived once here rather than on every request.
+  material_kind: MaterialKind
+  material_code: string
+  thickness_in: number | null
+  copper_code: string
+  panel_grain: number | null
+  panel_cross: number | null
+  /** Narrow side first, grain ignored — the machine constraint. */
+  panel_width: number | null
+  panel_length: number | null
+  size_check: string
 }
 
 const BASE_SQL = `
@@ -82,8 +99,21 @@ async function build(): Promise<ResolvedPart[]> {
     const fam = familyForPart(part, families)
     const all = allFamiliesForPart(part, families)
     const inherits = fam ? (fam.inherit_compliance ?? 1) : 1
+    const parsed = parseMaterialName(part.INV_PART_NUMBER)
+    const v = panelSizeOf(part.INV_PART_NUMBER, part.INV_PART_DESCRIPTION)
+    const wl = standardWidthLength(v.size)
+
     return {
       ...part,
+      material_kind: materialKind(part.INV_PART_NUMBER, part.INV_PART_DESCRIPTION),
+      material_code: parsed?.code || '',
+      thickness_in: parsed?.thicknessIn ?? null,
+      copper_code: parsed?.copper || '',
+      panel_grain: v.size?.grain ?? null,
+      panel_cross: v.size?.cross ?? null,
+      panel_width: wl?.width ?? null,
+      panel_length: wl?.length ?? null,
+      size_check: v.confidence,
       PRODUCT_FAMILY: fam?.family_name || '',
       family_id: fam?.id ?? null,
       reach_status: inherits ? (fam?.reach_status || '') : '',

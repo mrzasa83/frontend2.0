@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { canReadModule } from '@/lib/config/access'
 import { getPartsWithFamilies, partsCacheAge } from '@/lib/ehs/partsCache'
+import { isPcbMaterial } from '@/lib/materials/panelSize'
 
 export const dynamic = 'force-dynamic'
 
@@ -58,7 +59,27 @@ export async function GET(request: NextRequest) {
     // parts that no family has claimed yet.
     const familyUnassigned = fFamily === '__unassigned__'
 
+    // Material kind: 'pcb' is the shorthand for the board stack itself
+    // (laminate, prepreg and copper foil), which is what people mean by
+    // "PCB materials". Entry, backup and dry film are panel-sized but are
+    // consumables, so they are reachable only by naming them.
+    const kind = (sp.get('kind') || '').trim()
+    const fSize = (sp.get('f_size') || '').trim()
+
     const filtered = rows.filter(r => {
+      if (kind === 'pcb' && !isPcbMaterial(r.material_kind)) return false
+      else if (kind && kind !== 'pcb' && r.material_kind !== kind) return false
+      // Matches either orientation and the standardised form, so "18x24"
+      // finds 18 x 24, 24 x 18 and the W x L column alike.
+      if (fSize) {
+        const norm = fSize.replace(/\s|"/g, '').toLowerCase()
+        const forms = [
+          `${r.panel_grain}x${r.panel_cross}`,
+          `${r.panel_cross}x${r.panel_grain}`,
+          `${r.panel_width}x${r.panel_length}`,
+        ]
+        if (!forms.some(f => f.includes(norm))) return false
+      }
       if (q && !(like(q, r.INV_PART_NUMBER) || like(q, r.INV_PART_DESCRIPTION) || like(q, r.MANUFACTURER_NAME))) return false
       if (fPart && !matchPart(fPart, r.INV_PART_NUMBER)) return false
       if (fDesc && !like(fDesc, r.INV_PART_DESCRIPTION)) return false
@@ -72,11 +93,21 @@ export async function GET(request: NextRequest) {
     // Sort — defaults to part number, as requested.
     const sortKey = sp.get('sort') || 'INV_PART_NUMBER'
     const dir = (sp.get('dir') || 'asc').toLowerCase() === 'desc' ? -1 : 1
-    filtered.sort((a, b) =>
-      dir * String((a as any)[sortKey] ?? '').localeCompare(String((b as any)[sortKey] ?? '')))
+    // Panel dimensions sort as numbers; everything else as text. Sorting
+    // "18" against "9" as strings puts the 9" panel last.
+    const NUMERIC = new Set(['panel_width', 'panel_length', 'panel_grain', 'panel_cross', 'thickness_in'])
+    filtered.sort((a, b) => {
+      const av = (a as any)[sortKey], bv = (b as any)[sortKey]
+      if (NUMERIC.has(sortKey)) {
+        const an = av ?? -1, bn = bv ?? -1
+        return dir * (an - bn)
+      }
+      return dir * String(av ?? '').localeCompare(String(bv ?? ''))
+    })
 
     const total = filtered.length
     const assigned = rows.filter(r => r.PRODUCT_FAMILY).length
+    const pcbTotal = rows.filter(r => isPcbMaterial(r.material_kind)).length
 
     // all=1 returns every matching row in one response, for the Excel export.
     // The table never asks for this — it pages — so the 500-row cap below
@@ -94,6 +125,7 @@ export async function GET(request: NextRequest) {
       rows: paged,
       total, page, pageSize, pages: Math.ceil(total / pageSize) || 1,
       totalParts: rows.length,
+      pcbTotal,
       cacheAgeMs: partsCacheAge(),
       assigned,
       unassigned: rows.length - assigned,
