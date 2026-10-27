@@ -249,3 +249,22 @@ export const formatWL = (size: PanelSize | null): string => {
   const wl = standardWidthLength(size)
   return wl ? `${wl.width} x ${wl.length}` : ''
 }
+
+/**
+ * The grade-level grouping code, for rolling parts up under a panel.
+ *
+ * The full material code is too fine to group on — 18 x 24 alone carries 253
+ * of them, because the trailing letter is a construction variant (LBA, LBB,
+ * LBE are all FR406). The leading two characters are the grade family, which
+ * is what someone picking material actually chooses between.
+ *
+ * Prepreg is the exception: PP is the whole prepreg catalogue, and the grade
+ * lives two characters further in (PPGLB -> LB -> FR406), so those keep five.
+ */
+export function materialFamilyCode(pn: string): string {
+  const s = String(pn ?? '').trim().toUpperCase()
+  if (!s) return '(other)'
+  if (s.startsWith('PP')) return s.slice(0, 5)
+  const letters = s.match(/^[A-Z]+/)?.[0] || ''
+  return letters.slice(0, 2) || '(other)'
+}

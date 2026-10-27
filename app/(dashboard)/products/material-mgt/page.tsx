@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { getApiUrl } from '@/lib/api'
 import PartPanel from '@/components/ehs/PartPanel'
+import PanelsTab from '@/components/ehs/PanelsTab'
 import { hasRole } from '@/lib/config/access'
 import { CRITERIA_FIELDS, CRITERIA_OPERATORS, COMPLIANCE_VALUES, type Criterion } from '@/lib/ehs/familyMatch'
 
@@ -101,6 +102,10 @@ export default function MaterialMgtPage() {
     {
       id: 'families', label: 'Families', closeable: false,
       content: <FamiliesTab key={`fams-${reloadKey}`} canEdit={canEdit} onOpen={openFamily} onChanged={refreshAll} />,
+    },
+    {
+      id: 'panels', label: 'Panels', closeable: false,
+      content: <PanelsTab key={`panels-${reloadKey}`} />,
     },
     ...openParts.map(p => ({
       id: `part-${p.part}`,
