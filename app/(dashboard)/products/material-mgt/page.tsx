@@ -229,16 +229,41 @@ function PartsTab({ onOpenPart }: { onOpenPart: (part: string, source: string) =
       const data: Part[] = r.rows || []
 
       const XLSX = await import('xlsx')
-      const ws = XLSX.utils.json_to_sheet(data.map(x => ({
-        RKEY: x.RKEY, 'Part Number': x.INV_PART_NUMBER, Description: x.INV_PART_DESCRIPTION,
-        Manufacturer: x.MANUFACTURER_NAME, 'Product Family': x.PRODUCT_FAMILY,
-        REACH: x.reach_status, RoHS: x.rohs_status, 'Prop 65': x.prop65_status,
-        PFAS: x.pfas_status, Active: x.ACTIVE_FLAG,
-      })))
-      ws['!cols'] = [{ wch: 10 }, { wch: 20 }, { wch: 46 }, { wch: 24 }, { wch: 22 },
-        { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 8 }]
+      const { parseMaterialName, panelSizeOf } = await import('@/lib/materials/panelSize')
+
+      // Parsed columns alongside the raw ones. Board material carries its spec
+      // in the name, so pulling thickness / copper / panel size into their own
+      // columns makes the sheet pivotable instead of something to eyeball.
+      // Size Check is the useful one: 'conflict' means the part number and the
+      // description disagree about the panel, which is the drift worth finding.
+      const rowsOut = data.map(x => {
+        const pn = String(x.INV_PART_NUMBER || '').trim()
+        const de = String(x.INV_PART_DESCRIPTION || '').trim()
+        const name = parseMaterialName(pn)
+        const v = panelSizeOf(pn, de)
+        return {
+          RKEY: x.RKEY, 'Part Number': pn, Description: de,
+          Manufacturer: x.MANUFACTURER_NAME, 'Product Family': x.PRODUCT_FAMILY,
+          'Material Code': name?.code || '',
+          'Thickness (in)': name?.thicknessIn ?? '',
+          'Copper Code': name?.copper || '',
+          'Panel Grain': v.size?.grain ?? '',
+          'Panel Cross': v.size?.cross ?? '',
+          'Panel Size': v.size ? `${v.size.grain} x ${v.size.cross}` : '',
+          'Size Check': v.confidence,
+          'Size in Desc': v.fromDesc ? `${v.fromDesc.grain} x ${v.fromDesc.cross}` : '',
+          REACH: x.reach_status, RoHS: x.rohs_status, 'Prop 65': x.prop65_status,
+          PFAS: x.pfas_status, Active: x.ACTIVE_FLAG,
+        }
+      })
+
+      const ws = XLSX.utils.json_to_sheet(rowsOut)
+      ws['!cols'] = [{ wch: 10 }, { wch: 22 }, { wch: 44 }, { wch: 22 }, { wch: 20 },
+        { wch: 14 }, { wch: 13 }, { wch: 12 }, { wch: 12 }, { wch: 12 }, { wch: 13 },
+        { wch: 12 }, { wch: 13 },
+        { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 8 }]
       ws['!autofilter'] = { ref: XLSX.utils.encode_range({
-        s: { r: 0, c: 0 }, e: { r: data.length, c: 9 } }) }
+        s: { r: 0, c: 0 }, e: { r: rowsOut.length, c: 17 } }) }
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Parts')
       XLSX.writeFile(wb, `ehs-parts-${scope}_${data.length}_${new Date().toISOString().slice(0, 10)}.xlsx`)
