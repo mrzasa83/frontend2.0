@@ -31,10 +31,11 @@ export async function GET(request: NextRequest) {
   try {
     // One part: the Products ▸ Released tab. Skips filtering and paging.
     const part = (sp.get('part') || '').trim()
-    if (part) {
-      const rows = await openForPart(part)
+    const customerPart = (sp.get('customerPart') || '').trim()
+    if (part || customerPart) {
+      const rows = await openForPart(part, customerPart)
       return NextResponse.json({
-        success: true, part, rows, totals: totalsFor(rows),
+        success: true, part, customerPart, rows, totals: totalsFor(rows),
         cacheAgeMs: salesOrderCacheAge(),
       })
     }

@@ -12,11 +12,17 @@
  */
 
 import { queryMSSQL } from '@/lib/db/mssql'
+import { prodPartNumExpr } from '@/lib/products/partSearch'
 
 export type SalesOrderRow = {
   salesOrder: string
   itemNbr: string
+  /** The APC production part number — what Products is keyed on. */
+  apcPart: string
+  /** The customer's own number, off the sales row. */
   customerPart: string
+  /** How the customer number was found, for when it looks wrong. */
+  partSource: string
   customerName: string
   status: number | null
   partsOrdered: number
@@ -42,7 +48,28 @@ export const SALES_ORDER_SQL = `
       SO.SALES_ORDER,
       SO.ITEM_NBR,
       SO.STATUS,
-      CP.CUSTOMER_PART_NUMBER,
+
+      -- The APC part number, off the PRODUCTION row, derived exactly as the
+      -- product search derives it so the two agree about what "76542" is.
+      ${prodPartNumExpr('PP.CUSTOMER_PART_NUMBER')} AS APC_PART,
+
+      -- The customer's own number. First choice is the pointed-at row when it
+      -- is already a sales row; then the sales row belonging to THIS order's
+      -- customer; then any sales row under the same production part.
+      COALESCE(
+          CASE WHEN CP.RKEY <> CP.PRODUCTION_PART_PTR
+               THEN CP.CUSTOMER_PART_NUMBER END,
+          SPC.CUSTOMER_PART_NUMBER,
+          SPA.CUSTOMER_PART_NUMBER
+      ) AS CUSTOMER_PART_NUMBER,
+
+      CASE
+          WHEN CP.RKEY <> CP.PRODUCTION_PART_PTR THEN 'pointer'
+          WHEN SPC.CUSTOMER_PART_NUMBER IS NOT NULL THEN 'customer-match'
+          WHEN SPA.CUSTOMER_PART_NUMBER IS NOT NULL THEN 'any-sales-row'
+          ELSE 'none'
+      END AS PART_SOURCE,
+
       CUST.CUSTOMER_NAME,
       SO.PARTS_ORDERED,
       SO.PARTS_SHIPPED,
@@ -52,11 +79,36 @@ export const SALES_ORDER_SQL = `
       SO.MFG_ORDER_DATE AS PROMISE_DATE
   FROM DATA0060 SO WITH (NOLOCK)
   LEFT JOIN DATA0050 CP WITH (NOLOCK)
-      ON SO.CUST_PART_PTR = CP.RKEY
+      ON CP.RKEY = SO.CUST_PART_PTR
+
+  -- The production row, from either side: a production row points at itself,
+  -- so following PRODUCTION_PART_PTR lands on it whether CUST_PART_PTR hit
+  -- the sales row or the production row.
+  LEFT JOIN DATA0050 PP WITH (NOLOCK)
+      ON PP.RKEY = CP.PRODUCTION_PART_PTR
+
+  -- A production part can carry several sales parts, one per customer, so the
+  -- order's own customer decides which number is the right one to show.
+  OUTER APPLY (
+      SELECT TOP 1 sp.CUSTOMER_PART_NUMBER
+      FROM DATA0050 sp WITH (NOLOCK)
+      WHERE sp.PRODUCTION_PART_PTR = PP.RKEY
+        AND sp.RKEY <> PP.RKEY
+        AND sp.CUSTOMER_PTR = SO.CUSTOMER_PTR
+      ORDER BY sp.RKEY DESC
+  ) SPC
+  OUTER APPLY (
+      SELECT TOP 1 sp.CUSTOMER_PART_NUMBER
+      FROM DATA0050 sp WITH (NOLOCK)
+      WHERE sp.PRODUCTION_PART_PTR = PP.RKEY
+        AND sp.RKEY <> PP.RKEY
+      ORDER BY sp.RKEY DESC
+  ) SPA
+
   LEFT JOIN DATA0010 CUST WITH (NOLOCK)
-      ON SO.CUSTOMER_PTR = CUST.RKEY
+      ON CUST.RKEY = SO.CUSTOMER_PTR
   WHERE SO.STATUS < 3
-  ORDER BY CP.CUSTOMER_PART_NUMBER`
+  ORDER BY APC_PART, SO.SALES_ORDER, SO.ITEM_NBR`
 
 /**
  * Paradigm status codes on an open line.
@@ -96,7 +148,9 @@ export function toRow(r: any): SalesOrderRow {
   return {
     salesOrder: text(r.SALES_ORDER),
     itemNbr: text(r.ITEM_NBR),
+    apcPart: text(r.APC_PART),
     customerPart: text(r.CUSTOMER_PART_NUMBER),
+    partSource: text(r.PART_SOURCE),
     customerName: text(r.CUSTOMER_NAME),
     status: statusRaw == null ? null : num(statusRaw),
     partsOrdered,
@@ -133,7 +187,9 @@ export function totalsFor(rows: SalesOrderRow[]): SalesOrderTotals {
     t.partsShipped += r.partsShipped
     t.qtyOwed += r.qtyOwed
     if (r.late) t.late++
-    if (r.customerPart) parts.add(r.customerPart)
+    // Counted on the APC number: it is present on every line, whereas the
+    // customer number is missing wherever no sales row could be found.
+    if (r.apcPart) parts.add(r.apcPart)
   }
   t.parts = parts.size
   return t
@@ -166,12 +222,24 @@ export async function getOpenSalesOrders(force = false): Promise<SalesOrderRow[]
   return inFlight
 }
 
-/** Open lines for one customer part, newest promise first. */
-export async function openForPart(customerPart: string): Promise<SalesOrderRow[]> {
-  const want = text(customerPart).toUpperCase()
-  if (!want) return []
+/**
+ * Open lines for one part, matched on EITHER number.
+ *
+ * Products ▸ Released knows its APC number for certain and its customer number
+ * only sometimes, while the order line carries both. Matching either way means
+ * the tab works from whichever the caller has, and a product whose customer
+ * number has drifted still finds its orders through the APC number.
+ */
+export async function openForPart(
+  part: string, customerPart?: string | null,
+): Promise<SalesOrderRow[]> {
+  const a = text(part).toUpperCase()
+  const b = text(customerPart).toUpperCase()
+  if (!a && !b) return []
   const all = await getOpenSalesOrders()
   return all
-    .filter(r => r.customerPart.toUpperCase() === want)
-    .sort((a, b) => String(a.promiseDate ?? '').localeCompare(String(b.promiseDate ?? '')))
+    .filter(r =>
+      (!!a && (r.apcPart.toUpperCase() === a || r.customerPart.toUpperCase() === a))
+      || (!!b && r.customerPart.toUpperCase() === b))
+    .sort((x, y) => String(x.promiseDate ?? '').localeCompare(String(y.promiseDate ?? '')))
 }

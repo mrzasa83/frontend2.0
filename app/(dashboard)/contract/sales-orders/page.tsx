@@ -162,7 +162,7 @@ function OrdersList({ onOpenPart }: { onOpenPart: (part: string) => void }) {
       const data: SalesOrderRow[] = d.rows || []
       const XLSX = await import('xlsx')
       const ws = XLSX.utils.json_to_sheet(data.map(r => ({
-        'Customer Part': r.customerPart, Customer: r.customerName,
+        'APC Part': r.apcPart, 'Customer Part': r.customerPart, Customer: r.customerName,
         'Sales Order': r.salesOrder, Item: r.itemNbr,
         Status: r.status, Ordered: r.partsOrdered, Shipped: r.partsShipped,
         'Qty Owed': r.qtyOwed, 'Part Price': r.partPrice,
@@ -170,10 +170,10 @@ function OrdersList({ onOpenPart }: { onOpenPart: (part: string) => void }) {
         Promise: r.promiseDate ? r.promiseDate.slice(0, 10) : '',
         Late: r.late ? 'Yes' : '',
       })))
-      ws['!cols'] = [{ wch: 18 }, { wch: 26 }, { wch: 14 }, { wch: 8 }, { wch: 8 },
+      ws['!cols'] = [{ wch: 14 }, { wch: 18 }, { wch: 26 }, { wch: 14 }, { wch: 8 }, { wch: 8 },
         { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 11 },
         { wch: 12 }, { wch: 12 }, { wch: 7 }]
-      ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: data.length, c: 11 } }) }
+      ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: data.length, c: 12 } }) }
       const wb = XLSX.utils.book_new()
       XLSX.utils.book_append_sheet(wb, ws, 'Open Orders')
       XLSX.writeFile(wb, `open-sales-orders_${data.length}_${new Date().toISOString().slice(0, 10)}.xlsx`)
@@ -301,6 +301,10 @@ function OrdersList({ onOpenPart }: { onOpenPart: (part: string) => void }) {
  * offered rather than guessed at, and no match says so plainly instead of
  * rendering an empty product form.
  */
+/**
+ * Resolves a part number — the APC number from the list, or a customer number
+ * — to a product and shows it.
+ */
 function PartTab({ customerPart }: { customerPart: string }) {
   const [items, setItems] = useState<any[]>([])
   const [chosen, setChosen] = useState<any | null>(null)
@@ -339,13 +343,13 @@ function PartTab({ customerPart }: { customerPart: string }) {
     return (
       <div className="p-6 text-sm text-slate-600">
         <p className="mb-1">
-          No APC product is registered against customer part{' '}
+          Nothing in Products matches{' '}
           <span className="font-mono text-slate-900">{customerPart}</span>.
         </p>
         <p className="text-slate-500">
-          The sales order line exists in Paradigm, but nothing in Products carries
-          that customer number — most often a part built before it was catalogued,
-          or a number that differs by spacing or revision suffix.
+          The order line exists in Paradigm, but no product carries that number as
+          either its APC part or its customer part — most often a part built before
+          it was catalogued, or a number that differs by spacing or revision suffix.
         </p>
       </div>
     )
@@ -354,7 +358,7 @@ function PartTab({ customerPart }: { customerPart: string }) {
     return (
       <div className="p-4">
         <p className="text-sm text-slate-600 mb-3">
-          {items.length} APC parts carry customer part{' '}
+          {items.length} products match{' '}
           <span className="font-mono">{customerPart}</span>. Pick one:
         </p>
         <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg">

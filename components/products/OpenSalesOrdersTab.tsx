@@ -10,32 +10,39 @@ import SalesOrderTable, {
 /**
  * Open sales order lines for one part, under Products ▸ Released.
  *
- * Keyed on the CUSTOMER part number, because that is what the sales order
- * carries — Paradigm's DATA0060 points at DATA0050, not at our APC number.
- * A product with no customer number on it therefore has nothing to look up,
- * and says so rather than showing an empty table that reads as "no orders".
+ * Matched on BOTH numbers. DATA0060 points at DATA0050, where
+ * CUSTOMER_PART_NUMBER means the APC number on a production row and the
+ * customer's number on a sales row — so an order line resolves to both, and
+ * the tab offers whichever of ours matches. Keying on the customer number
+ * alone was why a part could show "no open orders" while the Contract list
+ * showed several.
  */
 export default function OpenSalesOrdersTab({
   partNumber, customerPN,
 }: { partNumber: string; customerPN?: string | null }) {
-  const part = String(customerPN || '').trim()
+  const apc = String(partNumber || '').trim()
+  const cust = String(customerPN || '').trim()
   const [rows, setRows] = useState<SalesOrderRow[]>([])
   const [totals, setTotals] = useState<SalesOrderTotals | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
   const load = useCallback(async () => {
-    if (!part) return
+    if (!apc && !cust) return
     setLoading(true); setError('')
     try {
-      const res = await fetch(getApiUrl(
-        `/api/contract/sales-orders?part=${encodeURIComponent(part)}`))
+      // Both numbers: the order line carries an APC part and a customer part,
+      // and which of ours matches varies by how the part was catalogued.
+      const qs = new URLSearchParams()
+      if (apc) qs.set('part', apc)
+      if (cust) qs.set('customerPart', cust)
+      const res = await fetch(getApiUrl(`/api/contract/sales-orders?${qs.toString()}`))
       const d = await res.json()
       if (!res.ok) throw new Error(d.error || d.details || 'Failed to load')
       setRows(d.rows || []); setTotals(d.totals || null)
     } catch (e: any) { setError(e.message) }
     setLoading(false)
-  }, [part])
+  }, [apc, cust])
   useEffect(() => { load() }, [load])
 
   const exportExcel = async () => {
@@ -51,26 +58,15 @@ export default function OpenSalesOrdersTab({
     })))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Open Orders')
-    XLSX.writeFile(wb, `open-sales-orders_${partNumber}_${new Date().toISOString().slice(0, 10)}.xlsx`)
-  }
-
-  if (!part) {
-    return (
-      <div className="p-4 text-sm text-slate-600">
-        <p className="mb-1">No customer part number is recorded on {partNumber}.</p>
-        <p className="text-slate-500">
-          Sales order lines are keyed on the customer&apos;s number, so there is nothing
-          to match against until one is set on the product.
-        </p>
-      </div>
-    )
+    XLSX.writeFile(wb, `open-sales-orders_${apc || cust}_${new Date().toISOString().slice(0, 10)}.xlsx`)
   }
 
   return (
     <div>
       <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
         <p className="text-sm text-slate-600">
-          Open lines for customer part <span className="font-mono text-slate-900">{part}</span>
+          Open lines for <span className="font-mono text-slate-900">{apc}</span>
+          {cust && <> · customer part <span className="font-mono text-slate-700">{cust}</span></>}
         </p>
         <div className="flex items-center gap-2">
           <button onClick={exportExcel} disabled={!rows.length}

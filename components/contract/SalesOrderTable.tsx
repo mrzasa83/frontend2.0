@@ -5,7 +5,9 @@ import { ArrowUp, ArrowDown, ArrowUpDown, Star, AlertTriangle } from 'lucide-rea
 export type SalesOrderRow = {
   salesOrder: string
   itemNbr: string
+  apcPart: string
   customerPart: string
+  partSource: string
   customerName: string
   status: number | null
   partsOrdered: number
@@ -58,6 +60,7 @@ export function StatusBadge({ status }: { status: number | null }) {
 export type Col = { key: keyof SalesOrderRow | 'watch'; label: string; w?: number; align?: 'r' }
 
 export const SO_COLS: Col[] = [
+  { key: 'apcPart', label: 'APC Part', w: 120 },
   { key: 'customerPart', label: 'Customer Part', w: 150 },
   { key: 'customerName', label: 'Customer', w: 190 },
   { key: 'salesOrder', label: 'Sales Order', w: 120 },
@@ -138,13 +141,21 @@ export default function SalesOrderTable({
                 </td>
               )}
               <td className="px-3 py-1.5 font-mono">
-                {onOpenPart ? (
-                  <button onClick={() => onOpenPart(r.customerPart)}
+                {onOpenPart && r.apcPart ? (
+                  <button onClick={() => onOpenPart(r.apcPart)}
                     className="text-blue-600 hover:underline font-medium"
-                    title="Open this part">
-                    {r.customerPart}
+                    title="Open this product">
+                    {r.apcPart}
                   </button>
-                ) : <span className="text-slate-800">{r.customerPart}</span>}
+                ) : <span className="text-slate-800">{r.apcPart}</span>}
+              </td>
+              <td className="px-3 py-1.5 font-mono text-slate-700">
+                {r.customerPart || <span className="text-slate-300">—</span>}
+                {/* No sales row carried a customer number for this line. */}
+                {!r.customerPart && r.partSource === 'none' && (
+                  <span className="ml-1 text-[10px] text-amber-600"
+                    title="No sales part row under this production part">?</span>
+                )}
               </td>
               <td className="px-3 py-1.5 text-slate-600 truncate">{r.customerName}</td>
               <td className="px-3 py-1.5 font-mono text-slate-700">{r.salesOrder}</td>

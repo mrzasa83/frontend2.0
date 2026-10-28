@@ -6,13 +6,14 @@ import { queryPrimary } from '@/lib/db/mysql-primary'
 export const dynamic = 'force-dynamic'
 
 /**
- * Resolve a customer part number to the APC product record(s).
+ * Resolve a part number — APC or customer — to the product record(s).
  *
- * Used by Contract ▸ Sales Orders, where the list is keyed on the customer's
- * number and clicking one should open our product. The mapping is not
- * guaranteed one-to-one — the same customer number can be built as more than
- * one APC part — so this returns every match and lets the caller choose
- * rather than silently picking the first.
+ * Takes either, because the sales order list carries both and which one is
+ * populated varies: the APC number comes off the DATA0050 production row and
+ * is always there, while the customer number comes off a sales row and is not.
+ * An APC match is exact and sorts first; a customer-number match is the
+ * fallback, since one customer number can sit on several APC parts. Every
+ * match is returned so the caller can choose rather than guess.
  */
 export async function GET(request: NextRequest) {
   const session = await getServerSession(authOptions)
@@ -29,10 +30,16 @@ export async function GET(request: NextRequest) {
          i.m_item_type_id, i.item_type_id, it.name AS item_type_name
        FROM items i
        LEFT JOIN item_types it ON i.item_type_id = it.id
-       WHERE i.m_item_type_id = 1 AND TRIM(i.customerPN) = ?
-       ORDER BY i.apcPN
+       WHERE i.m_item_type_id = 1
+         AND (TRIM(i.apcPN) = ? OR TRIM(i.customerPN) = ?)
+       ORDER BY
+         -- An APC-number match is exact and wins; a customer-number match is
+         -- the fallback, since the same customer number can sit on several
+         -- APC parts.
+         CASE WHEN TRIM(i.apcPN) = ? THEN 0 ELSE 1 END,
+         i.apcPN
        LIMIT 50`,
-      [part])
+      [part, part, part])
     return NextResponse.json({ success: true, part, items: items || [] })
   } catch (error) {
     return NextResponse.json({
