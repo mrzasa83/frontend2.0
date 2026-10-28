@@ -228,6 +228,8 @@ export default function ProductEdit({ product, onSave, onCancel, readOnly = fals
   const releasedTab = (
     <ReleasedFilesTab 
       partNumber={formData.apcPN} 
+      customerPN={formData.customerPN}
+      customer={formData.customer}
       onStatusChange={handleStatusChange}
       onBuildLocationChange={handleBuildLocationChange}
     />

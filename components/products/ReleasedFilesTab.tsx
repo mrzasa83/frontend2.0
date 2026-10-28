@@ -8,7 +8,7 @@ import {
   Package, ClipboardList, Truck, RefreshCw, Copy, Check, Database,
   TrendingUp, Route as RouteIcon, Archive, AlertTriangle, History,
   Search, FileCheck, X, XCircle, ArrowUp, ArrowDown, ArrowUpDown, Layers,
-  ShoppingCart, StickyNote } from 'lucide-react'
+  ShoppingCart, Receipt, StickyNote } from 'lucide-react'
 import DataView from '@/components/ui/DataView'
 import BOMTreeNavigator from '@/components/ui/BOMTreeNavigator'
 import { 
@@ -23,6 +23,7 @@ import {
 import { getApiUrl } from '@/lib/api'
 import BatchCardsTab from './BatchCardsTab'
 import BuyMaterialTab from './BuyMaterialTab'
+import OpenSalesOrdersTab from './OpenSalesOrdersTab'
 import FilePreviewModal from './FilePreviewModal'
 
 type FileInfo = {
@@ -679,6 +680,7 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
     { id: 'yield', label: 'Yield', icon: TrendingUp },
     { id: 'route', label: 'Route', icon: RouteIcon },
     { id: 'work-orders', label: 'Work Orders', icon: ClipboardList },
+    { id: 'open-sales-orders', label: 'Open Sales Orders', icon: Receipt },
     { id: 'inventory', label: 'Inventory', icon: Archive },
     { id: 'discrepancy', label: 'Discrepancy', icon: AlertTriangle },
     { id: 'reject', label: 'Reject', icon: XCircle },
@@ -1069,6 +1071,10 @@ export default function ReleasedFilesTab({ partNumber, customerPN, customer, onS
 
         {activeSubTab === 'buy-material' && (
           <BuyMaterialTab partNumber={partNumber} customerPN={customerPN} />
+        )}
+
+        {activeSubTab === 'open-sales-orders' && (
+          <OpenSalesOrdersTab partNumber={partNumber} customerPN={customerPN} />
         )}
 
         {activeSubTab === 'yield' && (

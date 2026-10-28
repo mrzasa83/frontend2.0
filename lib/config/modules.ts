@@ -78,6 +78,12 @@ export const MODULES: Module[] = [
         requiredRoles: ['Admin', 'Program']
       },
       {
+        id: 'contract-sales-orders',
+        name: 'Sales Orders',
+        path: '/contract/sales-orders',
+        requiredRoles: ['Admin', 'Program']
+      },
+      {
         id: 'contract-clauses',
         name: 'Clauses',
         path: '/contract/clauses',
