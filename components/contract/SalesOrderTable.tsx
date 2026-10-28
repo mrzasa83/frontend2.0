@@ -8,6 +8,7 @@ export type SalesOrderRow = {
   apcPart: string
   customerPart: string
   partSource: string
+  salesRowCount: number
   customerName: string
   status: number | null
   partsOrdered: number
@@ -155,6 +156,14 @@ export default function SalesOrderTable({
                 {!r.customerPart && r.partSource === 'none' && (
                   <span className="ml-1 text-[10px] text-amber-600"
                     title="No sales part row under this production part">?</span>
+                )}
+                {/* Several sales rows for this customer: the number shown was
+                    chosen from them, so say so rather than imply certainty. */}
+                {r.salesRowCount > 1 && (
+                  <span className="ml-1 text-[10px] text-amber-600 cursor-help"
+                    title={`This customer has ${r.salesRowCount} part numbers on this product — the retired (DNU) ones are skipped, but check it against Paradigm`}>
+                    ±
+                  </span>
                 )}
               </td>
               <td className="px-3 py-1.5 text-slate-600 truncate">{r.customerName}</td>

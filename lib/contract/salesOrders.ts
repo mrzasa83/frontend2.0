@@ -23,6 +23,12 @@ export type SalesOrderRow = {
   customerPart: string
   /** How the customer number was found, for when it looks wrong. */
   partSource: string
+  /**
+   * Sales rows this customer has under the production part. Above 1 the
+   * customer number was picked from several, so it is shown as chosen rather
+   * than certain.
+   */
+  salesRowCount: number
   customerName: string
   status: number | null
   partsOrdered: number
@@ -69,6 +75,7 @@ export const SALES_ORDER_SQL = `
           WHEN SPA.CUSTOMER_PART_NUMBER IS NOT NULL THEN 'any-sales-row'
           ELSE 'none'
       END AS PART_SOURCE,
+      SPN.N AS SALES_ROW_COUNT,
 
       CUST.CUSTOMER_NAME,
       SO.PARTS_ORDERED,
@@ -95,15 +102,34 @@ export const SALES_ORDER_SQL = `
       WHERE sp.PRODUCTION_PART_PTR = PP.RKEY
         AND sp.RKEY <> PP.RKEY
         AND sp.CUSTOMER_PTR = SO.CUSTOMER_PTR
-      ORDER BY sp.RKEY DESC
+      -- A retired number never wins. 22 production parts carry two sales rows
+      -- for one customer, and most are a live number beside the same number
+      -- suffixed DNU ("10-506275-008" / "10-506275-008 DNU"). Ordering on the
+      -- key alone would pick whichever happened to be entered last.
+      ORDER BY
+          CASE WHEN sp.CUSTOMER_PART_NUMBER LIKE '%DNU%' THEN 1 ELSE 0 END,
+          sp.RKEY DESC
   ) SPC
   OUTER APPLY (
       SELECT TOP 1 sp.CUSTOMER_PART_NUMBER
       FROM DATA0050 sp WITH (NOLOCK)
       WHERE sp.PRODUCTION_PART_PTR = PP.RKEY
         AND sp.RKEY <> PP.RKEY
-      ORDER BY sp.RKEY DESC
+      ORDER BY
+          CASE WHEN sp.CUSTOMER_PART_NUMBER LIKE '%DNU%' THEN 1 ELSE 0 END,
+          sp.RKEY DESC
   ) SPA
+
+  -- How many sales rows this order's customer has under the production part.
+  -- More than one means the number shown was chosen, not read, so the UI can
+  -- say so instead of presenting a guess as fact.
+  OUTER APPLY (
+      SELECT COUNT(*) AS N
+      FROM DATA0050 sp WITH (NOLOCK)
+      WHERE sp.PRODUCTION_PART_PTR = PP.RKEY
+        AND sp.RKEY <> PP.RKEY
+        AND sp.CUSTOMER_PTR = SO.CUSTOMER_PTR
+  ) SPN
 
   LEFT JOIN DATA0010 CUST WITH (NOLOCK)
       ON CUST.RKEY = SO.CUSTOMER_PTR
@@ -151,6 +177,7 @@ export function toRow(r: any): SalesOrderRow {
     apcPart: text(r.APC_PART),
     customerPart: text(r.CUSTOMER_PART_NUMBER),
     partSource: text(r.PART_SOURCE),
+    salesRowCount: num(r.SALES_ROW_COUNT),
     customerName: text(r.CUSTOMER_NAME),
     status: statusRaw == null ? null : num(statusRaw),
     partsOrdered,
